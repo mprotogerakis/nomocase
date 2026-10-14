@@ -74,6 +74,9 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
   der Skala ein (z. B. Note 1,0–4,0 in 0,1-Schritten oder 5,0); unter `pass` liegt „bestanden“. `aggregates` verrechnen mehrere
   Bewertungen (Mittel, Minimum, Maximum, Summe; abschneiden oder runden) und können das Ergebnis in ein Feld übernehmen.
   Einzelwerte sehen nur, die den Schritt sehen dürfen. Beispiele: Masterprojekt, Bachelor- und Master-Thesis.
+- **Vorlage in einen anderen Workspace kopieren** (Vorlagenseite, für Owner beider Workspaces): legt dort eine eigene
+  Vorlage an (Version 1, bei gleichem Namen „(Kopie)“); Änderungen wirken nur auf ihrer Seite. Starten ihre Regeln
+  Teilvorgänge aus anderen Vorlagen, weist NomoCase darauf hin, diese ebenfalls zu kopieren.
 - **Vorlagen löschen/archivieren**: ohne Vorgänge endgültig löschen, sonst archivieren (nicht mehr für neue Vorgänge,
   laufende behalten ihre Kopie), wiederherstellbar; die Vorlagen-Seite zeigt „läuft in N Vorgängen“.
 - **Neue Version**: Offene Seiten fragen die ausgelieferte Version ab und laden nach einem Deployment selbst neu

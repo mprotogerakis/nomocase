@@ -87,6 +87,9 @@ export async function templatesView() {
   const usage = t => (t.cases ? `läuft in ${count(t.cases, 'Vorgang', 'Vorgängen')}${t.open_cases !== t.cases ? `, ${t.open_cases} offen` : ''}` : 'noch in keinem Vorgang');
   const card = t => html`<details class="card">
     <summary><b>${t.name}</b> <span class="muted small">${t.workspace} · v${t.version} · ${count(t.definition.phases.length, 'Phase', 'Phasen')} · ${count(t.definition.phases.flatMap(p => p.tasks).length, 'Aufgabe', 'Aufgaben')} · ${usage(t)}</span></summary>
+    ${owned.some(w => w.id !== t.workspace_id) ? html`<form data-submit="copyTemplate" data-id="${t.id}" class="row small">In Workspace kopieren:
+      <select name="workspace_id" aria-label="Ziel-Workspace">${owned.filter(w => w.id !== t.workspace_id).map(w => html`<option value="${w.id}">${w.name}</option>`)}</select>
+      <button>Kopieren</button></form>` : ''}
     ${t.definition.forms?.length ? html`<p class="small">Formulare (Vorschau): ${t.definition.forms.map((f, i) => html`${i ? ' · ' : ''}<button type="button" class="link" data-on="previewForm" data-id="${t.id}" data-key="${f.key}">${f.title}</button>`)}</p>` : ''}
     ${owned.some(w => w.id === t.workspace_id) ? html`<form data-submit="saveTemplate" data-id="${t.id}" class="stack">
       <textarea name="definition" rows="26" class="code" spellcheck="false">${JSON.stringify(t.definition, null, 2)}</textarea>
@@ -142,6 +145,20 @@ on.previewForm = async ({ id, key }) => {
   const f = { ...fillForm(form, label), ...look, case_title: 'Vorschau', template: t.name, created: new Date().toLocaleDateString('de-DE') };
   saveFile(await formPdf(f), formFilename(f));
 };
+// A copy is a template of its own in the other workspace (version 1); later changes stay on their side.
+submit.copyTemplate = async (fd, form) => {
+  const t = shownTemplates.find(x => x.id === form.dataset.id);
+  const target = me.workspaces.find(w => w.id === fd.get('workspace_id'));
+  const there = shownTemplates.filter(x => x.workspace_id === target.id).map(x => x.name);
+  const name = there.includes(t.name) ? `${t.name} (Kopie)` : t.name;
+  // sub-cases are started by template name: those must exist in the target workspace too
+  const missing = [...new Set((t.definition.rules ?? []).flatMap(r => r.actions).filter(a => a.type === 'create_subcase').map(a => a.template))].filter(n => !there.includes(n));
+  await api('/templates', { body: { workspace_id: target.id, name, definition: t.definition } });
+  alert(`„${name}“ ist jetzt auch in „${target.name}“ – als eigene Vorlage, Änderungen wirken nur dort.`
+    + (missing.length ? `\nDie Regeln starten Teilvorgänge aus ${missing.map(n => `„${n}“`).join(', ')}: diese Vorlagen bitte ebenfalls dorthin kopieren.` : ''));
+  reload();
+};
+
 on.restoreTemplate = async ({ id }) => { await api(`/templates/${id}/restore`, { body: {} }); reload(); };
 
 submit.newTemplate = async fd => {

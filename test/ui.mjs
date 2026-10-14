@@ -123,6 +123,25 @@ try {
   await b.click(`[data-on="deleteTemplate"][data-id="${uiTpl.id}"]`);
   await waitFor(`fetch('/api/templates').then(r => r.json()).then(ts => !ts.some(t => t.id === '${uiTpl.id}'))`, 'Vorlage gelöscht');
 
+  // Copy a template into another workspace: a template of its own there; a taken name gets "(Kopie)"; templates that
+  // its rules start sub-cases from are pointed out
+  const before = await api('/templates');
+  const copyTo = async (name, from) => {
+    const t = before.find(x => x.name === name && x.workspace_id === from);
+    await waitFor(`!!document.querySelector('form[data-submit="copyTemplate"][data-id="${t.id}"]')`, `Kopieren: ${name}`);
+    await submit('copyTemplate', { workspace_id: 'ws_hs' }, t.id);
+    return t;
+  };
+  const arzt = await copyTo('Arztrechnung', 'ws_priv');
+  await until(() => dialogs.some(d => d.includes('„Arztrechnung“ ist jetzt auch in') && d.includes('„Widerspruch“')), 'Kopie mit Hinweis auf Teilvorgänge');
+  await waitFor(`fetch('/api/templates').then(r => r.json()).then(ts => ts.some(t => t.workspace_id === 'ws_hs' && t.name === 'Arztrechnung'))`, 'Kopie angelegt');
+  await copyTo('Freier Vorgang', 'ws_priv');
+  await until(() => dialogs.some(d => d.includes('„Freier Vorgang (Kopie)“ ist jetzt auch in')), 'Kopie unter anderem Namen');
+  const copies = (await api('/templates')).filter(t => t.workspace_id === 'ws_hs' && ['Arztrechnung', 'Freier Vorgang (Kopie)'].includes(t.name));
+  assert.equal(copies.length, 2);
+  assert.deepEqual(copies.find(t => t.name === 'Arztrechnung').definition.phases, arzt.definition.phases, 'same definition');
+  for (const c of copies) await evaluate(`fetch('/api/templates/${c.id}', { method: 'DELETE' }).then(r => r.status)`);
+
   // Assessment: two examiners give grades on the template's scale, the combined value can be taken over into a field
   const mtpl = tpls.find(t => t.name === 'Masterprojekt (M.Sc.)');
   const master = await evaluate(`fetch('/api/cases', { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -257,7 +276,7 @@ try {
   await waitFor(`document.querySelector('code.hash')?.textContent.length === 64`, 'Quittung mit SHA-256');
 
   assert.deepEqual(errors, [], 'no script errors');
-  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
+  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
   console.log('ok – ui test passed');
 } finally {
   if (caseId) {
