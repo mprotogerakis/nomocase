@@ -160,12 +160,12 @@ export function instantiate(tpl, { title, fields: input = {}, ownerId, actorId =
     const phaseId = uid();
     stmts.push(q('INSERT INTO phases (id, case_id, title, position) VALUES (?, ?, ?, ?)', phaseId, caseId, p.title, i));
     p.tasks.forEach((t, j) => stmts.push(q(
-      `INSERT INTO tasks (id, case_id, phase_id, title, description, type, role, depends_on, doc_type, due_date, position, created_by, created_at, money, visible_to, labels, assess, key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, case_id, phase_id, title, description, type, role, depends_on, doc_type, due_date, position, created_by, created_at, money, visible_to, labels, assess, key, due_field)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       taskIds[t.key], caseId, phaseId, t.title, t.description ?? null, t.type, t.role ?? null,
       JSON.stringify((t.after ?? []).map(k => taskIds[k])), t.doc_type ?? null,
       t.due_field ? (isDate(fields[t.due_field]) ? fields[t.due_field] : null) : due(t.due_days), j, ownerId, ts,
-      t.money ? JSON.stringify(t.money) : null, JSON.stringify(t.visible_to ?? []), t.labels ? JSON.stringify(t.labels) : null, t.assess ?? null, t.key)));
+      t.money ? JSON.stringify(t.money) : null, JSON.stringify(t.visible_to ?? []), t.labels ? JSON.stringify(t.labels) : null, t.assess ?? null, t.key, t.due_field ?? null)));
   });
   stmts.push(ev(caseId, actorId, 'case.created', { template: tpl.name, version: tpl.version, ...by }, ['*']));
   return { caseId, stmts };
@@ -189,7 +189,7 @@ function caseDefinition(c, def, phases, tasks) {
   }
   const step = t => {
     const after = arr(t.depends_on).filter(id => keys.has(id)).map(id => keys.get(id));
-    const dueField = t.due_date && def.fields.find(f => f.type === 'date' && fields[f.key] === t.due_date)?.key;
+    const dueField = t.due_field ?? (t.due_date && def.fields.find(f => f.type === 'date' && fields[f.key] === t.due_date)?.key);
     const money = typeof t.money === 'string' ? JSON.parse(t.money) : t.money;
     const labels = typeof t.labels === 'string' ? JSON.parse(t.labels) : t.labels;
     return Object.fromEntries(Object.entries({

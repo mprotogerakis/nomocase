@@ -11,7 +11,7 @@ import { checkDef } from '../src/templates.js';
 const args = process.argv.slice(2);
 const remote = args.includes('--remote'), force = args.includes('--force'), dry = args.includes('--dry-run');
 const wrangler = a => execFileSync('npx', ['wrangler', 'd1', 'execute', 'nomocase', remote ? '--remote' : '--local', ...a],
-  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 64 << 20 });
 const query = sql => JSON.parse(wrangler(['--json', '--command', sql]))[0].results;
 const lit = v => (v == null ? 'NULL' : `'${String(v).replaceAll("'", "''")}'`);
 // Same content regardless of key order.
@@ -23,8 +23,8 @@ for (const t of templates) {
   try { checkDef(structuredClone(t.definition)); } catch (e) { throw new Error(`${t.file}: ${e.message}`); }
 }
 const latest = new Map(query(`SELECT t.id, t.name, v.version, v.definition, v.created_by FROM templates t
-  JOIN template_versions v ON v.template_id = t.id AND v.version = (SELECT MAX(version) FROM template_versions WHERE template_id = t.id)`)
-  .map(r => [r.id, r]));
+  JOIN template_versions v ON v.template_id = t.id AND v.version = (SELECT MAX(version) FROM template_versions WHERE template_id = t.id)
+  WHERE t.id IN (${templates.map(t => lit(t.id)).join(', ')})`).map(r => [r.id, r])); // only ours: a local DB holds many test templates
 
 const sql = [], now = new Date().toISOString();
 let refused = 0;

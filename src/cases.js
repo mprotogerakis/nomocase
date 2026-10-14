@@ -129,8 +129,11 @@ export async function updateFields({ user, params, body }) {
     if ((old[key] ?? '') !== v) { next[key] = v; changed.push(f); }
   }
   if (!changed.length) return { changed: 0 };
-  const moves = changed.filter(f => f.type === 'date' && isDate(old[f.key]) && isDate(next[f.key]))
-    .map(f => q("UPDATE tasks SET due_date = ? WHERE case_id = ? AND status = 'open' AND due_date = ?", next[f.key], ctx.c.id, old[f.key]));
+  // Open steps whose deadline comes from a changed date field get the new date: those that remember the field, and
+  // older ones still on the old date.
+  const moves = changed.filter(f => f.type === 'date')
+    .map(f => q("UPDATE tasks SET due_date = ? WHERE case_id = ? AND status = 'open' AND (due_field = ? OR (due_date IS NOT NULL AND due_date = ?))",
+      isDate(next[f.key]) ? next[f.key] : null, ctx.c.id, f.key, old[f.key] ?? ''));
   await DB.batch([
     q('UPDATE cases SET fields = ? WHERE id = ?', JSON.stringify(next), ctx.c.id),
     ...moves,

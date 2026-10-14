@@ -70,7 +70,8 @@ Module hinweg.
 ## Erweiterungspunkte der Vorlage
 
 `roles`, `fields`, `document_types`, `phases[].tasks[]`, `rules`, `finance`, `retention_days`; je Schritt u. a.
-`key`, `type`, `role`, `after`, `due_days`/`due_field`, `visible_to`, `labels`, `money`, `assess`. Regeln: `trigger`,
+`key`, `type`, `role`, `after`, `due_days`/`due_field` (die Frist folgt dem Datumsfeld, auch wenn es erst später gesetzt
+oder geändert wird), `visible_to`, `labels`, `money`, `assess`. Regeln: `trigger`,
 `conditions` (Fakten wie `task.key`, `document.type`, `claim.open`), `actions` (`create_task`, `complete_tasks`,
 `add_comment`, `create_subcase`). Dazu `due_base_field` (Datumsfeld, ab dem `due_days` zählen), `finance`
 (`true` oder `{ "labels": { … } }` mit eigenen Begriffen), `scales` (Skala: `range`+`step`+`extra` oder `options`,

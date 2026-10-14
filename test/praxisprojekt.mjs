@@ -146,4 +146,49 @@ const mdef = (await expect(prof('/templates'))).find(t => t.id === mcopy.templat
 assert.equal(mdef.phases.flatMap(ph => ph.tasks).filter(t => t.assess === 'note').length, 2, 'assessments survive case → template');
 assert.deepEqual([mdef.scales.note.pass, mdef.aggregates[0].from], [{ max: 4 }, ['grade_1', 'grade_2']]);
 
+// Bachelor-Thesis (B.Eng.): admission with signatures, issue of the topic, the submission date entered afterwards
+// becomes the deadline of the submission steps, optional presentation, two grades, result form, booking.
+{
+  const ttpl = (await expect(prof('/templates'))).find(t => t.name === 'Bachelor-Thesis (B.Eng.)');
+  const b = (await expect(prof('/cases', { body: { template_id: ttpl.id, title: 'Bachelor-Thesis Beispiel', fields: { student: 'Erika Beispiel', thesis_title: 'Regelung eines Prüfstands' } } }))).id;
+  const bstudent = client(), bsecond = client();
+  for (const [who, email, role, name] of [[bstudent, `b.erika.${run}@example.org`, 'student', 'Erika Beispiel'], [bsecond, `b.muster.${run}@example.org`, 'second', 'Dr. Muster']]) {
+    const { link } = await expect(prof(`/cases/${b}/invitations`, { body: { email, role } }));
+    await expect(who('/invitations/accept', { body: { consent: true, token: tokenOf(link), name } }));
+  }
+  const step = async (who, key) => (await view(who, b)).tasks.find(t => t.key === key) ?? assert.fail(`not visible: ${key}`);
+  const done = async (who, key, body = { action: 'complete' }) => expect(who(`/tasks/${(await step(who, key)).id}/action`, { body }));
+  const put = async (who, key, name) => expect(who(`/cases/${b}/documents`, { form: file(name, PDF, { task_id: (await step(who, key)).id }) }));
+  await done(bstudent, 'topic');
+  await put(bstudent, 'expose', 'Expose.pdf');
+  await done(prof, 'expose_review', { action: 'approve' });
+  await put(bstudent, 'form', 'Antrag.pdf');
+  await put(prof, 'sign_supervisor', 'Antrag-EP.pdf');
+  await put(bsecond, 'sign_second', 'Antrag-ZP.pdf');
+  await done(bstudent, 'submit_application');
+  assert.equal((await step(bstudent, 'thesis')).due_date, null, 'no deadline before the topic is issued');
+  await done(prof, 'issued');
+  assert.ok(ruleSaid(await view(bstudent, b), 'Fristen nach der Ausgabe mitteilen')?.payload.body.includes(inDays(84)), 'student learns the 12-week date');
+  // the exam office's submission date, entered afterwards, becomes the deadline (and moves with an extension)
+  await expect(prof(`/cases/${b}/fields`, { method: 'PATCH', body: { fields: { issued: '2027-03-01', deadline: '2027-05-24' } } }));
+  for (const k of ['work', 'thesis', 'thesis_office']) assert.equal((await step(prof, k)).due_date, '2027-05-24', `${k}: deadline from the field`);
+  await expect(prof(`/cases/${b}/fields`, { method: 'PATCH', body: { fields: { deadline: '2027-06-21' } } })); // extension by 4 weeks
+  assert.equal((await step(bstudent, 'thesis')).due_date, '2027-06-21');
+  await done(bstudent, 'work');
+  await put(bstudent, 'thesis', 'Thesis.pdf');
+  assert.ok(ruleSaid(await view(bsecond, b), 'Bewertungsfrist mitteilen'), 'second examiner learns the 6-week limit');
+  await done(bstudent, 'thesis_office');
+  await expect(prof(`/tasks/${(await step(prof, 'talk')).id}/action`, { body: { action: 'skip' } })); // the presentation is optional
+  await expect(bsecond(`/tasks/${(await step(bsecond, 'grade_2')).id}/action`, { body: { action: 'assess', score: '1,7' } }));
+  await expect(prof(`/tasks/${(await step(prof, 'grade_1')).id}/action`, { body: { action: 'assess', score: '2,3' } }));
+  assert.ok(!(await view(bstudent, b)).tasks.some(t => t.assess), 'single grades stay with the examiners');
+  await put(prof, 'result_form', 'Abschlussnote.pdf');
+  await put(bsecond, 'result_sign', 'Abschlussnote-ZP.pdf');
+  await done(prof, 'result_office');
+  await done(prof, 'booked');
+  const final = await view(bstudent, b);
+  assert.ok(ruleSaid(final, 'Abschluss mitteilen'), 'student is told it is booked');
+  assert.equal((await view(prof, b)).tasks.filter(t => t.status === 'open').length, 0, 'nothing left open');
+}
+
 console.log('ok – praxisprojekt test passed');
