@@ -1,6 +1,9 @@
 {
   "name": "nomocase",
   "private": true,
+  "description": "Adaptive Fallbearbeitung: Vorlagen, Vorgänge, Dokumente, Formulare – auf Cloudflare Workers",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "author": "Michael Protogerakis",
   "type": "module",
   "scripts": {
     "db:init": "wrangler d1 migrations apply nomocase --local && wrangler d1 execute nomocase --local --file seed.sql && node scripts/templates.mjs",
