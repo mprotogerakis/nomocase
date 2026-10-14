@@ -1,0 +1,79 @@
+{
+  "id": "tpl_objection",
+  "workspace": "ws_priv",
+  "name": "Widerspruch",
+  "definition": {
+    "roles": [
+      {
+        "key": "me",
+        "label": "Ich",
+        "access": "case_owner"
+      }
+    ],
+    "fields": [
+      {
+        "key": "start",
+        "label": "Bescheid vom",
+        "type": "date"
+      }
+    ],
+    "due_base_field": "start",
+    "document_types": [
+      {
+        "key": "objection",
+        "label": "Widerspruch",
+        "visible_to": []
+      },
+      {
+        "key": "answer",
+        "label": "Antwort / Abhilfebescheid",
+        "visible_to": []
+      }
+    ],
+    "phases": [
+      {
+        "title": "Widerspruch",
+        "tasks": [
+          {
+            "key": "write",
+            "title": "Widerspruch schreiben",
+            "type": "upload",
+            "role": "me",
+            "doc_type": "objection",
+            "description": "Begründen, warum der gekürzte Betrag erstattungsfähig ist; bei Bedarf vorher beim Arzt nachfragen."
+          },
+          {
+            "key": "send",
+            "title": "Widerspruch einreichen",
+            "type": "submission",
+            "role": "me",
+            "after": [
+              "write"
+            ],
+            "due_days": 30,
+            "description": "Die Frist steht im Bescheid (meist ein Monat ab Bekanntgabe)."
+          },
+          {
+            "key": "answer",
+            "title": "Antwort abwarten",
+            "type": "wait",
+            "role": "me",
+            "doc_type": "answer",
+            "after": [
+              "send"
+            ]
+          },
+          {
+            "key": "result",
+            "title": "Ergebnis prüfen",
+            "type": "review",
+            "role": "me",
+            "after": [
+              "answer"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

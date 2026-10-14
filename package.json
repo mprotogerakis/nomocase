@@ -1,0 +1,19 @@
+{
+  "name": "nomocase",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:init": "wrangler d1 migrations apply nomocase --local && wrangler d1 execute nomocase --local --file seed.sql && node scripts/templates.mjs",
+    "templates": "node scripts/templates.mjs",
+    "db:reset": "rm -rf .wrangler/state && npm run db:init",
+    "dev": "wrangler dev --test-scheduled",
+    "test": "node test/validate.mjs && node test/assess.mjs && node test/smoke.mjs && node test/praxisprojekt.mjs && node test/ui.mjs && node test/passkey.mjs",
+    "login-link": "node scripts/login-link.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.150.0"
+  },
+  "dependencies": {
+    "@simplewebauthn/server": "14.0.3"
+  }
+}

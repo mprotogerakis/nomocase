@@ -1,0 +1,228 @@
+{
+  "rules": [
+    {
+      "id": "genehmigt",
+      "name": "Studierende über die Genehmigung informieren",
+      "trigger": "document.uploaded",
+      "conditions": [
+        {
+          "field": "document.type",
+          "operator": "equals",
+          "value": "approval"
+        }
+      ],
+      "actions": [
+        {
+          "type": "add_comment",
+          "text": "Ihr Praxisprojekt ist genehmigt. Die Genehmigung finden Sie unter Dokumente. Viel Erfolg!",
+          "visible_to": [
+            "student"
+          ]
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "key": "supervisor",
+      "label": "Betreuer:in",
+      "access": "case_owner"
+    },
+    {
+      "key": "student",
+      "label": "Studierende:r",
+      "access": "guest_contributor"
+    },
+    {
+      "key": "office",
+      "label": "Prüfungsamt",
+      "access": "guest_viewer"
+    }
+  ],
+  "fields": [
+    {
+      "key": "student",
+      "label": "Name der/des Studierenden"
+    },
+    {
+      "key": "matrikel",
+      "label": "Matrikelnummer"
+    },
+    {
+      "key": "start",
+      "label": "Projektbeginn",
+      "type": "date"
+    }
+  ],
+  "due_base_field": "start",
+  "document_types": [
+    {
+      "key": "description",
+      "label": "Projektbeschreibung",
+      "visible_to": [
+        "student"
+      ]
+    },
+    {
+      "key": "application",
+      "label": "Antrag",
+      "visible_to": [
+        "student",
+        "office"
+      ]
+    },
+    {
+      "key": "approval",
+      "label": "Genehmigung",
+      "visible_to": [
+        "student",
+        "office"
+      ]
+    },
+    {
+      "key": "report",
+      "label": "Abschlussbericht",
+      "visible_to": [
+        "student"
+      ]
+    },
+    {
+      "key": "grading",
+      "label": "Bewertungsbogen",
+      "visible_to": []
+    }
+  ],
+  "phases": [
+    {
+      "title": "Anmeldung",
+      "tasks": [
+        {
+          "key": "desc",
+          "title": "Projektbeschreibung hochladen",
+          "type": "upload",
+          "role": "student",
+          "doc_type": "description",
+          "description": "Kurzbeschreibung von Thema, Unternehmen und Methoden als PDF."
+        },
+        {
+          "key": "app",
+          "title": "Antrag hochladen",
+          "type": "upload",
+          "role": "student",
+          "doc_type": "application",
+          "after": [
+            "desc"
+          ],
+          "due_days": 14,
+          "description": "Ausgefüllten Projektantrag als PDF hochladen."
+        },
+        {
+          "key": "review",
+          "title": "Antrag prüfen",
+          "type": "review",
+          "role": "supervisor",
+          "after": [
+            "app"
+          ],
+          "visible_to": [
+            "student"
+          ]
+        },
+        {
+          "key": "sign",
+          "title": "Antrag unterschreiben",
+          "type": "signature",
+          "role": "supervisor",
+          "doc_type": "application",
+          "after": [
+            "review"
+          ],
+          "visible_to": [
+            "student"
+          ],
+          "description": "Unterschriebene PDF als neue Version hochladen."
+        },
+        {
+          "key": "submit",
+          "title": "Antrag beim Prüfungsamt einreichen",
+          "type": "submission",
+          "role": "supervisor",
+          "after": [
+            "sign"
+          ],
+          "visible_to": [
+            "student",
+            "office"
+          ]
+        },
+        {
+          "key": "approved",
+          "title": "Genehmigung erhalten",
+          "type": "wait",
+          "role": "supervisor",
+          "doc_type": "approval",
+          "after": [
+            "submit"
+          ],
+          "visible_to": [
+            "student",
+            "office"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Durchführung",
+      "tasks": [
+        {
+          "key": "run",
+          "title": "Projekt durchführen",
+          "type": "task",
+          "role": "student",
+          "after": [
+            "approved"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Abschluss",
+      "tasks": [
+        {
+          "key": "report",
+          "title": "Abschlussbericht abgeben",
+          "type": "upload",
+          "role": "student",
+          "doc_type": "report",
+          "due_days": 84,
+          "after": [
+            "approved"
+          ]
+        },
+        {
+          "key": "grade",
+          "title": "Bewerten",
+          "type": "approval",
+          "role": "supervisor",
+          "doc_type": "grading",
+          "after": [
+            "report"
+          ]
+        },
+        {
+          "key": "notify",
+          "title": "Note an Prüfungsamt melden",
+          "type": "task",
+          "role": "supervisor",
+          "after": [
+            "grade"
+          ],
+          "visible_to": [
+            "student",
+            "office"
+          ]
+        }
+      ]
+    }
+  ]
+}

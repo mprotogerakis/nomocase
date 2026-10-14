@@ -1,0 +1,16 @@
+{
+  "name": "nomocase",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-06-01",
+  "assets": { "directory": "./public" },
+  // One canonical origin: passkeys are bound to the hostname, so a second URL would need second passkeys.
+  "workers_dev": false,
+  "routes": [{ "pattern": "nomocase-old.example.org", "custom_domain": true }],
+  // Mail goes out via Resend; the API key is the secret RESEND_API_KEY (wrangler secret put).
+  "vars": { "ORIGIN": "https://nomocase-old.example.org", "MAIL_FROM": "NomoCase <noreply@nomocase-old.example.org>" },
+  // Both stores are restricted to the EU jurisdiction (GDPR: health and university data).
+  "d1_databases": [{ "binding": "DB", "database_name": "nomocase", "database_id": "00000000-0000-0000-0000-000000000000" }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "nomocase-files", "jurisdiction": "eu" }],
+  // progress mails every 20 minutes; retention + daily digest at 05:00 UTC (06:00/07:00 in Germany)
+  "triggers": { "crons": ["*/20 * * * *", "0 5 * * *"] }
+}

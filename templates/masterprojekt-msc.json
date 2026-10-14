@@ -1,0 +1,506 @@
+{
+  "id": "tpl_mp",
+  "workspace": "ws_hs",
+  "name": "Masterprojekt (M.Sc.)",
+  "definition": {
+    "roles": [
+      {
+        "key": "supervisor",
+        "label": "Erstprüfer:in",
+        "access": "case_owner"
+      },
+      {
+        "key": "student",
+        "label": "Studierende:r",
+        "access": "guest_contributor"
+      },
+      {
+        "key": "second",
+        "label": "Zweitprüfer:in (Unternehmen/Institut oder HSD)",
+        "access": "guest_contributor"
+      },
+      {
+        "key": "office",
+        "label": "Studienbüro",
+        "access": "guest_viewer"
+      }
+    ],
+    "fields": [
+      {
+        "key": "student",
+        "label": "Name der/des Studierenden"
+      },
+      {
+        "key": "matrikel",
+        "label": "Matrikelnummer"
+      },
+      {
+        "key": "track",
+        "label": "Vertiefungsrichtung"
+      },
+      {
+        "key": "company_name",
+        "label": "Unternehmen/Institut (falls extern)"
+      },
+      {
+        "key": "second_examiner",
+        "label": "Zweitprüfer:in"
+      },
+      {
+        "key": "project_title",
+        "label": "Thema des Projekts (steht im Zeugnis)"
+      },
+      {
+        "key": "po",
+        "label": "Prüfungsordnung"
+      },
+      {
+        "key": "start",
+        "label": "Angestrebter Start",
+        "type": "date"
+      },
+      {
+        "key": "end",
+        "label": "Angestrebte Abgabe",
+        "type": "date"
+      },
+      {
+        "key": "grade",
+        "label": "Modulnote Projekt (1,0–4,0 oder 5,0)"
+      }
+    ],
+    "due_base_field": "start",
+    "document_types": [
+      {
+        "key": "expose",
+        "label": "Exposé",
+        "visible_to": [
+          "student",
+          "second"
+        ]
+      },
+      {
+        "key": "registration",
+        "label": "Anmeldung zum Projekt (Formular Seite 1)",
+        "visible_to": [
+          "student",
+          "second",
+          "office"
+        ]
+      },
+      {
+        "key": "report",
+        "label": "Projektbericht",
+        "visible_to": [
+          "student",
+          "second"
+        ]
+      },
+      {
+        "key": "ossc",
+        "label": "OSSC-Anmeldung",
+        "visible_to": [
+          "student"
+        ]
+      },
+      {
+        "key": "slides",
+        "label": "Präsentationsfolien",
+        "visible_to": [
+          "student",
+          "second"
+        ]
+      },
+      {
+        "key": "grading",
+        "label": "Bewertung zum Projekt (Formular Seite 2)",
+        "visible_to": [
+          "second",
+          "office"
+        ]
+      }
+    ],
+    "phases": [
+      {
+        "title": "Thema & Exposé",
+        "tasks": [
+          {
+            "key": "topic",
+            "title": "Thema, Ort und Zweitprüfer:in klären",
+            "type": "task",
+            "role": "student",
+            "description": "Thema mit praktischer Relevanz, durchführbar in Kooperation mit der Industrie, in einem Forschungsprojekt oder in einem Labor der HSD (Modulhandbuch MA EI, Modul „Projekt“). Zweitprüfer:in kann die Ansprechperson im Unternehmen/Institut sein; sie bzw. er braucht mindestens einen Master-/Diplomabschluss oder eine gleichwertige Qualifikation (§ 9 Abs. 2–3 RahmenPO EI). Tipp: Projekt und Master-Thesis im selben Unternehmen sind möglich – früh ansprechen. Fragen an praxisprojekt.ei@hs-duesseldorf.de"
+          },
+          {
+            "key": "expose",
+            "title": "Exposé hochladen",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "expose",
+            "after": [
+              "topic"
+            ],
+            "description": "Bitte die Exposé-Vorlage verwenden: https://dl.proto-hess.com/PeHd2W2k – mit Thema, Existenzgrund, Ziel, Forschungsfragen, Vorgehensweise, Evaluation und Zeitplan. Das Projekt soll alle Projektphasen durchlaufen: Anforderungsdefinition mit Zielplanung, Entwurf, Implementierung, Auswertung inkl. Qualitätssicherung (Modulhandbuch). Umfang: 10 CP = rund 300 Arbeitsstunden. Als PDF hochladen."
+          },
+          {
+            "key": "expose_review",
+            "title": "Exposé prüfen",
+            "type": "review",
+            "role": "supervisor",
+            "after": [
+              "expose"
+            ],
+            "visible_to": [
+              "student"
+            ],
+            "description": "Wissenschaftliche Tiefe auf Master-Niveau und Machbarkeit in rund 300 Stunden prüfen. Bei Gruppenarbeit müssen die Einzelbeiträge klar abgrenzbar sein (§ 13c Abs. 1 RahmenPO EI)."
+          }
+        ]
+      },
+      {
+        "title": "Anmeldung",
+        "tasks": [
+          {
+            "key": "form",
+            "title": "Anmeldeformular ausfüllen und unterschreiben",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "registration",
+            "after": [
+              "expose_review"
+            ],
+            "description": "Formular „Anmeldung zum Projekt (M. Sc.)“, Seite 1, maschinell ausfüllen: Name, Matrikel-Nr., Vertiefungsrichtung, Thema, Erst- und Zweitprüfer:in (mit Titel), bei externer Durchführung Unternehmen/Institut mit Anschrift und Kontaktdaten. Bestätigung ankreuzen, unterschreiben und als PDF hochladen. Formular: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/Master%20Projekt.pdf"
+          },
+          {
+            "key": "sign_second",
+            "title": "Anmeldung unterschreiben (Zweitprüfer:in)",
+            "type": "signature",
+            "role": "second",
+            "doc_type": "registration",
+            "after": [
+              "form"
+            ],
+            "visible_to": [
+              "student"
+            ],
+            "description": "Mit Ihrer Unterschrift bestätigen Sie, dass Sie das Projekt als Prüfer:in betreuen und die nötige Qualifikation haben (das Formular nennt noch § 11 Abs. 2 der alten PO; heute § 9 Abs. 2–3 RahmenPO EI). Unterschriebene PDF hochladen."
+          },
+          {
+            "key": "sign_supervisor",
+            "title": "Anmeldung unterschreiben (Erstprüfer:in)",
+            "type": "signature",
+            "role": "supervisor",
+            "doc_type": "registration",
+            "after": [
+              "sign_second"
+            ],
+            "visible_to": [
+              "student",
+              "second"
+            ],
+            "description": "Ab dieser Unterschrift läuft das Projekt. Abgabetermin mit der/dem Studierenden vereinbaren und ins Feld „Angestrebte Abgabe“ eintragen; die Frist für den Bericht folgt daraus."
+          },
+          {
+            "key": "copy",
+            "title": "Seite 1 der Anmeldung an praxisprojekt.ei@hs-duesseldorf.de senden",
+            "type": "submission",
+            "role": "student",
+            "after": [
+              "sign_supervisor"
+            ],
+            "description": "Nur Seite 1 (Anmeldung) senden; Seite 2 (Bewertung) füllen später die Prüfer:innen aus."
+          }
+        ]
+      },
+      {
+        "title": "Durchführung",
+        "tasks": [
+          {
+            "key": "work",
+            "title": "Projekt durchführen (10 CP, rund 300 Stunden)",
+            "type": "task",
+            "role": "student",
+            "after": [
+              "sign_supervisor"
+            ],
+            "visible_to": [
+              "second"
+            ],
+            "description": "Regelsemester ist das 3. Fachsemester. Anders als beim Bachelor-Praxisprojekt gibt es keine in der Prüfungsordnung festgelegte Mindestdauer; maßgeblich ist der Arbeitsaufwand von 10 CP (1 CP = 30 Stunden, § 4 Abs. 2 RahmenPO EI)."
+          }
+        ]
+      },
+      {
+        "title": "Abgabe & Prüfung",
+        "tasks": [
+          {
+            "key": "report",
+            "title": "Projektbericht bei den Prüfer:innen einreichen",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "report",
+            "after": [
+              "work"
+            ],
+            "due_field": "end",
+            "visible_to": [
+              "second"
+            ],
+            "description": "Projektbericht als PDF, mit unterschriebener Erklärung, dass Sie die Arbeit selbstständig und ohne unzulässige fremde Hilfe angefertigt haben (§ 10 Abs. 6 RahmenPO EI). Wird eine vereinbarte Frist versäumt, kann die Leistung mit 5,0 bewertet werden (§ 10 Abs. 2 RahmenPO EI)."
+          },
+          {
+            "key": "ossc",
+            "title": "Im OSSC zur Prüfung „Projekt“ anmelden",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "ossc",
+            "after": [
+              "report"
+            ],
+            "description": "Online im OSSC zur Modulprüfung „Projekt“ (Prüfungsnummer 17051) anmelden und den Nachweis als PDF hochladen. Anmeldefristen des Prüfungsausschusses beachten (§ 14 Abs. 3 RahmenPO EI); Abmeldung ohne Gründe bis drei Tage vor dem Termin (§ 10 Abs. 1). Die Präsentation ist frühestens zwei Wochen nach der Anmeldung möglich; den Nachweis zum Termin mitbringen."
+          },
+          {
+            "key": "talk_date",
+            "title": "Präsentationstermin vereinbaren",
+            "type": "task",
+            "role": "supervisor",
+            "after": [
+              "ossc"
+            ],
+            "visible_to": [
+              "student",
+              "second"
+            ]
+          },
+          {
+            "key": "talk",
+            "title": "Präsentation halten",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "slides",
+            "after": [
+              "talk_date"
+            ],
+            "visible_to": [
+              "second"
+            ],
+            "description": "Vortrag vor beiden Prüfer:innen; die Folien als PDF hochladen."
+          }
+        ]
+      },
+      {
+        "title": "Bewertung",
+        "tasks": [
+          {
+            "key": "grade_2",
+            "title": "Bewerten (Zweitprüfer:in)",
+            "type": "approval",
+            "role": "second",
+            "after": [
+              "talk"
+            ],
+            "description": "Bericht und Vortrag bewerten und die Note hier eintragen. Die Einzelnoten sehen nur die Prüfer:innen.",
+            "assess": "note"
+          },
+          {
+            "key": "grade_1",
+            "title": "Bewerten (Erstprüfer:in)",
+            "type": "approval",
+            "role": "supervisor",
+            "after": [
+              "talk"
+            ],
+            "description": "Beide Prüfer:innen bewerten gemeinsam und tragen ihre Note hier ein. Weichen die Noten ab, gilt das arithmetische Mittel, nur die erste Nachkommastelle zählt, ohne Rundung (§ 19 Abs. 4 und 6 RahmenPO EI), z. B. 1,7 und 2,3 ergibt 2,0; 1,0 und 1,3 ergibt 1,1. NomoCase rechnet die Modulnote unter der Phase aus; sie lässt sich von dort in die Angaben übernehmen.",
+            "visible_to": [
+              "second"
+            ],
+            "assess": "note"
+          },
+          {
+            "key": "grade_form",
+            "title": "Bewertungsbogen ausfüllen und unterschreiben (Erstprüfer:in)",
+            "type": "upload",
+            "role": "supervisor",
+            "doc_type": "grading",
+            "after": [
+              "grade_1",
+              "grade_2"
+            ],
+            "visible_to": [
+              "second"
+            ],
+            "description": "Formular Seite 2 „Bewertung zum Projekt (M. Sc.)“: „bestanden mit der Note …“ oder „nicht bestanden“ ankreuzen, Datum, unterschreiben, als PDF hochladen."
+          },
+          {
+            "key": "grade_sign",
+            "title": "Bewertungsbogen unterschreiben (Zweitprüfer:in)",
+            "type": "signature",
+            "role": "second",
+            "doc_type": "grading",
+            "after": [
+              "grade_form"
+            ]
+          },
+          {
+            "key": "result",
+            "title": "Bewertungsbogen ans Studienbüro senden",
+            "type": "submission",
+            "role": "supervisor",
+            "doc_type": "grading",
+            "after": [
+              "grade_sign"
+            ],
+            "visible_to": [
+              "student",
+              "office"
+            ],
+            "description": "Zeitnah ans Studienbüro; dort nur Originale, keine Scans oder Kopien. Das Ergebnis der/dem Studierenden in der Regel direkt nach der Prüfung mitteilen, für den schriftlichen Teil spätestens nach sechs Wochen (§ 13c Abs. 3 RahmenPO EI)."
+          }
+        ]
+      },
+      {
+        "title": "Verbuchung",
+        "tasks": [
+          {
+            "key": "booked",
+            "title": "Verbuchung durch das Studienbüro",
+            "type": "wait",
+            "role": "supervisor",
+            "after": [
+              "result"
+            ],
+            "visible_to": [
+              "student",
+              "office"
+            ]
+          }
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "id": "projektstart",
+        "name": "Projektstart mitteilen",
+        "trigger": "document.uploaded",
+        "conditions": [
+          {
+            "field": "task.key",
+            "operator": "equals",
+            "value": "sign_supervisor"
+          }
+        ],
+        "actions": [
+          {
+            "type": "add_comment",
+            "visible_to": [
+              "*"
+            ],
+            "text": "Die Anmeldung ist vollständig unterschrieben: Das Projekt startet heute ({date}). Umfang: 10 CP, rund 300 Arbeitsstunden. Bitte jetzt Seite 1 der Anmeldung an praxisprojekt.ei@hs-duesseldorf.de senden."
+          }
+        ]
+      },
+      {
+        "id": "ossc",
+        "name": "Frühesten Präsentationstermin mitteilen",
+        "trigger": "document.uploaded",
+        "conditions": [
+          {
+            "field": "document.type",
+            "operator": "equals",
+            "value": "ossc"
+          }
+        ],
+        "actions": [
+          {
+            "type": "add_comment",
+            "visible_to": [
+              "*"
+            ],
+            "text": "Die OSSC-Anmeldung liegt vor. Die Präsentation ist frühestens am {date+14} möglich; bitte den Nachweis zum Termin mitbringen."
+          }
+        ]
+      },
+      {
+        "id": "fuenf",
+        "name": "Bei 5,0 Ergebnis klären",
+        "trigger": "task.reject",
+        "conditions": [
+          {
+            "field": "task.key",
+            "operator": "in",
+            "value": [
+              "grade_1",
+              "grade_2"
+            ]
+          }
+        ],
+        "actions": [
+          {
+            "type": "create_task",
+            "title": "Ergebnis klären und besprechen",
+            "task_type": "task",
+            "assign_to_role": "owner",
+            "visible_to": [
+              "second"
+            ],
+            "description": "Mindestens eine Einzelnote lautet 5,0. Modulnote als Mittelwert bilden (§ 19 Abs. 4 RahmenPO EI): Ist sie schlechter als 4,0, ist das Projekt nicht bestanden. Die Modulprüfung kann bis zu dreimal wiederholt werden (§ 14 Abs. 5 RahmenPO EI); das Ergebnis danach mit der/dem Studierenden besprechen."
+          }
+        ]
+      },
+      {
+        "id": "verbucht",
+        "name": "Abschluss mitteilen",
+        "trigger": "task.complete",
+        "conditions": [
+          {
+            "field": "task.key",
+            "operator": "equals",
+            "value": "booked"
+          }
+        ],
+        "actions": [
+          {
+            "type": "add_comment",
+            "visible_to": [
+              "student"
+            ],
+            "text": "Ihr Projekt ist verbucht; die Note sehen Sie im OSSC. Herzlichen Glückwunsch!"
+          }
+        ]
+      }
+    ],
+    "scales": {
+      "note": {
+        "label": "Note",
+        "range": [
+          1.0,
+          4.0
+        ],
+        "step": 0.1,
+        "extra": [
+          5.0
+        ],
+        "pass": {
+          "max": 4.0
+        },
+        "hint": "1,0 bis 4,0 in Schritten von 0,1, sonst 5,0 (§ 19 Abs. 3 RahmenPO EI)"
+      }
+    },
+    "aggregates": [
+      {
+        "key": "modulnote",
+        "label": "Modulnote",
+        "scale": "note",
+        "from": [
+          "grade_1",
+          "grade_2"
+        ],
+        "method": "mean",
+        "round": "truncate",
+        "fail_value": 5.0,
+        "field": "grade",
+        "note": "Mittel der Einzelnoten, nur die erste Nachkommastelle zählt (§ 19 Abs. 4 und 6 RahmenPO EI)"
+      }
+    ]
+  }
+}

@@ -1,0 +1,104 @@
+// NomoCase: JSON API on Cloudflare Workers, data in D1, files in R2. The UI is static (public/) and only talks to /api/*.
+// This file: routes, request handling (origin check, session, errors) and the cron entry.
+import { fail, HttpError, init, json, q } from './core.js';
+import { deletePasskey, devLogin, listPasskeys, loadUser, logout, me, originOf, passkeyLoginOptions, passkeyLoginVerify, passkeyRegisterOptions, passkeyRegisterVerify, requestLoginLink, sendParticipantLink, updateMe, useLoginLink } from './auth.js';
+import { addTemplateVersion, createTemplate, listTemplates, saveAsTemplate } from './templates.js';
+import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard, deleteCase, getCase, getChanges, updateCase, updateFields } from './cases.js';
+import { addTask, deleteTask, taskAction, updateTask } from './tasks.js';
+import { addClaim, addDecision, addTransaction, reverseTransaction, taskMoney } from './finance.js';
+import { processRules, toggleRule } from './rules.js';
+import { createUploadLink, deleteVersion, download, getUploadLink, revokeUploadLinks, updateDocument, upload, useUploadLink } from './documents.js';
+import { acceptInvitation, getInvitation, invite, peopleOverview, revoke, withdrawInvitation } from './people.js';
+import { DAILY_CRON, sendDigests, sendProgress } from './notify.js';
+
+const ROUTES = [
+  ['GET', '/api/me', me, true],
+  ['PATCH', '/api/me', updateMe],
+  ['GET', '/api/people', peopleOverview],
+  ['GET', '/api/changes', getChanges],
+  ['POST', '/api/dev-login', devLogin, true],
+  ['POST', '/api/logout', logout, true],
+  ['GET', '/api/invitations/:token', getInvitation, true],
+  ['POST', '/api/invitations/accept', acceptInvitation, true],
+  ['POST', '/api/login-link', useLoginLink, true],
+  ['POST', '/api/login-link/request', requestLoginLink, true],
+  ['POST', '/api/passkeys/login/options', passkeyLoginOptions, true],
+  ['POST', '/api/passkeys/login/verify', passkeyLoginVerify, true],
+  ['GET', '/api/passkeys', listPasskeys],
+  ['POST', '/api/passkeys/register/options', passkeyRegisterOptions],
+  ['POST', '/api/passkeys/register/verify', passkeyRegisterVerify],
+  ['DELETE', '/api/passkeys/:id', deletePasskey],
+  ['GET', '/api/dashboard', dashboard],
+  ['GET', '/api/templates', listTemplates],
+  ['POST', '/api/templates', createTemplate],
+  ['POST', '/api/templates/:id/versions', addTemplateVersion],
+  ['POST', '/api/cases', createCase],
+  ['GET', '/api/cases/:id', getCase],
+  ['PATCH', '/api/cases/:id', updateCase],
+  ['PATCH', '/api/cases/:id/fields', updateFields],
+  ['PATCH', '/api/cases/:id/rules/:ruleId', toggleRule],
+  ['POST', '/api/cases/:id/template', saveAsTemplate],
+  ['POST', '/api/cases/:id/subcases', addSubcase],
+  ['DELETE', '/api/cases/:id', deleteCase],
+  ['POST', '/api/cases/:id/phases', addPhase],
+  ['POST', '/api/cases/:id/tasks', addTask],
+  ['POST', '/api/cases/:id/comments', addComment],
+  ['POST', '/api/cases/:id/documents', upload],
+  ['POST', '/api/cases/:id/invitations', invite],
+  ['DELETE', '/api/cases/:id/participants/:userId', revoke],
+  ['DELETE', '/api/cases/:id/invitations/:email', withdrawInvitation],
+  ['DELETE', '/api/document-versions/:id', deleteVersion],
+  ['POST', '/api/cases/:id/participants/:userId/login-link', sendParticipantLink],
+  ['PATCH', '/api/tasks/:id', updateTask],
+  ['DELETE', '/api/tasks/:id', deleteTask],
+  ['POST', '/api/tasks/:id/action', taskAction],
+  ['POST', '/api/tasks/:id/money', taskMoney],
+  ['POST', '/api/tasks/:id/upload-links', createUploadLink],
+  ['DELETE', '/api/tasks/:id/upload-links', revokeUploadLinks],
+  ['GET', '/api/upload-links/:token', getUploadLink, true],
+  ['POST', '/api/upload-links/:token', useUploadLink, true],
+  ['PATCH', '/api/documents/:id', updateDocument],
+  ['POST', '/api/cases/:id/claims', addClaim],
+  ['POST', '/api/claims/:id/decisions', addDecision],
+  ['POST', '/api/claims/:id/transactions', addTransaction],
+  ['POST', '/api/transactions/:id/reverse', reverseTransaction],
+  ['GET', '/api/files/:id', download],
+].map(([method, path, handler, isPublic]) => [method, new RegExp(`^${path.replace(/:(\w+)/g, '(?<$1>[^/]+)')}$`), handler, isPublic]);
+
+export default {
+  async fetch(req, env, exec) {
+    init(env);
+    const url = new URL(req.url);
+    const route = ROUTES.find(([method, re]) => method === req.method && re.test(url.pathname));
+    if (!route) return json({ error: 'Nicht gefunden' }, 404);
+    const [, re, handler, isPublic] = route;
+    try {
+      // Writes only from our own pages: browsers send Origin on every POST/PATCH/DELETE. (Compared with the request's
+      // own origin too, because wrangler dev rewrites both URL and Origin to the production route.)
+      const origin = req.headers.get('origin');
+      if (req.method !== 'GET' && origin && origin !== url.origin && origin !== originOf(url)) fail(403, 'Anfrage von fremder Seite');
+      const user = await loadUser(req);
+      if (!user && !isPublic) fail(401, 'Nicht angemeldet');
+      const body = req.headers.get('content-type')?.includes('application/json') ? await req.json().catch(() => fail(400, 'Ungültiges JSON')) : {};
+      const res = await handler({ req, url, user, exec, body: body ?? {}, params: url.pathname.match(re).groups ?? {} });
+      if (req.method !== 'GET') await processRules().catch(e => console.error('rules', e.message));
+      return res instanceof Response ? res : json(res ?? { ok: true });
+    } catch (e) {
+      if (e instanceof HttpError) return json({ error: e.message }, e.status);
+      console.error(e);
+      return json({ error: 'Interner Fehler' }, 500);
+    }
+  },
+
+  async scheduled(controller, env) {
+    init(env);
+    await processRules(); // catch-up, e.g. after a request that failed midway
+    if (controller.cron === DAILY_CRON) {
+      await applyRetention();
+      await sendDigests();
+      await q('DELETE FROM mail_log WHERE sent_at < ?', new Date(Date.now() - 3 * 864e5).toISOString()).run();
+    } else {
+      await sendProgress();
+    }
+  },
+};

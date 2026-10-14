@@ -1,0 +1,142 @@
+// Rule engine: triggers, conditions, actions; processed after writes and by cron, idempotent per event.
+import { DB, ev, fail, now, q, row, rows, uid } from './core.js';
+import { caseCtx, taskAudience } from './access.js';
+import { instantiate } from './templates.js';
+import { eur, loadFinance, sum } from './finance.js';
+import { deDate } from './notify.js';
+
+// Declarative automations (spec section 9): {id, name, trigger, conditions: [{field, operator, value}], actions: [...]}.
+// They run right after the request that wrote the triggering event (and again from the cron as a catch-up).
+// Safety: the (event, rule) key in automation_runs makes each rule run once per event; events caused by a rule
+// carry payload.rule and never trigger rules themselves, so rules cannot loop.
+
+export const RULE_TRIGGERS = ['document.uploaded', 'task.complete', 'task.approve', 'task.reject', 'task.question', 'request.created',
+  'comment', 'claim.added', 'decision.added', 'transaction.booked', 'case.closed', 'participant.joined', 'subcase.closed'];
+
+export const RULE_OPS = {
+  equals: (a, b) => String(a) === String(b),
+  not_equals: (a, b) => String(a) !== String(b),
+  greater_than: (a, b) => Number(a) > Number(b),
+  less_than: (a, b) => Number(a) < Number(b),
+  contains: (a, b) => String(a ?? '').toLowerCase().includes(String(b).toLowerCase()),
+  in: (a, b) => Array.isArray(b) && b.map(String).includes(String(a)),
+};
+
+export const RULE_ACTIONS = ['create_task', 'complete_tasks', 'add_comment', 'create_subcase'];
+
+// Amounts are cents in conditions and euros in texts.
+const MONEY_FACTS = ['claim.amount', 'claim.recognized', 'claim.cut', 'claim.settled', 'claim.open', 'case.payables_open', 'case.receivables_open'];
+
+// Everything a condition or a {placeholder} can refer to, for one event.
+async function ruleFacts(c, e, p) {
+  const f = { 'event.type': e.type, 'event.actor': e.actor ?? '', 'case.title': c.title };
+  if (e.actor_id) f['event.actor_role'] = (await row('SELECT role FROM case_participants WHERE case_id = ? AND user_id = ?', c.id, e.actor_id))?.role ?? '';
+  if (p.task_id) {
+    const t = await row('SELECT key, title, type, role, outcome FROM tasks WHERE id = ?', p.task_id);
+    if (t) Object.assign(f, { 'task.key': t.key ?? '', 'task.title': t.title, 'task.type': t.type, 'task.role': t.role ?? '', 'task.outcome': t.outcome ?? '' });
+  }
+  if (p.version_id) {
+    const d = await row('SELECT d.title, d.doc_type, v.version, v.filename FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE v.id = ?', p.version_id);
+    if (d) Object.assign(f, { 'document.title': d.title, 'document.type': d.doc_type ?? '', 'document.version': d.version, 'document.filename': d.filename });
+  }
+  if (p.claim_id) {
+    const claims = await loadFinance([c.id]);
+    const cl = claims.find(x => x.id === p.claim_id);
+    if (cl) {
+      Object.assign(f, { 'claim.title': cl.title, 'claim.direction': cl.direction, 'claim.amount': cl.amount_cents, 'claim.recognized': cl.recognized_cents ?? cl.amount_cents,
+        'claim.cut': cl.cut_cents, 'claim.settled': cl.settled_cents, 'claim.open': Math.max(cl.open_cents, 0) });
+    }
+    const open = dir => sum(claims.filter(x => x.direction === dir), x => Math.max(x.open_cents, 0));
+    Object.assign(f, { 'case.payables_open': open('payable'), 'case.receivables_open': open('receivable') });
+  }
+  if (e.type === 'comment') f['comment.text'] = p.body;
+  if (e.type.startsWith('subcase.')) Object.assign(f, { 'subcase.title': p.title, 'subcase.template': p.template ?? '' });
+  return f;
+}
+
+async function ruleStmts(c, def, rule, f) {
+  const fill = text => String(text ?? '')
+    .replace(/\{date(?:\+(\d+))?\}/g, (_, n) => deDate(new Date(Date.now() + Number(n ?? 0) * 864e5).toISOString().slice(0, 10)))
+    .replace(/\{([\w.]+)\}/g, (_, k) => (MONEY_FACTS.includes(k) ? eur(f[k] ?? 0) : String(f[k] ?? '')));
+  const ownerRole = def.roles.find(r => r.access === 'case_owner').key;
+  const by = { rule: rule.name };
+  const stmts = [];
+  for (const a of rule.actions) {
+    if (a.type === 'create_task') {
+      const t = { id: uid(), title: fill(a.title), role: !a.assign_to_role || a.assign_to_role === 'owner' ? ownerRole : a.assign_to_role, visible_to: a.visible_to ?? [] };
+      stmts.push(
+        q('INSERT INTO tasks (id, case_id, title, description, type, role, visible_to, due_date, position, created_at, key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          t.id, c.id, t.title, a.description ? fill(a.description) : null, a.task_type ?? 'task', t.role, JSON.stringify(t.visible_to),
+          a.due_days != null ? new Date(Date.now() + a.due_days * 864e5).toISOString().slice(0, 10) : null, 1e6, now(), a.key ?? null),
+        ev(c.id, null, 'task.added', { task: t.title, task_id: t.id, ...by }, taskAudience(t)),
+      );
+    } else if (a.type === 'complete_tasks') {
+      const open = await rows(`SELECT id, title, role, visible_to FROM tasks WHERE case_id = ? AND status = 'open'
+        AND (? IS NULL OR key = ?) AND (? IS NULL OR type = ?) AND (? IS NULL OR title = ?)`,
+        c.id, a.key ?? null, a.key ?? null, a.task_type ?? null, a.task_type ?? null, a.title ?? null, a.title ?? null);
+      for (const t of open) {
+        stmts.push(
+          q("UPDATE tasks SET status = 'done', completed_at = ? WHERE id = ? AND status = 'open'", now(), t.id),
+          ev(c.id, null, 'task.complete', { task: t.title, task_id: t.id, ...by }, taskAudience(t)),
+        );
+      }
+    } else if (a.type === 'add_comment') {
+      stmts.push(ev(c.id, null, 'comment', { body: fill(a.text), ...by }, a.visible_to ?? ['*']));
+    } else if (a.type === 'create_subcase') {
+      const tpl = await row(`SELECT t.id, t.workspace_id, t.name, v.version, v.definition FROM templates t JOIN template_versions v ON v.template_id = t.id
+        WHERE t.workspace_id = ? AND t.name = ? ORDER BY v.version DESC LIMIT 1`, c.workspace_id, a.template);
+      if (!tpl) throw new Error(`Vorlage „${a.template}“ gibt es in diesem Workspace nicht`);
+      const owner = await row("SELECT user_id FROM case_participants WHERE case_id = ? AND access = 'case_owner' AND revoked_at IS NULL ORDER BY created_at LIMIT 1", c.id);
+      if (!owner) throw new Error('Der Vorgang hat keine Verantwortlichen');
+      const title = fill(a.title).slice(0, 200);
+      const sub = instantiate(tpl, { title, ownerId: owner.user_id, actorId: null, parentId: c.id, by });
+      stmts.push(...sub.stmts, ev(c.id, null, 'subcase.created', { title, case_id: sub.caseId, template: tpl.name, ...by }, []));
+    }
+  }
+  return stmts;
+}
+
+export async function processRules() {
+  const { last } = await row('SELECT last_event_id AS last FROM rule_cursor WHERE id = 1');
+  const events = await rows('SELECT e.*, u.name AS actor FROM events e LEFT JOIN users u ON u.id = e.actor_id WHERE e.id > ? ORDER BY e.id LIMIT 200', last);
+  if (!events.length) return;
+  const cases = new Map((await rows('SELECT id, title, workspace_id, definition FROM cases WHERE id IN (SELECT value FROM json_each(?))',
+    JSON.stringify([...new Set(events.map(e => e.case_id))]))).map(c => [c.id, { ...c, def: JSON.parse(c.definition) }]));
+  for (const e of events) {
+    const c = cases.get(e.case_id);
+    const p = JSON.parse(e.payload);
+    const rules = (c?.def.rules ?? []).filter(r => r.trigger === e.type && r.enabled !== false);
+    if (!rules.length || p.rule) continue; // nothing to do, or caused by a rule (no chains)
+    const f = await ruleFacts(c, e, p);
+    for (const rule of rules) {
+      if (!rule.conditions.every(cond => RULE_OPS[cond.operator](f[cond.field], cond.value))) continue;
+      if (await row('SELECT 1 FROM automation_runs WHERE event_id = ? AND rule_id = ?', e.id, rule.id)) continue; // ran already
+      try {
+        // Run record and effects commit together (a batch is one transaction): a crash leaves neither behind,
+        // and a parallel run of the same rule fails on the primary key without changing anything.
+        await DB.batch([
+          q("INSERT INTO automation_runs (event_id, rule_id, case_id, status, created_at) VALUES (?, ?, ?, 'done', ?)", e.id, rule.id, c.id, now()),
+          ...await ruleStmts(c, c.def, rule, f),
+        ]);
+      } catch (err) {
+        if (/UNIQUE constraint/i.test(err.message)) continue;
+        console.error('rule failed', rule.id, err.message);
+        await q("INSERT OR IGNORE INTO automation_runs (event_id, rule_id, case_id, status, detail, created_at) VALUES (?, ?, ?, 'error', ?, ?)",
+          e.id, rule.id, c.id, String(err.message).slice(0, 500), now()).run();
+      }
+    }
+  }
+  await q('UPDATE rule_cursor SET last_event_id = MAX(last_event_id, ?) WHERE id = 1', events.at(-1).id).run();
+}
+
+export async function toggleRule({ user, params, body }) {
+  const ctx = await caseCtx(user, params.id);
+  if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
+  if (typeof body.enabled !== 'boolean') fail(400, 'enabled muss true oder false sein');
+  const rule = (ctx.def.rules ?? []).find(r => r.id === params.ruleId) ?? fail(404, 'Regel nicht gefunden');
+  rule.enabled = body.enabled;
+  await DB.batch([
+    q('UPDATE cases SET definition = ? WHERE id = ?', JSON.stringify(ctx.def), ctx.c.id),
+    ev(ctx.c.id, user.id, 'rule.toggled', { rule: rule.name, enabled: body.enabled }, []),
+  ]);
+}

@@ -1,0 +1,252 @@
+{
+  "id": "tpl_med",
+  "workspace": "ws_priv",
+  "name": "Arztrechnung",
+  "definition": {
+    "finance": {
+      "labels": {
+        "payable": "Rechnung",
+        "receivable": "Erstattung",
+        "received": "Erstattet",
+        "receivables_open": "Offene Erstattungen",
+        "balance": "Eigenanteil bisher",
+        "add": "Forderung oder Erstattung"
+      }
+    },
+    "rules": [
+      {
+        "id": "kuerzung",
+        "name": "Kürzung prüfen",
+        "trigger": "decision.added",
+        "conditions": [
+          {
+            "field": "claim.direction",
+            "operator": "equals",
+            "value": "receivable"
+          },
+          {
+            "field": "claim.cut",
+            "operator": "greater_than",
+            "value": 0
+          }
+        ],
+        "actions": [
+          {
+            "type": "create_task",
+            "title": "Kürzung prüfen: {claim.title}",
+            "task_type": "review",
+            "assign_to_role": "owner",
+            "description": "Anerkannt {claim.recognized} von {claim.amount}, Differenz {claim.cut}. „In Ordnung“, wenn Sie die Kürzung akzeptieren; „Beanstanden“, wenn Sie Widerspruch einlegen.",
+            "key": "kuerzung"
+          }
+        ]
+      },
+      {
+        "id": "bezahlt",
+        "name": "Zahlungsaufgabe abhaken, wenn alles bezahlt ist",
+        "trigger": "transaction.booked",
+        "conditions": [
+          {
+            "field": "claim.direction",
+            "operator": "equals",
+            "value": "payable"
+          },
+          {
+            "field": "case.payables_open",
+            "operator": "equals",
+            "value": 0
+          }
+        ],
+        "actions": [
+          {
+            "type": "complete_tasks",
+            "task_type": "payment"
+          }
+        ]
+      },
+      {
+        "id": "widerspruch",
+        "name": "Bei Beanstandung Widerspruch anlegen",
+        "trigger": "task.reject",
+        "conditions": [
+          {
+            "field": "task.key",
+            "operator": "equals",
+            "value": "kuerzung"
+          }
+        ],
+        "actions": [
+          {
+            "type": "create_subcase",
+            "template": "Widerspruch",
+            "title": "Widerspruch – {task.title}"
+          }
+        ]
+      }
+    ],
+    "roles": [
+      {
+        "key": "me",
+        "label": "Ich",
+        "access": "case_owner"
+      }
+    ],
+    "fields": [
+      {
+        "key": "doctor",
+        "label": "Arzt/Praxis"
+      },
+      {
+        "key": "start",
+        "label": "Rechnungsdatum",
+        "type": "date"
+      }
+    ],
+    "due_base_field": "start",
+    "document_types": [
+      {
+        "key": "invoice",
+        "label": "Rechnung",
+        "visible_to": []
+      },
+      {
+        "key": "pkv_decision",
+        "label": "PKV-Bescheid",
+        "visible_to": []
+      },
+      {
+        "key": "aid_decision",
+        "label": "Beihilfebescheid",
+        "visible_to": []
+      }
+    ],
+    "phases": [
+      {
+        "title": "Rechnung",
+        "tasks": [
+          {
+            "key": "invoice",
+            "title": "Rechnung erfassen",
+            "type": "upload",
+            "role": "me",
+            "doc_type": "invoice",
+            "money": {
+              "claim": "Rechnung",
+              "direction": "payable",
+              "counterparty_field": "doctor"
+            }
+          },
+          {
+            "key": "pay",
+            "title": "Rechnung bezahlen",
+            "type": "payment",
+            "role": "me",
+            "after": [
+              "invoice"
+            ],
+            "due_days": 30,
+            "money": {
+              "payment": "Rechnung"
+            }
+          }
+        ]
+      },
+      {
+        "title": "Erstattung",
+        "tasks": [
+          {
+            "key": "pkv",
+            "title": "Bei PKV einreichen",
+            "type": "submission",
+            "role": "me",
+            "after": [
+              "invoice"
+            ],
+            "money": {
+              "claim": "PKV",
+              "direction": "receivable"
+            }
+          },
+          {
+            "key": "aid",
+            "title": "Bei Beihilfe einreichen",
+            "type": "submission",
+            "role": "me",
+            "after": [
+              "invoice"
+            ],
+            "money": {
+              "claim": "Beihilfe",
+              "direction": "receivable"
+            }
+          },
+          {
+            "key": "pkv_wait",
+            "title": "PKV-Bescheid erfassen",
+            "type": "wait",
+            "role": "me",
+            "doc_type": "pkv_decision",
+            "after": [
+              "pkv"
+            ],
+            "money": {
+              "decision": "PKV"
+            }
+          },
+          {
+            "key": "aid_wait",
+            "title": "Beihilfebescheid erfassen",
+            "type": "wait",
+            "role": "me",
+            "doc_type": "aid_decision",
+            "after": [
+              "aid"
+            ],
+            "money": {
+              "decision": "Beihilfe"
+            }
+          },
+          {
+            "key": "pkv_paid",
+            "title": "PKV-Erstattung eingegangen",
+            "type": "wait",
+            "role": "me",
+            "after": [
+              "pkv_wait"
+            ],
+            "money": {
+              "payment": "PKV"
+            }
+          },
+          {
+            "key": "aid_paid",
+            "title": "Beihilfe-Erstattung eingegangen",
+            "type": "wait",
+            "role": "me",
+            "after": [
+              "aid_wait"
+            ],
+            "money": {
+              "payment": "Beihilfe"
+            }
+          }
+        ]
+      },
+      {
+        "title": "Abschluss",
+        "tasks": [
+          {
+            "key": "check",
+            "title": "Erstattungen prüfen",
+            "type": "review",
+            "role": "me",
+            "after": [
+              "pkv_paid",
+              "aid_paid"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

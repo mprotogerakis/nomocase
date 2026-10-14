@@ -1,0 +1,432 @@
+{
+  "id": "tpl_pp",
+  "workspace": "ws_hs",
+  "name": "Praxisprojekt (B.Eng.)",
+  "definition": {
+    "roles": [
+      {
+        "key": "supervisor",
+        "label": "Erstprüfer:in",
+        "access": "case_owner"
+      },
+      {
+        "key": "student",
+        "label": "Studierende:r",
+        "access": "guest_contributor"
+      },
+      {
+        "key": "company",
+        "label": "Zweitprüfer:in (Unternehmen)",
+        "access": "guest_contributor"
+      },
+      {
+        "key": "office",
+        "label": "Studienbüro",
+        "access": "guest_viewer"
+      }
+    ],
+    "fields": [
+      {
+        "key": "student",
+        "label": "Name der/des Studierenden"
+      },
+      {
+        "key": "matrikel",
+        "label": "Matrikelnummer"
+      },
+      {
+        "key": "company_name",
+        "label": "Unternehmen/Institution"
+      },
+      {
+        "key": "second_examiner",
+        "label": "Zweitprüfer:in"
+      },
+      {
+        "key": "project_title",
+        "label": "Projekttitel"
+      },
+      {
+        "key": "po",
+        "label": "Prüfungsordnung"
+      },
+      {
+        "key": "start",
+        "label": "Angestrebter Start",
+        "type": "date"
+      },
+      {
+        "key": "end",
+        "label": "Angestrebte Abgabe",
+        "type": "date"
+      }
+    ],
+    "due_base_field": "start",
+    "document_types": [
+      {
+        "key": "expose",
+        "label": "Exposé",
+        "visible_to": [
+          "student",
+          "company"
+        ]
+      },
+      {
+        "key": "laufzettel",
+        "label": "Laufzettel (Antrag auf Praxisprojekt)",
+        "visible_to": [
+          "student",
+          "company",
+          "office"
+        ]
+      },
+      {
+        "key": "report",
+        "label": "Ausarbeitung",
+        "visible_to": [
+          "student",
+          "company"
+        ]
+      },
+      {
+        "key": "ossc",
+        "label": "OSSC-Anmeldung",
+        "visible_to": [
+          "student"
+        ]
+      },
+      {
+        "key": "slides",
+        "label": "Präsentationsfolien",
+        "visible_to": [
+          "student",
+          "company"
+        ]
+      },
+      {
+        "key": "result",
+        "label": "Laufzettel mit Bewertung",
+        "visible_to": [
+          "office"
+        ]
+      }
+    ],
+    "phases": [
+      {
+        "title": "Thema & Exposé",
+        "tasks": [
+          {
+            "key": "topic",
+            "title": "Thema, Unternehmen und Zweitprüfer:in klären",
+            "type": "task",
+            "role": "student",
+            "description": "Welches Thema? Welche:r Dozent:in betreut es? Welches Unternehmen hat Interesse? Ihre Ansprechperson im Unternehmen wird Zweitprüfer:in. Fragen an praxisprojekt.ei@hs-duesseldorf.de"
+          },
+          {
+            "key": "expose",
+            "title": "Exposé hochladen",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "expose",
+            "after": [
+              "topic"
+            ],
+            "description": "Bitte die Exposé-Vorlage verwenden: https://dl.proto-hess.com/PeHd2W2k – mit Thema, Existenzgrund, Ziel, Forschungsfragen, Vorgehensweise, Evaluation und Zeitplan (Arbeitspakete, Meilensteine). Als PDF hochladen."
+          },
+          {
+            "key": "expose_review",
+            "title": "Exposé prüfen",
+            "type": "review",
+            "role": "supervisor",
+            "after": [
+              "expose"
+            ],
+            "visible_to": [
+              "student"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Anmeldung",
+        "tasks": [
+          {
+            "key": "form",
+            "title": "Laufzettel ausfüllen und unterschreiben",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "laufzettel",
+            "after": [
+              "expose_review"
+            ],
+            "description": "Antrag auf Praxisprojekt maschinell ausfüllen (Name, Matrikel-Nr., Unternehmen, Projekttitel, Erst- und Zweitprüfer:in), unterschreiben und als PDF hochladen. Formular: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Antrag_Praxisprojekt_221025.pdf"
+          },
+          {
+            "key": "sign_company",
+            "title": "Laufzettel unterschreiben (Zweitprüfer:in)",
+            "type": "signature",
+            "role": "company",
+            "doc_type": "laufzettel",
+            "after": [
+              "form"
+            ],
+            "visible_to": [
+              "student"
+            ],
+            "description": "Mit Ihrer Unterschrift bestätigen Sie, dass Sie das Praxisprojekt als Prüfer:in betreuen (§ 11 Abs. 2 PO). Unterschriebene PDF hochladen."
+          },
+          {
+            "key": "sign_supervisor",
+            "title": "Laufzettel unterschreiben (Erstprüfer:in)",
+            "type": "signature",
+            "role": "supervisor",
+            "doc_type": "laufzettel",
+            "after": [
+              "sign_company"
+            ],
+            "visible_to": [
+              "student",
+              "company"
+            ],
+            "description": "Das Datum dieser Unterschrift gilt als Projektstart; die Bearbeitungszeit beträgt mindestens 8 Wochen."
+          },
+          {
+            "key": "copy",
+            "title": "Kopie des Laufzettels an praxisprojekt.ei@hs-duesseldorf.de senden",
+            "type": "submission",
+            "role": "student",
+            "after": [
+              "sign_supervisor"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Durchführung",
+        "tasks": [
+          {
+            "key": "work",
+            "title": "Praxisprojekt durchführen (mindestens 8 Wochen)",
+            "type": "task",
+            "role": "student",
+            "after": [
+              "sign_supervisor"
+            ],
+            "visible_to": [
+              "company"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Abgabe & Prüfung",
+        "tasks": [
+          {
+            "key": "report",
+            "title": "Ausarbeitung bei den Prüfer:innen einreichen",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "report",
+            "after": [
+              "work"
+            ],
+            "due_field": "end",
+            "visible_to": [
+              "company"
+            ]
+          },
+          {
+            "key": "ossc",
+            "title": "Im OSSC zur Prüfung anmelden",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "ossc",
+            "after": [
+              "report"
+            ],
+            "description": "Online im OSSC anmelden und den Nachweis (Ausdruck) als PDF hochladen. Die Präsentation ist frühestens zwei Wochen nach der Anmeldung möglich; den Nachweis zum Termin mitbringen."
+          },
+          {
+            "key": "talk_date",
+            "title": "Präsentationstermin vereinbaren",
+            "type": "task",
+            "role": "supervisor",
+            "after": [
+              "ossc"
+            ],
+            "visible_to": [
+              "student",
+              "company"
+            ]
+          },
+          {
+            "key": "talk",
+            "title": "Präsentation halten",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "slides",
+            "after": [
+              "talk_date"
+            ],
+            "visible_to": [
+              "company"
+            ],
+            "description": "Vortrag vor beiden Prüfer:innen; die Folien als PDF hochladen."
+          },
+          {
+            "key": "grade_1",
+            "title": "Bewerten (Erstprüfer:in)",
+            "type": "approval",
+            "role": "supervisor",
+            "after": [
+              "talk"
+            ],
+            "labels": [
+              "Bestanden",
+              "Nicht bestanden"
+            ]
+          },
+          {
+            "key": "grade_2",
+            "title": "Bewerten (Zweitprüfer:in)",
+            "type": "approval",
+            "role": "company",
+            "after": [
+              "talk"
+            ],
+            "labels": [
+              "Bestanden",
+              "Nicht bestanden"
+            ]
+          },
+          {
+            "key": "result",
+            "title": "Laufzettel mit Bewertung ans Studienbüro senden",
+            "type": "submission",
+            "role": "supervisor",
+            "doc_type": "result",
+            "after": [
+              "grade_1",
+              "grade_2"
+            ],
+            "visible_to": [
+              "student",
+              "office"
+            ],
+            "description": "Auf dem Laufzettel ankreuzen: Vortrag gehalten, Ausarbeitung abgegeben, bestanden; beide Prüfer:innen unterschreiben. Zeitnah ans Studienbüro."
+          }
+        ]
+      },
+      {
+        "title": "Verbuchung",
+        "tasks": [
+          {
+            "key": "booked",
+            "title": "Verbuchung durch das Studienbüro",
+            "type": "wait",
+            "role": "supervisor",
+            "after": [
+              "result"
+            ],
+            "visible_to": [
+              "student",
+              "office"
+            ]
+          }
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "id": "projektstart",
+        "name": "Projektstart mitteilen",
+        "trigger": "document.uploaded",
+        "conditions": [
+          {
+            "field": "task.key",
+            "operator": "equals",
+            "value": "sign_supervisor"
+          }
+        ],
+        "actions": [
+          {
+            "type": "add_comment",
+            "visible_to": [
+              "*"
+            ],
+            "text": "Der Laufzettel ist vollständig unterschrieben: Das Praxisprojekt startet heute ({date}). Die Bearbeitungszeit beträgt mindestens 8 Wochen, die Ausarbeitung kann also frühestens am {date+56} eingereicht werden. Bitte jetzt eine Kopie des Laufzettels an praxisprojekt.ei@hs-duesseldorf.de senden."
+          }
+        ]
+      },
+      {
+        "id": "ossc",
+        "name": "Frühesten Präsentationstermin mitteilen",
+        "trigger": "document.uploaded",
+        "conditions": [
+          {
+            "field": "document.type",
+            "operator": "equals",
+            "value": "ossc"
+          }
+        ],
+        "actions": [
+          {
+            "type": "add_comment",
+            "visible_to": [
+              "*"
+            ],
+            "text": "Die OSSC-Anmeldung liegt vor. Die Präsentation ist frühestens am {date+14} möglich; bitte den Nachweis zum Termin mitbringen."
+          }
+        ]
+      },
+      {
+        "id": "nicht_bestanden",
+        "name": "Bei „Nicht bestanden“ Gespräch anlegen",
+        "trigger": "task.reject",
+        "conditions": [
+          {
+            "field": "task.key",
+            "operator": "in",
+            "value": [
+              "grade_1",
+              "grade_2"
+            ]
+          }
+        ],
+        "actions": [
+          {
+            "type": "create_task",
+            "title": "Gespräch zum Ergebnis führen",
+            "task_type": "task",
+            "assign_to_role": "owner",
+            "visible_to": [
+              "student"
+            ],
+            "description": "Mindestens eine Bewertung lautet „Nicht bestanden“. Weiteres Vorgehen mit der/dem Studierenden besprechen."
+          }
+        ]
+      },
+      {
+        "id": "verbucht",
+        "name": "Abschluss mitteilen",
+        "trigger": "task.complete",
+        "conditions": [
+          {
+            "field": "task.key",
+            "operator": "equals",
+            "value": "booked"
+          }
+        ],
+        "actions": [
+          {
+            "type": "add_comment",
+            "visible_to": [
+              "student"
+            ],
+            "text": "Ihr Praxisprojekt ist verbucht. Herzlichen Glückwunsch!"
+          }
+        ]
+      }
+    ]
+  }
+}

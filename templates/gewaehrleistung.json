@@ -1,0 +1,128 @@
+{
+  "id": "tpl_warranty",
+  "workspace": "ws_priv",
+  "name": "Gewährleistungsfall",
+  "definition": {
+    "roles": [
+      {
+        "key": "me",
+        "label": "Ich",
+        "access": "case_owner"
+      },
+      {
+        "key": "workshop",
+        "label": "Werkstatt",
+        "access": "guest_contributor"
+      }
+    ],
+    "fields": [
+      {
+        "key": "vehicle",
+        "label": "Fahrzeug"
+      },
+      {
+        "key": "defect",
+        "label": "Mangel"
+      },
+      {
+        "key": "start",
+        "label": "Festgestellt am",
+        "type": "date"
+      }
+    ],
+    "due_base_field": "start",
+    "document_types": [
+      {
+        "key": "evidence",
+        "label": "Fotos/Belege",
+        "visible_to": [
+          "workshop"
+        ]
+      },
+      {
+        "key": "workshop_report",
+        "label": "Werkstattbericht",
+        "visible_to": [
+          "workshop"
+        ]
+      },
+      {
+        "key": "letter",
+        "label": "Schriftverkehr",
+        "visible_to": []
+      }
+    ],
+    "phases": [
+      {
+        "title": "Meldung",
+        "tasks": [
+          {
+            "key": "evidence",
+            "title": "Mangel dokumentieren",
+            "type": "upload",
+            "role": "me",
+            "doc_type": "evidence"
+          },
+          {
+            "key": "notice",
+            "title": "Mangel beim Händler anzeigen",
+            "type": "submission",
+            "role": "me",
+            "doc_type": "letter",
+            "after": [
+              "evidence"
+            ],
+            "due_days": 14
+          }
+        ]
+      },
+      {
+        "title": "Nachbesserung",
+        "tasks": [
+          {
+            "key": "appointment",
+            "title": "Werkstatttermin vereinbaren",
+            "type": "task",
+            "role": "me",
+            "after": [
+              "notice"
+            ]
+          },
+          {
+            "key": "diagnosis",
+            "title": "Werkstattbericht hochladen",
+            "type": "upload",
+            "role": "workshop",
+            "doc_type": "workshop_report",
+            "after": [
+              "appointment"
+            ]
+          },
+          {
+            "key": "repair",
+            "title": "Reparatur abwarten",
+            "type": "wait",
+            "role": "me",
+            "after": [
+              "diagnosis"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Abschluss",
+        "tasks": [
+          {
+            "key": "accept",
+            "title": "Reparatur abnehmen",
+            "type": "approval",
+            "role": "me",
+            "after": [
+              "repair"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

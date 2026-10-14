@@ -1,0 +1,35 @@
+{
+  "id": "tpl_free_priv",
+  "workspace": "ws_priv",
+  "name": "Freier Vorgang",
+  "definition": {
+    "roles": [
+      {
+        "key": "owner",
+        "label": "Verantwortlich",
+        "access": "case_owner"
+      },
+      {
+        "key": "guest",
+        "label": "Externe:r",
+        "access": "guest_contributor"
+      }
+    ],
+    "fields": [],
+    "document_types": [
+      {
+        "key": "doc",
+        "label": "Dokument",
+        "visible_to": [
+          "guest"
+        ]
+      }
+    ],
+    "phases": [
+      {
+        "title": "Allgemein",
+        "tasks": []
+      }
+    ]
+  }
+}
