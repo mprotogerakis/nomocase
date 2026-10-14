@@ -60,3 +60,24 @@ export function fillForm(form, lookup) {
     }),
   };
 }
+
+// The PDF field names of a form, per item: { value } for a field or checkbox, { place, sign, name } for a signature.
+// The generator names its fields this way and an upload is recognised by them, so both use this one function.
+// Names are unique (a repeated label gets " (2)") and have no dots (they would separate the field hierarchy).
+export function fieldNames(form) {
+  const used = new Map();
+  const unique = label => {
+    const base = String(label).replace(/[.[\]]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Feld';
+    const n = (used.get(base) ?? 0) + 1;
+    used.set(base, n);
+    return n > 1 ? `${base} (${n})` : base;
+  };
+  return form.items.map(it => (it.label ? { value: unique(it.label) }
+    : it.sign ? { place: unique(`Ort, Datum – ${it.sign}`), sign: unique(it.sign), name: unique(`Name – ${it.sign}`) } : {}));
+}
+
+// Items that hold exactly one case field ("value": "{field.x}") and are no checkbox: what an upload is compared with.
+export const caseFieldItems = form => fieldNames(form).flatMap((n, i) => {
+  const key = !form.items[i].check && /^\{field\.([\w-]+)\}$/.exec(String(form.items[i].value ?? '').trim())?.[1];
+  return key ? [{ name: n.value, key }] : [];
+});

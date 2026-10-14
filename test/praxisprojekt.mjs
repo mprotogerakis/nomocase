@@ -2,6 +2,8 @@
 // with all four parties, and checks visibility, rules and the grading logic on the way.
 import assert from 'node:assert/strict';
 import { run, PDF, client, expect, file, tokenOf } from './lib.mjs';
+import { formPdf } from '../public/formpdf.js';
+import { PDFDocument } from '../public/vendor/pdf-lib.esm.min.js';
 
 const prof = client(), student = client(), company = client(), office = client();
 await expect(prof('/dev-login', { body: { email: 'prof@example.org' } }));
@@ -175,7 +177,22 @@ assert.deepEqual([mdef.scales.note.pass, mdef.aggregates[0].from], [{ max: 4 }, 
   assert.ok((await view(bstudent, b)).definition.forms.every(f => f.title && !f.items), 'participants see form titles, not definitions');
   await formOf(bstudent, 'result_form', 404); // a step the student does not see
   await formOf(prof, 'topic', 404);           // a step without a form
-  await put(bstudent, 'form', 'Antrag.pdf');
+  // The filled-in form is read back on upload: the student added the matrikel and changed the title.
+  const filledIn = async (f, values) => {
+    const doc = await PDFDocument.load(await formPdf(f));
+    for (const [name, v] of Object.entries(values)) doc.getForm().getTextField(name).setText(v);
+    return doc.save();
+  };
+  const sent = await expect(bstudent(`/cases/${b}/documents`, { form: file('Antrag.pdf', await filledIn(zul, {
+    Matrikelnummer: '1234567', 'Thema – wird in dieser Fassung ins Zeugnis übernommen': 'Modellprädiktive Regelung eines Prüfstands' }), { task_id: (await step(bstudent, 'form')).id }) }));
+  assert.deepEqual(sent.form, { title: 'Antrag auf Zulassung zur Bachelor-Thesis', differs: ['Thema (steht so im Zeugnis)'], taken: [] },
+    'the uploader learns which field differs; nothing from outside the team goes into the Angaben by itself');
+  let team = await view(prof, b);
+  const application = team.documents.find(d => d.doc_type === 'application').versions.at(-1);
+  assert.deepEqual([application.form.fields.matrikel, team.case.fields.matrikel], ['1234567', ''], 'the value waits for the team');
+  assert.ok(team.events.some(e => e.type === 'form.mismatch' && e.payload.fields.includes('Thema (steht so im Zeugnis)')), 'difference logged');
+  const theirs = await view(bstudent, b);
+  assert.ok(!theirs.documents.flatMap(d => d.versions).some(x => x.form), 'outside the team: no form values (field names only, as told on upload)');
   await put(prof, 'sign_supervisor', 'Antrag-EP.pdf');
   await put(bsecond, 'sign_second', 'Antrag-ZP.pdf');
   await done(bstudent, 'submit_application');
@@ -195,10 +212,15 @@ assert.deepEqual([mdef.scales.note.pass, mdef.aggregates[0].from], [{ max: 4 }, 
   await expect(bsecond(`/tasks/${(await step(bsecond, 'grade_2')).id}/action`, { body: { action: 'assess', score: '1,7' } }));
   await expect(prof(`/tasks/${(await step(prof, 'grade_1')).id}/action`, { body: { action: 'assess', score: '2,3' } }));
   assert.ok(!(await view(bstudent, b)).tasks.some(t => t.assess), 'single grades stay with the examiners');
-  await expect(prof(`/cases/${b}/fields`, { method: 'PATCH', body: { fields: { grade: '2,0' } } })); // taken over from the calculated grade
   const result = await formOf(prof, 'result_form');
-  assert.deepEqual([valueIn(result, 'Note der Bachelor-Thesis'), valueIn(result, 'Ausgegeben am')], ['2,0', '01.03.2027'], 'grade and dates (German format)');
-  await put(prof, 'result_form', 'Abschlussnote.pdf');
+  assert.deepEqual([valueIn(result, 'Note der Bachelor-Thesis'), valueIn(result, 'Ausgegeben am')], ['', '01.03.2027'], 'dates in German format');
+  // The examiner types the grade into the form; uploaded by the team, it goes into the still empty field.
+  const graded = await expect(prof(`/cases/${b}/documents`, { form: file('Abschlussnote.pdf', await filledIn(result, { 'Note der Bachelor-Thesis': '2,0' }),
+    { task_id: (await step(prof, 'result_form')).id }) }));
+  assert.deepEqual(graded.form, { title: 'Mitteilung der Note der Bachelor-Thesis', differs: [], taken: ['Note der Bachelor-Thesis'] });
+  team = await view(prof, b);
+  assert.equal(team.case.fields.grade, '2,0', 'grade taken over from the form');
+  assert.ok(team.events.some(e => e.type === 'case.fields_updated' && e.payload.from), 'the log says where it came from');
   await put(bsecond, 'result_sign', 'Abschlussnote-ZP.pdf');
   await done(prof, 'result_office');
   await done(prof, 'booked');

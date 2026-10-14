@@ -9,6 +9,8 @@ import { loadTask, markBlocked } from './tasks.js';
 import { moneyStmts } from './finance.js';
 import { sendMail } from './notify.js';
 import { CONSENT_VERSION } from '../public/shared/consent.js';
+import { compareForm, readUploadedForm } from './forms.js';
+import { fieldStmts } from './cases.js';
 
 export const MAX_UPLOAD = 20 * 1024 * 1024;
 
@@ -37,15 +39,16 @@ export async function readUpload(file, strict, given) {
   const ext = file.name.split('.').pop().toLowerCase();
   const [contentType, magic] = FILE_TYPES[ext] ?? fail(415, 'Dateityp nicht erlaubt');
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const problem = magic.some((b, i) => bytes[i] !== b) ? 'Der Dateiinhalt passt nicht zur Dateiendung.' : await checkContent(ext, bytes, { strict });
+  const keep = {}; // the PDF's dictionaries, for reading a form without walking the file again
+  const problem = magic.some((b, i) => bytes[i] !== b) ? 'Der Dateiinhalt passt nicht zur Dateiendung.' : await checkContent(ext, bytes, { strict, keep });
   const sha256 = given ? (/^[0-9a-f]{64}$/.test(given) ? given : fail(400, 'Prüfsumme ungültig')) : hex(await crypto.subtle.digest('SHA-256', bytes));
-  return { bytes, contentType, problem, filename: file.name.slice(0, 200), size: file.size, sha256 };
+  return { bytes, contentType, problem, filename: file.name.slice(0, 200), size: file.size, sha256, pdf: keep.pdf };
 }
 
 // Stores a checked file as the next version of `doc` (a row, or a new document to create) and completes the task
 // it belongs to (decisions only get it attached). `actorId` is null and `label` set for uploads through a link or
-// mails into the case (`channel: 'mail'`, `extra`: subject and attachment names for the log).
-export async function storeVersion({ c, actorId, uploadedBy, label = null, channel = null, extra = {}, f, task, doc, stmts = [] }) {
+// mails into the case (`channel: 'mail'`, `extra`: subject and attachment names for the log). `byTeam`: uploaded by the team.
+export async function storeVersion({ c, actorId, uploadedBy, label = null, channel = null, extra = {}, f, task, doc, stmts = [], byTeam = false }) {
   if (doc.isNew) {
     stmts.unshift(q('INSERT INTO documents (id, case_id, title, doc_type, visible_to, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       doc.id, c.id, doc.title, doc.doc_type, JSON.stringify(doc.visible_to), uploadedBy, now()));
@@ -61,19 +64,30 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
   const completes = task && task.status === 'open' && !task.blocked && !DECISIONS.includes(task.type);
   // Digital signatures inside PDFs: stored with the version; a signer who used another key before is logged.
   const sigs = f.contentType === 'application/pdf' ? await readSignatures(f.bytes) : [];
+  // One of the case's forms, filled in: remembered with the version and compared with the case's fields. Values for
+  // fields that are still empty go in directly when the team uploads; from anyone else they wait for the team (a grade
+  // must not come from whoever filled in the PDF). Differences are logged and can trigger rules.
+  // (callers pass different parts of the case row: definition and current fields are read here)
+  const current = f.contentType === 'application/pdf' && await row('SELECT id, definition, fields FROM cases WHERE id = ?', c.id);
+  const def = current && JSON.parse(current.definition);
+  const form = current ? await readUploadedForm(def, f.pdf ?? f.bytes).catch(e => { console.error('form read', e.message); return null; }) : null;
+  const check = form && compareForm(def, JSON.parse(current.fields), form);
+  const taken = byTeam && check && Object.keys(check.missing).length ? fieldStmts(current, def, check.missing, actorId, { from: doc.title }) : { changed: [], stmts: [] };
   stmts.push(
-    q('INSERT INTO document_versions (id, document_id, version, filename, content_type, size, r2_key, uploaded_by, created_at, task_id, uploader_label, sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      versionId, doc.id, n, f.filename, f.contentType, f.size, key, uploadedBy, now(), task?.id ?? null, label, f.sha256),
+    q('INSERT INTO document_versions (id, document_id, version, filename, content_type, size, r2_key, uploaded_by, created_at, task_id, uploader_label, sha256, form_values) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      versionId, doc.id, n, f.filename, f.contentType, f.size, key, uploadedBy, now(), task?.id ?? null, label, f.sha256, form ? JSON.stringify(form) : null),
     ev(c.id, actorId, 'document.uploaded',
       { document: doc.title, version: n, filename: f.filename, version_id: versionId, sha256: f.sha256, ...(label && { via: label }), ...(channel && { channel }), ...extra,
         ...(task && { task: task.title, task_id: task.id, completed: completes }) },
       [...new Set([...arr(doc.visible_to), ...(task ? taskAudience(task) : [])])]),
     ...signatureStmts(versionId, sigs),
     ...await signatureEvents(c, versionId, doc, sigs, actorId),
+    ...taken.stmts,
+    ...(check?.differs.length ? [ev(c.id, actorId, 'form.mismatch', { document: doc.title, version_id: versionId, form: form.title, fields: check.differs }, [])] : []),
   );
   if (completes) stmts.push(q("UPDATE tasks SET status = 'done', completed_at = ?, completed_by = ? WHERE id = ?", now(), actorId, task.id));
   await DB.batch(stmts);
-  return { document_id: doc.id, version: n };
+  return { document_id: doc.id, version: n, ...(form && { form: { title: form.title, differs: check.differs, taken: taken.changed.map(x => x.label) } }) };
 }
 
 // Target document for an upload through a task: the existing one of the task's type (if the uploader may see it) or a new one.
@@ -119,7 +133,7 @@ export async function upload({ req, user, params }) {
     doc = { isNew: true, id: uid(), title: String(form.get('title') || dt?.label || f.filename).slice(0, 200), doc_type: docType, visible_to: dt?.visible_to ?? [] };
   }
   const stmts = task ? await moneyStmts(ctx, user, task, form.get('amount_cents')) : [];
-  return storeVersion({ c: ctx.c, actorId: user.id, uploadedBy: user.id, f, task, doc, stmts });
+  return storeVersion({ c: ctx.c, actorId: user.id, uploadedBy: user.id, f, task, doc, stmts, byTeam: ctx.staff });
 }
 
 // Spec 4.2 variant B: someone without an account (a practice, a workshop) uploads a file for exactly one task.

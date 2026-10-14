@@ -3,7 +3,7 @@ import { DECISIONS, NEEDS_FILE } from '../shared/vocab.js';
 import { change, on, submit } from '../state.js';
 import { api, date, DECISION_LABELS, due, eur, html, linkify, OUTCOME, plainEur, reload, TYPES } from '../lib.js';
 import { caseApi, guestRoles, holders, roleLabel } from './case.js';
-import { fileLink } from './documents.js';
+import { fileLink, formCheck, formNotice } from './documents.js';
 import { amountOf } from './finance.js';
 import { aggregate, formatScore } from '../shared/assess.js';
 
@@ -46,6 +46,7 @@ export function taskResult(t, d) {
     ${latest.id === v.id && doc.final ? html` <span class="tag approved">Endfassung</span>` : ''}
     ${latest.id !== v.id ? html` <span class="muted">· inzwischen v${latest.version}</span>` : ''}
     ${earlier.length ? html`<details><summary class="muted">${summary}</summary><ul class="rounds">${earlier.map(e => html`<li>${e.item}</li>`)}</ul></details>` : ''}
+    ${latest.id === v.id ? formCheck(v, d) : ''}
   </div>`;
 }
 
@@ -293,7 +294,7 @@ submit.complete = async (fd, form) => {
     up.append('file', file);
     up.append('task_id', form.dataset.id);
     if (amount_cents != null) up.append('amount_cents', amount_cents);
-    await api(caseApi('/documents'), { body: up });
+    formNotice(await api(caseApi('/documents'), { body: up }));
   } else {
     await api(`/tasks/${form.dataset.id}/action`, { body: { action: 'complete', amount_cents } });
   }

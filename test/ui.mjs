@@ -162,6 +162,21 @@ try {
     const image = xo.entries().some(([, ref]) => doc.context.lookup(ref).dict?.get(PDFName.of('Subtype')) === PDFName.of('Image')); // the logo
     return [doc.getTitle(), doc.getForm().getTextField('Matrikelnummer').getText(), pdfs[0].type, image];
   })`), ['Antrag auf Zulassung zur Bachelor-Thesis', '4242', 'application/pdf', true], 'prefilled PDF with the logo');
+  // Uploaded again with another matrikel: the team sees the difference on the case and can take the form's value
+  const sent = await evaluate(`import('/vendor/pdf-lib.esm.min.js').then(async ({ PDFDocument }) => {
+    const doc = await PDFDocument.load(await pdfs[0].arrayBuffer());
+    doc.getForm().getTextField('Matrikelnummer').setText('4243');
+    const fd = new FormData();
+    fd.append('file', new File([await doc.save()], 'Antrag.pdf', { type: 'application/pdf' }));
+    fd.append('doc_type', 'application');
+    return fetch('/api/cases/${thesis}/documents', { method: 'POST', body: fd }).then(r => r.json());
+  })`);
+  assert.deepEqual(sent.form?.differs, ['Matrikelnummer']);
+  await go(`#/case/${thesis}`, `!!document.querySelector('[data-on="takeFormValue"][data-key="matrikel"]')`);
+  assert.ok(await evaluate(has('weicht ab – im Formular „4243“, in den Angaben „4242“')), 'difference shown with both values');
+  await b.click('[data-on="takeFormValue"][data-key="matrikel"]');
+  await waitFor(`fetch('/api/cases/${thesis}').then(r => r.json()).then(c => c.case.fields.matrikel === '4243')`, 'Formularwert übernommen');
+  await waitFor(has('passt zu den Angaben'), 'Formular passt danach');
   await evaluate(`fetch('/api/cases/${thesis}', { method: 'DELETE' }).then(r => r.status)`);
   // … and previewed on the templates page, with the placeholders' names
   await go('#/templates', `!!document.querySelector('[data-on="previewForm"][data-key="ergebnis"]')`);

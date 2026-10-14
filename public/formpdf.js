@@ -13,6 +13,8 @@ const hexColor = (rgb, s, fallback) => (/^#[0-9a-f]{6}$/i.test(s ?? '') ? rgb(..
 
 // form: a filled form (shared/forms.js) plus the workspace's look (accent "#rrggbb", logo as PNG/JPEG data URL),
 // template name and date for the footer.
+import { fieldNames } from './shared/forms.js';
+
 export async function formPdf(form) {
   const { PDFDocument, PDFHexString, StandardFonts, rgb, setCharacterSpacing } = await import('./vendor/pdf-lib.esm.min.js');
   const doc = await PDFDocument.create();
@@ -41,15 +43,8 @@ export async function formPdf(form) {
   });
   const fit = (text, f, size, width) => { let s = safe(text); while (s.length > 1 && f.widthOfTextAtSize(s, size) > width) s = `${s.slice(0, -2)}…`; return s; };
 
-  // Field names must be unique and must not contain dots (they separate the field hierarchy).
-  const used = new Map();
-  const fieldName = label => {
-    const base = safe(label).replace(/[.[\]]/g, '').trim().slice(0, 60) || 'Feld';
-    const n = (used.get(base) ?? 0) + 1;
-    used.set(base, n);
-    return n > 1 ? `${base} (${n})` : base;
-  };
-
+  const nameList = fieldNames(form);
+  const names = new Map(form.items.map((it, i) => [it, nameList[i]]));
   let page, y;
   const pages = [];
   const text = (s, x, yy, { size = 9.5, f = font, color = C.ink, spacing = 0 } = {}) => {
@@ -127,7 +122,7 @@ export async function formPdf(form) {
   const field = (it, x, width, top) => {
     const h = boxHeight(it), by = top - 22 - h;
     text(fit(it.label, font, 7.5, width), x, top - 17, { size: 7.5, color: C.muted });
-    const tf = pdfForm.createTextField(fieldName(it.label));
+    const tf = pdfForm.createTextField(names.get(it).value);
     if ((it.lines ?? 1) > 1) tf.enableMultiline();
     tf.setText(safe(it.value ?? ''));
     tf.addToPage(page, { x, y: by, width, height: h, font, textColor: C.ink, backgroundColor: C.fill, borderWidth: 0 });
@@ -135,7 +130,7 @@ export async function formPdf(form) {
     underline(x, by, width);
   };
   const checkbox = (it, x, width, top) => {
-    const cb = pdfForm.createCheckBox(fieldName(it.label));
+    const cb = pdfForm.createCheckBox(names.get(it).value);
     cb.addToPage(page, { x, y: top - 21, width: 11, height: 11, borderColor: C.muted, borderWidth: 0.8, backgroundColor: C.white, textColor: C.accent });
     if (it.checked) cb.check();
     wrap(it.label, font, 9.5, width - 19).forEach((line, i) => text(line, x + 19, top - 19 - i * 13.5, { size: 9.5 }));
@@ -151,13 +146,13 @@ export async function formPdf(form) {
   const SIGNATURE = 72;
   const signature = it => {
     const h = 38, dateW = 150, sigX = M + dateW + GAP, sigW = CW - dateW - GAP, by = y - 12 - h;
-    const place = pdfForm.createTextField(fieldName(`Ort, Datum – ${it.sign}`));
+    const place = pdfForm.createTextField(names.get(it).place);
     place.setText(it.place ? safe(`${it.place}, `) : '');
     place.addToPage(page, { x: M, y: by, width: dateW, height: h, font, textColor: C.ink, backgroundColor: C.fill, borderWidth: 0 });
     place.setFontSize(10);
     page.drawRectangle({ x: sigX, y: by, width: sigW, height: h, color: C.fill });
     const sig = doc.context.register(doc.context.obj({
-      Type: 'Annot', Subtype: 'Widget', FT: 'Sig', T: PDFHexString.fromText(fieldName(it.sign)), F: 4, P: page.ref, Rect: [sigX, by, sigX + sigW, by + h],
+      Type: 'Annot', Subtype: 'Widget', FT: 'Sig', T: PDFHexString.fromText(names.get(it).sign), F: 4, P: page.ref, Rect: [sigX, by, sigX + sigW, by + h],
     }));
     page.node.addAnnot(sig);
     pdfForm.acroForm.addField(sig);
@@ -166,7 +161,7 @@ export async function formPdf(form) {
     text('Ort, Datum', M, by - 12, { size: 7.5, color: C.muted });
     const label = fit(it.sign, font, 7.5, sigW * 0.55), lw = font.widthOfTextAtSize(label, 7.5);
     text(label, sigX, by - 12, { size: 7.5, color: C.muted });
-    const who = pdfForm.createTextField(fieldName(`Name – ${it.sign}`));
+    const who = pdfForm.createTextField(names.get(it).name);
     who.setText(safe(it.name ?? ''));
     who.addToPage(page, { x: sigX + lw + 4, y: by - 17, width: sigW - lw - 4, height: 14, font: bold, textColor: C.ink, backgroundColor: undefined, borderColor: undefined, borderWidth: 0 });
     who.setFontSize(7.5);

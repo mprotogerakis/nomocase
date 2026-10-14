@@ -58,7 +58,7 @@ export async function getCase({ user, params }) {
     q(`SELECT t.*, cb.name AS completed_by_name FROM tasks t LEFT JOIN phases p ON p.id = t.phase_id LEFT JOIN users cb ON cb.id = t.completed_by
        WHERE t.case_id = ? ORDER BY p.position IS NULL, p.position, t.position, t.created_at`, id),
     q('SELECT * FROM documents WHERE case_id = ? ORDER BY created_at', id),
-    q(`SELECT v.id, v.document_id, v.version, v.filename, v.content_type, v.size, v.created_at, v.task_id, v.uploaded_by, v.sha256,
+    q(`SELECT v.id, v.document_id, v.version, v.filename, v.content_type, v.size, v.created_at, v.task_id, v.uploaded_by, v.sha256, v.form_values,
          COALESCE(v.uploader_label, u.name) AS uploader
        FROM document_versions v JOIN documents d ON d.id = v.document_id LEFT JOIN users u ON u.id = v.uploaded_by
        WHERE d.case_id = ? ORDER BY v.version`, id),
@@ -94,7 +94,8 @@ export async function getCase({ user, params }) {
     documents: visibleDocs.map(d => {
       const vs = versions.filter(v => v.document_id === d.id);
       return { ...d, visible_to: arr(d.visible_to), can_version: canVersion(d, vs),
-        versions: vs.map(({ uploaded_by, ...v }) => ({ ...v, mine: uploaded_by === user.id, signatures: signatures.filter(s => s.version_id === v.id) })) };
+        versions: vs.map(({ uploaded_by, form_values, ...v }) => ({ ...v, mine: uploaded_by === user.id, signatures: signatures.filter(s => s.version_id === v.id),
+          ...(ctx.staff && form_values && { form: JSON.parse(form_values) }) })) };
     }),
     events: events.filter(e => canSee(ctx, e)).map(e => ({ ...e, payload: JSON.parse(e.payload), visible_to: arr(e.visible_to) })),
     participants: ctx.staff ? parts : parts.filter(p => !p.revoked_at).map(({ name, role }) => ({ name, role })),
@@ -114,32 +115,37 @@ export async function getCase({ user, params }) {
   };
 }
 
-// Edit the case's field values (Angaben). Open tasks whose deadline came from a changed date field move with it.
+// Statements that set field values (checked like the Angaben form) and move open deadlines that come from a changed
+// date field: those of steps that remember the field, and older ones still on the old date.
 // The log names the changed fields, not their values (personal data stays out of the trail).
-export async function updateFields({ user, params, body }) {
-  const ctx = await caseCtx(user, params.id);
-  if (!ctx.staff) fail(403, 'Nur das Team bearbeitet die Angaben');
-  const input = body.fields && typeof body.fields === 'object' ? body.fields : fail(400, 'fields fehlt');
-  const old = JSON.parse(ctx.c.fields);
+export function fieldStmts(c, def, input, actorId, extra = {}) {
+  const old = JSON.parse(c.fields);
   const next = { ...old };
   const changed = [];
   for (const [key, value] of Object.entries(input)) {
-    const f = ctx.def.fields.find(x => x.key === key) ?? fail(400, `Unbekanntes Feld „${key}“`);
+    const f = def.fields.find(x => x.key === key) ?? fail(400, `Unbekanntes Feld „${key}“`);
     const v = String(value ?? '').trim().slice(0, 500);
     if (f.type === 'date' && v && !isDate(v)) fail(400, `${f.label}: Datum ungültig`);
     if ((old[key] ?? '') !== v) { next[key] = v; changed.push(f); }
   }
-  if (!changed.length) return { changed: 0 };
-  // Open steps whose deadline comes from a changed date field get the new date: those that remember the field, and
-  // older ones still on the old date.
+  if (!changed.length) return { changed, stmts: [] };
   const moves = changed.filter(f => f.type === 'date')
     .map(f => q("UPDATE tasks SET due_date = ? WHERE case_id = ? AND status = 'open' AND (due_field = ? OR (due_date IS NOT NULL AND due_date = ?))",
-      isDate(next[f.key]) ? next[f.key] : null, ctx.c.id, f.key, old[f.key] ?? ''));
-  await DB.batch([
-    q('UPDATE cases SET fields = ? WHERE id = ?', JSON.stringify(next), ctx.c.id),
+      isDate(next[f.key]) ? next[f.key] : null, c.id, f.key, old[f.key] ?? ''));
+  return { changed, stmts: [
+    q('UPDATE cases SET fields = ? WHERE id = ?', JSON.stringify(next), c.id),
     ...moves,
-    ev(ctx.c.id, user.id, 'case.fields_updated', { fields: changed.map(f => f.label) }, []),
-  ]);
+    ev(c.id, actorId, 'case.fields_updated', { fields: changed.map(f => f.label), ...extra }, []),
+  ] };
+}
+
+// Edit the case's field values (Angaben).
+export async function updateFields({ user, params, body }) {
+  const ctx = await caseCtx(user, params.id);
+  if (!ctx.staff) fail(403, 'Nur das Team bearbeitet die Angaben');
+  const input = body.fields && typeof body.fields === 'object' ? body.fields : fail(400, 'fields fehlt');
+  const { changed, stmts } = fieldStmts(ctx.c, ctx.def, input, user.id);
+  if (changed.length) await DB.batch(stmts);
   return { changed: changed.length };
 }
 

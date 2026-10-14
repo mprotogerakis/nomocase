@@ -61,6 +61,9 @@ veröffentlicht mit `npm run templates`, Produktion: `npm run templates -- --rem
 - **Formulare** (`forms`) beschreibt die Vorlage als Daten; am Schritt erscheint „Formular … vorausgefüllt herunterladen“.
   Der Server setzt die Werte des Vorgangs ein (wer den Schritt sieht, bekommt genau die Werte im Formular), der Browser
   erzeugt eine ausfüllbare PDF mit echten Signaturfeldern – digital unterschrieben erkennt die Signaturprüfung die Personen.
+  Kommt das ausgefüllte Formular zurück, liest NomoCase die Felder: Abweichungen von den Angaben (z. B. ein geändertes
+  Thema) erscheinen als Warnung, Werte für noch leere Angaben (z. B. die Note) übernimmt das Team – bei eigenen Uploads
+  automatisch, bei Uploads von außen per Knopf.
   Beispiel nach dem Prozessplan des FB EI: „Praxisprojekt (B.Eng.)“ in `seed.sql`, durchgespielt in `test/praxisprojekt.mjs`.
   Ein Vorgang kopiert die Definition; Phasen und Aufgaben werden zu eigenen Zeilen und sind danach frei änderbar.
 - **Rollen** sind Plätze im Vorgang (z. B. „Studierende:r“). Personen werden in eine Rolle eingeladen; Aufgaben und

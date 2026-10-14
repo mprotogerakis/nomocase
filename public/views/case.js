@@ -30,7 +30,8 @@ const EVENTS = {
   'document.version_deleted': p => `hat Version ${p.version} von „${p.document}“ gelöscht`,
   'upload_link.created': p => `hat einen Upload-Link für „${p.task}“ erstellt (${p.label}, ${p.days} Tage gültig)`,
   'upload_link.revoked': p => `hat die Upload-Links für „${p.task}“ widerrufen`,
-  'case.fields_updated': p => `hat die Angaben geändert (${p.fields.join(', ')})`,
+  'case.fields_updated': p => (p.from ? `hat aus „${p.from}“ in die Angaben übernommen: ${p.fields.join(', ')}` : `hat die Angaben geändert (${p.fields.join(', ')})`),
+  'form.mismatch': p => `Achtung: „${p.document}“ passt nicht zu den Angaben (${p.fields.join(', ')})`,
   'subcase.created': p => `hat den Teilvorgang „${p.title}“ angelegt (Vorlage ${p.template})`,
   'subcase.closed': p => `hat den Teilvorgang „${p.title}“ abgeschlossen`,
   'case.saved_as_template': p => `hat den Ablauf als Vorlage „${p.template}“ (Version ${p.version}) gespeichert`,
@@ -283,7 +284,7 @@ const RULE_TRIGGER = {
   'document.uploaded': 'ein Dokument hochgeladen wird', 'task.complete': 'eine Aufgabe erledigt wird',
   'task.approve': 'eine Prüfung oder Entscheidung positiv ausfällt', 'task.reject': 'eine Prüfung oder Entscheidung negativ ausfällt',
   'task.question': 'eine Rückfrage gestellt wird', 'request.created': 'ein Anliegen eingereicht wird', comment: 'eine Nachricht geschrieben wird',
-  'signature.changed': 'jemand mit einem anderen Schlüssel als bisher signiert', 'claim.added': 'eine Forderung erfasst wird', 'decision.added': 'eine Entscheidung erfasst wird', 'transaction.booked': 'eine Zahlung gebucht wird',
+  'signature.changed': 'jemand mit einem anderen Schlüssel als bisher signiert', 'form.mismatch': 'ein hochgeladenes Formular von den Angaben abweicht', 'claim.added': 'eine Forderung erfasst wird', 'decision.added': 'eine Entscheidung erfasst wird', 'transaction.booked': 'eine Zahlung gebucht wird',
   'case.closed': 'der Vorgang abgeschlossen wird', 'participant.joined': 'jemand dem Vorgang beitritt', 'subcase.closed': 'ein Teilvorgang abgeschlossen wird',
 };
 

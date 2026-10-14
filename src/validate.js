@@ -11,9 +11,10 @@ const PDF_ACTIVE = new RegExp(`/(JavaScript|JS|Launch|RichMedia|XFA|SubmitForm|I
 const PDF_EMBEDDED = new RegExp(`/(EmbeddedFiles?)${END}`);
 const MAX_INFLATE = 20 << 20;
 
-export async function checkContent(ext, bytes, { strict = true } = {}) {
+// `keep`: an object that receives the PDF's dictionaries (keep.pdf) for later readers, so the file is walked only once.
+export async function checkContent(ext, bytes, { strict = true, keep = {} } = {}) {
   try {
-    if (ext === 'pdf') return await checkPdf(bytes, strict);
+    if (ext === 'pdf') return await checkPdf(bytes, strict, keep);
     if (['docx', 'xlsx', 'odt'].includes(ext)) return await checkZip(bytes);
     if (ext === 'txt') return checkText(bytes);
     return null; // images: type and magic bytes are checked by the caller
@@ -41,7 +42,9 @@ function find(b, pattern, from) {
   return -1;
 }
 
-async function checkPdf(bytes, strict) {
+// The PDF's dictionaries as text: everything outside stream bodies, plus the inflated object streams (in file order,
+// so later incremental updates come later). Returns { problem } for files that cannot be checked (strict: more of them).
+export async function pdfDictionaries(bytes, strict = false) {
   const parts = [];
   let budget = MAX_INFLATE;
   let pos = 0; // start of the region not yet collected
@@ -62,12 +65,12 @@ async function checkPdf(bytes, strict) {
     parts.push(region);
     // A stream body is opaque data; an object inside it means the /Length was crafted to hide that object from us.
     if (strict && find(bytes.subarray(start, end), ENDOBJ, 0) !== -1) {
-      return 'Die PDF hat eine ungewöhnliche Struktur und wurde nicht angenommen. Bitte über „Drucken als PDF“ neu erzeugen.';
+      return { problem: 'Die PDF hat eine ungewöhnliche Struktur und wurde nicht angenommen. Bitte über „Drucken als PDF“ neu erzeugen.' };
     }
     if (/\/Type\s*\/ObjStm/.test(dict)) {
       const decoded = /\/FlateDecode/.test(dict) ? await inflate(bytes.subarray(start, end), 'deflate', budget).catch(() => null) : null;
       if (decoded == null) {
-        if (strict) return 'Die PDF enthält Bereiche, die nicht geprüft werden können. Bitte über „Drucken als PDF“ neu erzeugen.';
+        if (strict) return { problem: 'Die PDF enthält Bereiche, die nicht geprüft werden können. Bitte über „Drucken als PDF“ neu erzeugen.' };
       } else {
         budget -= decoded.length;
         parts.push(decoded);
@@ -77,7 +80,14 @@ async function checkPdf(bytes, strict) {
     i = end;
   }
   parts.push(latin1(bytes.subarray(pos)));
-  const skeleton = withoutFormatting(unescapeNames(parts.join('\n')));
+  return { text: parts.join('\n') };
+}
+
+async function checkPdf(bytes, strict, keep) {
+  const { problem, text } = await pdfDictionaries(bytes, strict);
+  if (problem) return problem;
+  keep.pdf = text;
+  const skeleton = withoutFormatting(unescapeNames(text));
 
   const active = skeleton.match(PDF_ACTIVE)?.[1];
   if (active) return `Die PDF enthält aktive Inhalte (${active}) und wurde nicht angenommen. Bitte über „Drucken als PDF“ ohne Skripte neu erzeugen.`;

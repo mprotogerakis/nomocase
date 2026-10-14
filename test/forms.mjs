@@ -6,6 +6,7 @@ import { fillForm, formProblems } from '../public/shared/forms.js';
 import { formPdf } from '../public/formpdf.js';
 import { checkContent } from '../src/validate.js';
 import { readSignatures } from '../src/pdfsig.js';
+import { readFormFields } from '../src/pdfform.js';
 import { decodePDFRawStream, PDFArray, PDFCheckBox, PDFDocument, PDFSignature, PDFTextField } from '../public/vendor/pdf-lib.esm.min.js';
 
 const root = new URL('../', import.meta.url);
@@ -59,6 +60,21 @@ for (const value of ['Lucja', '4711', 'Testfall']) assert.ok(!printed.includes(h
 
 assert.equal(await checkContent('pdf', bytes), null, 'passes the strict upload check');
 assert.deepEqual(await readSignatures(bytes, []), [], 'empty signature fields are not signatures');
+
+// Reading a filled-in form back (on upload): as generated, after filling it in a PDF reader (here pdf-lib, which saves
+// with compressed object streams), and after an appended update (the way Acrobat saves) with a UTF-16 value.
+let read = await readFormFields(bytes);
+assert.deepEqual([read.get('Nummer'), read.get('intern'), read.get('extern'), read.get('Name – Unterschrift Leiterin'), read.get('Begründung')],
+  ['4711', true, false, 'Dr. Lucja Zólc', ''], 'values as generated');
+const edited = await PDFDocument.load(bytes);
+edited.getForm().getTextField('Begründung').setText('Weil – „Grund“ (ü)');
+edited.getForm().getCheckBox('extern').check();
+const saved = await edited.save();
+read = await readFormFields(saved);
+assert.deepEqual([read.get('Begründung'), read.get('extern'), read.get('Nummer')], ['Weil – „Grund“ (ü)', true, '4711'], 'filled in a PDF reader');
+const appended = new Uint8Array([...saved, ...new TextEncoder().encode('\n99 0 obj\n<< /FT /Tx /T (Nummer) /V (\\376\\377\\000M\\000\\374) >>\nendobj\n%%EOF\n')]);
+assert.equal((await readFormFields(appended)).get('Nummer'), 'Mü', 'the last definition wins (incremental update)');
+assert.equal((await readFormFields(new TextEncoder().encode('%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF'))).size, 0, 'no form, no fields');
 
 // A long form flows onto further pages, each with a footer.
 const long = await formPdf(fillForm({ key: 'l', title: 'Lang', items: Array.from({ length: 40 }, (_, i) => ({ label: `Feld ${i}` })) }, () => ''));

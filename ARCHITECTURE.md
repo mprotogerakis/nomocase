@@ -44,7 +44,8 @@ Widerspruch ist, weiß nur die jeweilige Vorlage – nicht der Code.
 | `validate.js` | Inhaltsprüfung hochgeladener Dateien (aktive Inhalte in PDF/Office) |
 | `pdfsig.js` | Digitale Signaturen in PDFs lesen und prüfen (CMS/PAdES, RSA/ECDSA, Kette zu vertrauenswürdigen Ausstellern) – rein, ohne DB |
 | `signatures.js` | Signaturen speichern und deuten: bekannter Schlüssel, vertrauenswürdiger Aussteller, „andere Signatur als bisher“; Zuordnen |
-| `forms.js` | Formular eines Schritts mit den Werten des Vorgangs füllen (nur wer den Schritt sieht, nur was im Formular steht) |
+| `forms.js` | Formular eines Schritts mit den Werten des Vorgangs füllen (nur wer den Schritt sieht, nur was im Formular steht); hochgeladene Formulare erkennen und mit den Angaben abgleichen |
+| `pdfform.js` | Feldwerte ausgefüllter PDF-Formulare lesen (AcroForm, auch Objekt-Streams und angehängte Änderungen) – rein, ohne DB |
 
 Abhängigkeiten zeigen nach innen: `worker` → Fachmodule → `access` → `core`. Zwischen Fachmodulen gibt es
 Aufrufe in beide Richtungen, aber nur zur Laufzeit (keine Auswertung beim Laden).
@@ -122,5 +123,7 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
       Workspace, Warnung bei anderem Schlüssel (Ereignis `signature.changed`, Regel-Auslöser); keine Rechtsprüfung, kein CRL/OCSP
 - [x] Formulare aus der Vorlage: vorausgefüllte, ausfüllbare PDFs mit Signaturfeldern, Logo und Akzentfarbe je Workspace,
   Vorschau auf der Vorlagenseite (Bachelor-Thesis: Zulassung, Verlängerung, Notenmitteilung)
-- [ ] Formulare auch für Praxisprojekt und Masterprojekt; Werte aus hochgeladenen Formularen zurücklesen (z. B. Note)
+- [x] Hochgeladene Formulare zurücklesen: an den Feldnamen erkannt, Abweichungen von den Angaben als Warnung (Ereignis
+  `form.mismatch`, auch Regel-Auslöser), leere Angaben aus Team-Uploads direkt übernommen, von außen per Knopf
+- [ ] Formulare auch für Praxisprojekt und Masterprojekt
 - [ ] Workspace-Änderungen (Mitglieder, Name) protokollieren; das Ereignisprotokoll kennt bisher nur Vorgänge

@@ -53,6 +53,37 @@ change.assignSig = async el => {
   reload();
 };
 
+// What an uploaded form says against the case's current fields (team, latest version): differences and values for
+// empty fields, each with a button to take the form's value into the Angaben.
+const plain = s => String(s ?? '').replace(/\s+/g, ' ').trim();
+export function formCheck(v, d) {
+  if (!v.form || !d.me.staff) return '';
+  const field = k => d.definition.fields.find(f => f.key === k);
+  const shown = (k, val) => (field(k)?.type === 'date' && /^\d{4}-\d\d-\d\d$/.test(val) ? date(val) : val);
+  const usable = (k, val) => field(k)?.type !== 'date' || /^\d{4}-\d\d-\d\d$/.test(val);
+  const take = (k, val, label) => (usable(k, val) ? html` <button class="link" data-on="takeFormValue" data-key="${k}" data-value="${val}">${label}</button>` : '');
+  const cur = d.case.fields;
+  const entries = Object.entries(v.form.fields);
+  // a field changed in the Angaben after this upload (e.g. the new deadline after an extension) was changed on purpose
+  const changedSince = k => d.events.some(e => e.type === 'case.fields_updated' && e.created_at > v.created_at && e.payload.fields.includes(field(k)?.label));
+  const differs = entries.filter(([k, val]) => plain(cur[k]) && plain(cur[k]) !== plain(val) && !changedSince(k));
+  const missing = entries.filter(([k]) => !plain(cur[k]));
+  if (!differs.length && !missing.length) return html`<div class="small muted">Formular „${v.form.title}“: passt zu den Angaben.</div>`;
+  return html`<div class="small formcheck">Formular „${v.form.title}“:
+    ${differs.map(([k, val]) => html`<div class="warn">${field(k)?.label ?? k} weicht ab – im Formular „${shown(k, val)}“, in den Angaben „${shown(k, cur[k])}“${take(k, val, 'Angaben anpassen')}</div>`)}
+    ${missing.map(([k, val]) => html`<div>${field(k)?.label ?? k} steht im Formular („${shown(k, val)}“), in den Angaben noch nicht.${take(k, val, 'übernehmen')}</div>`)}
+  </div>`;
+}
+on.takeFormValue = async ({ key, value }) => { await api(caseApi('/fields'), { method: 'PATCH', body: { fields: { [key]: value } } }); reload(); };
+
+// After an upload: what the server noticed in a form (also for the uploader outside the team, names of fields only).
+export function formNotice(res) {
+  const f = res?.form;
+  const lines = [f?.taken.length && `In die Angaben übernommen: ${f.taken.join(', ')}.`,
+    f?.differs.length && `Achtung: Im Formular „${f.title}“ weicht von den Angaben des Vorgangs ab: ${f.differs.join(', ')}. Bitte prüfen.`].filter(Boolean);
+  if (lines.length) alert(lines.join('\n'));
+}
+
 export const fileLink = (v, label) => html`<a href="/api/files/${v.id}" target="_blank">${label}</a>`;
 
 export const documents = d => html`${d.documents.length ? '' : html`<p class="muted small">Noch keine Dokumente.</p>`}
@@ -63,6 +94,7 @@ export const documents = d => html`${d.documents.length ? '' : html`<p class="mu
       ${v.sha256 ? html`<button class="link small hash" data-on="copyHash" data-hash="${v.sha256}" title="SHA-256: ${v.sha256} – klicken zum Kopieren">SHA-256 ${shortHash(v.sha256)}</button>` : ''}
       ${d.me.staff || (v.mine && i === all.length - 1 && !doc.final) ? html` <button class="link small" data-on="deleteVersion" data-id="${v.id}" data-name="${v.filename}">löschen</button>` : ''}
       ${signatures(v, d)}
+      ${i === all.length - 1 ? formCheck(v, d) : ''}
     </li>`)}</ol>
     ${d.me.staff ? html`<div class="row small">
       ${guestRoles(d).length ? html`Freigegeben für:
@@ -104,6 +136,6 @@ submit.upload = async fd => {
     fd.set('amount_cents', cents);
   }
   fd.delete('amount');
-  await api(caseApi('/documents'), { body: fd });
+  formNotice(await api(caseApi('/documents'), { body: fd }));
   reload();
 };

@@ -556,8 +556,11 @@
             "value": "{field.company_name}"
           },
           {
-            "label": "Name und Anschrift der Firma / des Instituts",
-            "value": "{field.company_name}",
+            "label": "Name der Firma / des Instituts",
+            "value": "{field.company_name}"
+          },
+          {
+            "label": "Anschrift der Firma / des Instituts",
             "lines": 2
           },
           {
