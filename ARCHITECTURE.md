@@ -39,7 +39,8 @@ Widerspruch ist, weiß nur die jeweilige Vorlage – nicht der Code.
 | `documents.js` | Upload-Prüfung, Fassungen in R2, Upload-Links, Downloads |
 | `people.js` | Einladungen (auch die Annahme von Workspace-Einladungen), Beteiligte, Personenübersicht |
 | `workspaces.js` | Workspaces anlegen/umbenennen/löschen, Mitglieder (Owner/Mitglied), Workspace-Einladungen |
-| `notify.js` | Mail über Resend, Tageskontingente, Tagesübersicht, gebündelte Fortschrittsmails |
+| `notify.js` | Mail über Resend, Tageskontingente, Tagesübersicht, gebündelte Fortschrittsmails, Testmail |
+| `inbox.js` | Mail in einen Vorgang: Adresse je Vorgang, Empfang über Cloudflare Email Routing, Ablage als `.eml` |
 | `validate.js` | Inhaltsprüfung hochgeladener Dateien (aktive Inhalte in PDF/Office) |
 | `pdfsig.js` | Digitale Signaturen in PDFs lesen und prüfen (CMS/PAdES, RSA/ECDSA, Kette zu vertrauenswürdigen Ausstellern) – rein, ohne DB |
 | `signatures.js` | Signaturen speichern und deuten: bekannter Schlüssel, vertrauenswürdiger Aussteller, „andere Signatur als bisher“; Zuordnen |
@@ -103,6 +104,8 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
       (gleiche Annahme-Seite und gleicher Kontoschutz wie bei Vorgängen); der letzte Owner bleibt
 - [x] Vorlagen löschen bzw. archivieren (wenn schon in Vorgängen), „läuft in N Vorgängen“, wiederherstellen
 - [x] Offene Tabs bemerken neue Deployments (`/api/version`, Binding `CF_VERSION_METADATA`) und laden neu
+- [x] Mail in Vorgänge: Adresse `v-…@INBOX_DOMAIN` je Vorgang, `.eml` als Dokument (nur Team), je Message-ID einmal
+- [ ] Anhänge eingehender Mails als eigene, geprüfte Dokumente
 - [ ] Produkt: Massenanlage zum Semesterstart
 - [x] Digitale Signaturen in PDFs: Schlüssel wiedererkennen (Erstkontakt + Bestätigung), vertrauenswürdige Aussteller je
       Workspace, Warnung bei anderem Schlüssel (Ereignis `signature.changed`, Regel-Auslöser); keine Rechtsprüfung, kein CRL/OCSP

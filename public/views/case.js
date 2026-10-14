@@ -21,7 +21,8 @@ const EVENTS = {
   'task.skip': p => `hat „${p.task}“ übersprungen`,
   'task.reopen': p => `hat „${p.task}“ wieder geöffnet`,
   'request.created': p => `hat ein Anliegen eingereicht: „${p.task}“`,
-  'document.uploaded': p => `hat „${p.document}“ hochgeladen (v${p.version}: ${p.filename}${p.sha256 ? `, SHA-256 ${shortHash(p.sha256)}` : ''})${p.completed ? ` und damit „${p.task}“ erledigt` : p.task ? ` zu „${p.task}“` : ''}`,
+  'document.uploaded': p => (p.channel === 'mail' ? `E-Mail „${p.subject}“${p.attachments?.length ? ` mit Anhang: ${p.attachments.join(', ')}` : ''} abgelegt (SHA-256 ${shortHash(p.sha256)})`
+    : `hat „${p.document}“ hochgeladen (v${p.version}: ${p.filename}${p.sha256 ? `, SHA-256 ${shortHash(p.sha256)}` : ''})${p.completed ? ` und damit „${p.task}“ erledigt` : p.task ? ` zu „${p.task}“` : ''}`),
   'upload.rejected': p => `wollte „${p.filename}“ hochladen – abgelehnt`,
   'document.updated': p => `hat Freigabe oder Status von „${p.document}“ geändert${p.final ? ' (Endfassung)' : ''}`,
   'role.added': p => `hat die Rolle „${p.role}“ angelegt`,
@@ -79,7 +80,7 @@ function eventItem(e, d) {
   const text = e.payload.body ?? e.payload.note ?? e.payload.description;
   return html`<li class="ev ${e.type === 'comment' ? 'comment' : ''}">
     <div class="small muted">${dateTime(e.created_at)}${d.me.staff ? audienceTag(e.visible_to, d) : ''}</div>
-    <div><b>${e.actor ?? e.payload.via ?? (e.payload.rule ? 'Automatik' : 'System')}</b>${e.payload.via ? html` <span class="tag">Upload-Link</span>` : ''} ${e.type === 'comment' ? '' : EVENTS[e.type]?.(e.payload, d) ?? e.type}
+    <div><b>${e.actor ?? e.payload.via ?? (e.payload.rule ? 'Automatik' : 'System')}</b>${e.payload.via ? html` <span class="tag">${e.payload.channel === 'mail' ? 'E-Mail' : 'Upload-Link'}</span>` : ''} ${e.type === 'comment' ? '' : EVENTS[e.type]?.(e.payload, d) ?? e.type}
       ${e.payload.rule ? html`<span class="tag">Regel: ${e.payload.rule}</span>` : ''}</div>
     ${text ? html`<p>${linkify(text)}</p>` : ''}
   </li>`;
@@ -173,6 +174,9 @@ function staffCase(d) {
         ${financeSection(d)}
         ${participantsSection(d)}
         <h3>Dokumente</h3>${documents(d)}${verifyFile()}
+        ${d.case.inbox ? html`<p class="small">E-Mails an diesen Vorgang: <code>${d.case.inbox}</code>
+          <button class="link" data-on="copyText" data-text="${d.case.inbox}">kopieren</button><br>
+          <span class="muted">In CC setzen: Jede Mail wird als Dokument abgelegt (nur für das Team sichtbar, freigebbar wie andere Dokumente).</span></p>` : ''}
         ${subcasesSection(d)}
         ${rulesSection(d)}
         ${d.me.owner ? html`<h3>Vorgang</h3>
@@ -382,6 +386,8 @@ on.reinvite = async ({ email, role }) => {
   else alert(`Neue Einladung an ${email} verschickt.`);
   reload();
 };
+
+on.copyText = async ({ text }, el) => { await navigator.clipboard.writeText(text); el.textContent = 'kopiert'; };
 
 on.withdraw = async ({ email }) => {
   if (!confirm(`Einladung an ${email} zurückziehen?`)) return;

@@ -11,6 +11,7 @@ import { createUploadLink, deleteVersion, download, getUploadLink, revokeUploadL
 import { acceptInvitation, getInvitation, invite, peopleOverview, revoke, withdrawInvitation } from './people.js';
 import { DAILY_CRON, sendDigests, sendProgress, testMail } from './notify.js';
 import { addSigningKey, addTrustedIssuer, assignSignature, claimSignature, mySigningKeys, removeSigningKey, removeTrustedIssuer } from './signatures.js';
+import { receiveMail } from './inbox.js';
 import { createWorkspace, deleteWorkspace, inviteToWorkspace, listWorkspaces, removeMember, renameWorkspace, setMemberRole, withdrawWorkspaceInvitation } from './workspaces.js';
 
 const ROUTES = [
@@ -110,6 +111,17 @@ export default {
       if (e instanceof HttpError) return json({ error: e.message }, e.status);
       console.error(e);
       return json({ error: 'Interner Fehler' }, 500);
+    }
+  },
+
+  // Mail to a case address (Cloudflare Email Routing → this Worker). A failure bounces with a reason, nothing is lost silently.
+  async email(message, env) {
+    init(env);
+    try {
+      await receiveMail(message);
+    } catch (e) {
+      console.error('mail in failed', e.message);
+      message.setReject('Die Mail konnte gerade nicht gespeichert werden. Bitte später erneut senden.');
     }
   },
 

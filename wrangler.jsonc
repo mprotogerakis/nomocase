@@ -8,7 +8,9 @@
   // The former domain stays attached only to send old links (mails, bookmarks) on to the canonical one (REDIRECT_HOSTS).
   "routes": [{ "pattern": "nomocase.example.org", "custom_domain": true }, { "pattern": "nomocase-old.example.org", "custom_domain": true }],
   // Mail goes out via Resend; the API key is the secret RESEND_API_KEY (wrangler secret put).
-  "vars": { "ORIGIN": "https://nomocase.example.org", "MAIL_FROM": "NomoCase <noreply@nomocase.example.org>", "REDIRECT_HOSTS": "nomocase-old.example.org" },
+  // INBOX_DOMAIN: case addresses v-<inbox>@… (Cloudflare Email Routing, catch-all → this Worker). Unset = no case mail.
+  "vars": { "ORIGIN": "https://nomocase.example.org", "MAIL_FROM": "NomoCase <noreply@nomocase.example.org>", "REDIRECT_HOSTS": "nomocase-old.example.org",
+    "INBOX_DOMAIN": "example.org" },
   // Both stores are restricted to the EU jurisdiction (GDPR: health and university data).
   "d1_databases": [{ "binding": "DB", "database_name": "nomocase", "database_id": "00000000-0000-0000-0000-000000000000" }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "nomocase-files", "jurisdiction": "eu" }],

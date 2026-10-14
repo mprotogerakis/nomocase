@@ -3,6 +3,7 @@ import { ACCESS, arr, DB, DECISIONS, ev, fail, isDate, now, q, row, rows, TASK_T
 import { caseCtx, requireWsOwner } from './access.js';
 import { RULE_ACTIONS, RULE_OPS, RULE_TRIGGERS } from './rules.js';
 import { scaleProblem } from '../public/shared/assess.js';
+import { newInbox } from './inbox.js';
 
 export function checkDef(d) {
   const ok = (cond, msg) => cond || fail(400, `Vorlage ungültig: ${msg}`);
@@ -147,12 +148,12 @@ export function instantiate(tpl, { title, fields: input = {}, ownerId, actorId =
   const ownerRole = def.roles.find(r => r.access === 'case_owner').key;
   const taskIds = Object.fromEntries(def.phases.flatMap(p => p.tasks).map(t => [t.key, uid()]));
   const stmts = [
-    q('INSERT INTO cases (id, workspace_id, template_id, template_version, title, definition, fields, created_at, parent_case_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    q('INSERT INTO cases (id, workspace_id, template_id, template_version, title, definition, fields, created_at, parent_case_id, inbox) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       caseId, tpl.workspace_id, tpl.id, tpl.version, title,
       JSON.stringify({ roles: def.roles, fields: def.fields, document_types: def.document_types, finance: def.finance ?? false, retention_days: def.retention_days ?? null,
         ...(def.due_base_field && { due_base_field: def.due_base_field }),
         rules: def.rules ?? [], ...(def.scales && { scales: def.scales }), ...(def.aggregates?.length && { aggregates: def.aggregates }) }),
-      JSON.stringify(fields), ts, parentId),
+      JSON.stringify(fields), ts, parentId, newInbox()),
     q('INSERT INTO case_participants (case_id, user_id, access, role, created_at) VALUES (?, ?, ?, ?, ?)', caseId, ownerId, 'case_owner', ownerRole, ts),
   ];
   def.phases.forEach((p, i) => {

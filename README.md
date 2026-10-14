@@ -104,6 +104,10 @@ veröffentlicht mit `npm run templates`, Produktion: `npm run templates -- --rem
   Änderungsstand (letzte Event-ID; in der Übersicht zusätzlich die Zahl der Vorgänge) und laden bei Änderung neu, Scrollposition
   bleibt. Wird gerade getippt oder ist ein Menü offen, erscheint nur „Es gibt Neuigkeiten · Aktualisieren“. Upgrade-Pfad bei
   vielen gleichzeitigen Nutzern: Durable Object mit WebSockets.
+- **E-Mails an Vorgänge**: Jeder Vorgang hat eine nicht erratbare Adresse `v-…@example.org` (Details, nur Team). Mails an
+  diese Adresse (auch in CC) landen als `.eml`-Dokument im Vorgang – Titel = Betreff, Absender als Hochlader, Anhänge im Verlauf,
+  nur für das Team sichtbar, je Message-ID einmal; unbekannte Adressen werden abgewiesen, höchstens 100 Mails pro Vorgang und Tag.
+  Einrichtung: Cloudflare Email Routing für `example.org`, Catch-all → Worker `nomocase`; Domain per `INBOX_DOMAIN`.
 - **Digitale Signaturen in PDFs**: Beim Upload liest NomoCase eingebettete Signaturen (Acrobat/PAdES) aus und prüft, ob die
   signierten Bytes unverändert sind. Ein Schlüssel wird einer Person zugeordnet – durch sie selbst („Das ist meine Signatur“,
   nur wenn das Zertifikat sie nennt), per Probe-PDF im Konto oder durch die Vorgangsverantwortlichen. Danach heißt es

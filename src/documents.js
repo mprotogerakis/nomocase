@@ -9,7 +9,7 @@ import { loadTask, markBlocked } from './tasks.js';
 import { moneyStmts } from './finance.js';
 import { sendMail } from './notify.js';
 
-const MAX_UPLOAD = 20 * 1024 * 1024;
+export const MAX_UPLOAD = 20 * 1024 * 1024;
 
 const ZIP = [0x50, 0x4b, 0x03, 0x04];
 
@@ -42,8 +42,9 @@ export async function readUpload(file, strict, given) {
 }
 
 // Stores a checked file as the next version of `doc` (a row, or a new document to create) and completes the task
-// it belongs to (decisions only get it attached). `actorId` is null and `label` set for uploads through a link.
-async function storeVersion({ c, actorId, uploadedBy, label = null, f, task, doc, stmts = [] }) {
+// it belongs to (decisions only get it attached). `actorId` is null and `label` set for uploads through a link or
+// mails into the case (`channel: 'mail'`, `extra`: subject and attachment names for the log).
+export async function storeVersion({ c, actorId, uploadedBy, label = null, channel = null, extra = {}, f, task, doc, stmts = [] }) {
   if (doc.isNew) {
     stmts.unshift(q('INSERT INTO documents (id, case_id, title, doc_type, visible_to, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       doc.id, c.id, doc.title, doc.doc_type, JSON.stringify(doc.visible_to), uploadedBy, now()));
@@ -63,7 +64,7 @@ async function storeVersion({ c, actorId, uploadedBy, label = null, f, task, doc
     q('INSERT INTO document_versions (id, document_id, version, filename, content_type, size, r2_key, uploaded_by, created_at, task_id, uploader_label, sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       versionId, doc.id, n, f.filename, f.contentType, f.size, key, uploadedBy, now(), task?.id ?? null, label, f.sha256),
     ev(c.id, actorId, 'document.uploaded',
-      { document: doc.title, version: n, filename: f.filename, version_id: versionId, sha256: f.sha256, ...(label && { via: label }),
+      { document: doc.title, version: n, filename: f.filename, version_id: versionId, sha256: f.sha256, ...(label && { via: label }), ...(channel && { channel }), ...extra,
         ...(task && { task: task.title, task_id: task.id, completed: completes }) },
       [...new Set([...arr(doc.visible_to), ...(task ? taskAudience(task) : [])])]),
     ...signatureStmts(versionId, sigs),

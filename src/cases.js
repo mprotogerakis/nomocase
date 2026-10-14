@@ -6,6 +6,7 @@ import { markBlocked } from './tasks.js';
 import { financeSummary, loadFinance, sum } from './finance.js';
 import { deDate, sendMail } from './notify.js';
 import { explainSignatures } from './signatures.js';
+import { inboxAddress } from './inbox.js';
 
 export async function createCase({ user, body }) {
   const tpl = (await latestTemplate(body.template_id)) ?? fail(404, 'Vorlage nicht gefunden');
@@ -79,7 +80,7 @@ export async function getCase({ user, params }) {
     case: {
       id, title: ctx.c.title, status: ctx.c.status, fields: ctx.staff ? JSON.parse(ctx.c.fields) : {}, created_at: ctx.c.created_at,
       template_name: ctx.c.template_name, template_version: ctx.c.template_version, phase: currentPhase(phases, tasks),
-      template_id: ctx.c.template_id, workspace_id: ctx.c.workspace_id,
+      template_id: ctx.c.template_id, workspace_id: ctx.c.workspace_id, inbox: ctx.staff ? inboxAddress(ctx.c) : null,
       closed_at: ctx.c.closed_at, retention_days: ctx.def.retention_days ?? null,
       // who the case is waiting for (role labels only, no task titles of other roles)
       waiting_on: [...new Set(tasks.filter(t => t.status === 'open' && !t.blocked && t.role && t.role !== ctx.role).map(t => roleLabel(t.role)))],
@@ -183,6 +184,7 @@ async function purgeCase(c, actorId, reason) {
     q('DELETE FROM invitations WHERE case_id = ?', c.id),
     q('DELETE FROM case_participants WHERE case_id = ?', c.id),
     q('DELETE FROM upload_links WHERE case_id = ?', c.id),
+    q('DELETE FROM inbound_mail WHERE case_id = ?', c.id),
     q('DELETE FROM automation_runs WHERE case_id = ?', c.id),
     q('DELETE FROM cases WHERE id = ?', c.id),
   ]);

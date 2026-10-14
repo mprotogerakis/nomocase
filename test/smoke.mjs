@@ -185,6 +185,27 @@ if (new URL(BASE).hostname === 'localhost') {
   assert.equal((await expect(signer('/me/signing-keys'))).length, 1);
 }
 
+// Mail into a case (Cloudflare Email Routing → email handler; wrangler dev replays it via /cdn-cgi/handler/email).
+if (new URL(BASE).hostname === 'localhost') {
+  const address = (await expect(prof(`/cases/${caseId}`))).case.inbox;
+  assert.match(address, /^v-[0-9a-f]{10}@/);
+  assert.equal((await expect(student(`/cases/${caseId}`))).case.inbox, null, 'only the team sees the address');
+  const mail = (to, id) => fetchOnce(`${BASE}/cdn-cgi/handler/email?from=juergen@example.org&to=${to}`, { method: 'POST', body: [
+    'From: =?utf-8?Q?J=C3=BCrgen_M=C3=BCller?= <juergen@example.org>', `Cc: ${address}`, 'Subject: =?utf-8?B?' + Buffer.from('Termin für das Exposé').toString('base64') + '?=',
+    `Message-ID: <${id}@example.org>`, 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="b1"', '', '--b1', 'Content-Type: text/plain', '', 'Hallo.',
+    '--b1', 'Content-Type: application/pdf; name="Bericht.pdf"', 'Content-Disposition: attachment; filename="Bericht.pdf"', '', 'JVBERi0xLjQK', '--b1--', ''].join('\r\n') });
+  assert.equal((await mail(address, `m1-${run}`)).status, 200);
+  assert.equal((await mail(address, `m1-${run}`)).status, 200, 'the same mail again is accepted …');
+  assert.equal((await mail('v-0000000000@example.org', `m2-${run}`)).status, 400, 'unknown address: rejected');
+  const after = await expect(prof(`/cases/${caseId}`));
+  const mails = after.documents.filter(x => x.title === 'E-Mail: Termin für das Exposé');
+  assert.equal(mails.length, 1, '… but kept once');
+  assert.deepEqual([mails[0].versions[0].content_type, mails[0].versions[0].uploader, mails[0].visible_to], ['message/rfc822', 'Jürgen Müller <juergen@example.org>', []]);
+  const logged = after.events.findLast(e => e.payload.channel === 'mail');
+  assert.deepEqual([logged.payload.subject, logged.payload.attachments], ['Termin für das Exposé', ['Bericht.pdf']]);
+  assert.ok(!(await expect(student(`/cases/${caseId}`))).documents.some(x => x.title.startsWith('E-Mail:')), 'mails are team-only by default');
+}
+
 // Live updates: the change stamp in the payload matches the cheap poll and moves when someone else acts.
 const stampNow = (who, c) => expect(who(`/changes${c ? `?case=${c}` : ''}`)).then(r => r.stamp);
 const before = await expect(student(`/cases/${caseId}`));
