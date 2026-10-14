@@ -59,7 +59,7 @@ function newCaseForm(tpls) {
 
 export async function dashboardView() {
   const [d, tpls] = await Promise.all([api('/dashboard'), me.workspaces.length ? api('/templates') : []]);
-  set({ templates: tpls, stamp: d.stamp });
+  set({ templates: tpls.filter(t => !t.archived_at), stamp: d.stamp });
   if (wsFilter !== 'all' && !me.workspaces.some(w => w.id === wsFilter)) wsFilter = 'all';
   const inWs = d.cases.filter(c => wsFilter === 'all' || c.workspace_id === wsFilter);
   const caseIds = new Set(inWs.map(c => c.id));
@@ -83,7 +83,7 @@ export async function dashboardView() {
     <div class="row" style="justify-content:space-between; align-items:flex-start">
       ${me.workspaces.length > 1 ? html`<div class="seg">${[['all', 'Alle'], ...me.workspaces.map(w => [w.id, w.name])].map(([id, label]) =>
         html`<button class="${wsFilter === id ? 'on' : ''}" data-on="ws" data-id="${id}">${label}</button>`)}</div>` : html`<span></span>`}
-      ${newCaseForm(tpls)}
+      ${newCaseForm(tpls.filter(t => !t.archived_at))}
     </div>
     <section class="stats">
       <div class="${overdue ? 'warn' : ''}"><b>${String(overdue)}</b>überfällig bei Ihnen</div>

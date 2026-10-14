@@ -79,16 +79,23 @@ on.peopleRevoke = async ({ case: caseId, user, name, title }) => {
 export async function templatesView() {
   const tpls = await api('/templates');
   const owned = me.workspaces.filter(w => w.role === 'owner');
+  const usage = t => (t.cases ? `läuft in ${count(t.cases, 'Vorgang', 'Vorgängen')}${t.open_cases !== t.cases ? `, ${t.open_cases} offen` : ''}` : 'noch in keinem Vorgang');
+  const card = t => html`<details class="card">
+    <summary><b>${t.name}</b> <span class="muted small">${t.workspace} · v${t.version} · ${count(t.definition.phases.length, 'Phase', 'Phasen')} · ${count(t.definition.phases.flatMap(p => p.tasks).length, 'Aufgabe', 'Aufgaben')} · ${usage(t)}</span></summary>
+    ${owned.some(w => w.id === t.workspace_id) ? html`<form data-submit="saveTemplate" data-id="${t.id}" class="stack">
+      <textarea name="definition" rows="26" class="code" spellcheck="false">${JSON.stringify(t.definition, null, 2)}</textarea>
+      <div class="row" style="justify-content:space-between"><button>Als Version ${t.version + 1} speichern</button>
+        ${t.archived_at ? html`<button type="button" class="link" data-on="restoreTemplate" data-id="${t.id}">wiederherstellen</button>`
+          : html`<button type="button" class="link danger" data-on="deleteTemplate" data-id="${t.id}" data-name="${t.name}" data-cases="${t.cases}">${t.cases ? 'archivieren' : 'löschen'}</button>`}</div>
+    </form>` : html`<p class="muted small">Ändern können die Owner des Workspaces.</p>
+      <textarea rows="16" class="code" readonly aria-label="Vorlage (nur lesen)">${JSON.stringify(t.definition, null, 2)}</textarea>`}
+  </details>`;
+  const archived = tpls.filter(t => t.archived_at);
   page(html`<main class="narrow"><h1>Prozessvorlagen</h1>
-    <p class="muted">Speichern erzeugt eine neue Version. Laufende Vorgänge behalten ihre Kopie der Version, aus der sie entstanden sind.</p>
-    ${tpls.map(t => html`<details class="card">
-      <summary><b>${t.name}</b> <span class="muted small">${t.workspace} · v${t.version} · ${count(t.definition.phases.length, 'Phase', 'Phasen')} · ${count(t.definition.phases.flatMap(p => p.tasks).length, 'Aufgabe', 'Aufgaben')}</span></summary>
-      ${owned.some(w => w.id === t.workspace_id) ? html`<form data-submit="saveTemplate" data-id="${t.id}" class="stack">
-        <textarea name="definition" rows="26" class="code" spellcheck="false">${JSON.stringify(t.definition, null, 2)}</textarea>
-        <button>Als Version ${t.version + 1} speichern</button>
-      </form>` : html`<p class="muted small">Ändern können die Owner des Workspaces.</p>
-        <textarea rows="16" class="code" readonly aria-label="Vorlage (nur lesen)">${JSON.stringify(t.definition, null, 2)}</textarea>`}
-    </details>`)}
+    <p class="muted">Speichern erzeugt eine neue Version. Laufende Vorgänge behalten ihre Kopie der Version, aus der sie entstanden sind.
+      Vorlagen, die schon in Vorgängen laufen, werden archiviert statt gelöscht.</p>
+    ${tpls.filter(t => !t.archived_at).map(card)}
+    ${archived.length ? html`<h2>Archiv</h2><p class="muted small">Nicht mehr für neue Vorgänge; laufende Vorgänge sind nicht betroffen.</p>${archived.map(card)}` : ''}
     ${owned.length ? html`<h2>Neue Vorlage</h2>
       <form data-submit="newTemplate" class="row">
         <select name="workspace_id">${owned.map(w => html`<option value="${w.id}">${w.name}</option>`)}</select>
@@ -101,9 +108,19 @@ export async function templatesView() {
 submit.saveTemplate = async (fd, form) => {
   let definition;
   try { definition = JSON.parse(fd.get('definition')); } catch (e) { return alert(`JSON ungültig: ${e.message}`); }
-  await api(`/templates/${form.dataset.id}/versions`, { body: { definition } });
+  const { version } = await api(`/templates/${form.dataset.id}/versions`, { body: { definition } });
+  alert(`Gespeichert als Version ${version}. Laufende Vorgänge bleiben unverändert.`);
   reload();
 };
+
+on.deleteTemplate = async ({ id, name, cases }) => {
+  const used = Number(cases);
+  if (!confirm(used ? `„${name}“ läuft in ${count(used, 'Vorgang', 'Vorgängen')}. Archivieren? Für neue Vorgänge steht sie dann nicht mehr zur Wahl; die laufenden bleiben unverändert.`
+    : `„${name}“ endgültig löschen?`)) return;
+  await api(`/templates/${id}`, { method: 'DELETE' });
+  reload();
+};
+on.restoreTemplate = async ({ id }) => { await api(`/templates/${id}/restore`, { body: {} }); reload(); };
 
 submit.newTemplate = async fd => {
   await api('/templates', { body: { workspace_id: fd.get('workspace_id'), name: fd.get('name'), definition: {

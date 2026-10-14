@@ -95,6 +95,10 @@ veröffentlicht mit `npm run templates`, Produktion: `npm run templates -- --rem
 - **Benotung** (`"grade": true` an review/approval/decision): Note 1,0–4,0 in 0,1-Schritten oder 5,0 (§ 19 Abs. 3 RahmenPO EI)
   statt zwei Knöpfen; 5,0 zählt als Ablehnung (Regel-Trigger `task.reject`), blockiert aber nicht. Die Note geht nur an die, die
   den Schritt sehen dürfen (Studierende standardmäßig nicht). Beispiel: Vorlage „Masterprojekt (M.Sc.)“.
+- **Vorlagen löschen/archivieren**: ohne Vorgänge endgültig löschen, sonst archivieren (nicht mehr für neue Vorgänge,
+  laufende behalten ihre Kopie), wiederherstellbar; die Vorlagen-Seite zeigt „läuft in N Vorgängen“.
+- **Neue Version**: Offene Seiten fragen die ausgelieferte Version ab und laden nach einem Deployment selbst neu
+  (beim Tippen nur ein Hinweis) – sonst liefe in einem lange offenen Tab weiter alter Code.
 - **Live-Aktualisierung**: Übersicht und Vorgangsseite fragen alle 15 s (nur sichtbare Tabs) `GET /api/changes` nach dem
   Änderungsstand (letzte Event-ID; in der Übersicht zusätzlich die Zahl der Vorgänge) und laden bei Änderung neu, Scrollposition
   bleibt. Wird gerade getippt oder ist ein Menü offen, erscheint nur „Es gibt Neuigkeiten · Aktualisieren“. Upgrade-Pfad bei

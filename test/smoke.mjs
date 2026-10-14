@@ -73,6 +73,22 @@ if (new URL(BASE).hostname === 'localhost') {
 }
 assert.ok(admin.people.some(u => u.email === 'prof@example.org' && u.workspaces));
 
+// Templates: one that cases use is archived instead of deleted (no new cases from it), one without cases is deleted.
+{
+  const { id: tid } = await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Archivtest ${run}`, definition: {
+    roles: [{ key: 'owner', label: 'Verantwortlich', access: 'case_owner' }], phases: [{ title: 'Allgemein', tasks: [] }] } } }));
+  const { id: used } = await expect(prof('/cases', { body: { template_id: tid, title: `Archivfall ${run}` } }));
+  assert.deepEqual(await expect(prof(`/templates/${tid}`, { method: 'DELETE' })), { archived: true, cases: 1 });
+  assert.ok((await expect(prof('/templates'))).find(t => t.id === tid).archived_at);
+  await expect(prof('/cases', { body: { template_id: tid, title: 'x' } }), 409);
+  await expect(prof(`/templates/${tid}/restore`, { body: {} }));
+  await expect(prof('/cases', { body: { template_id: tid, title: `Archivfall 2 ${run}` } })).then(r => expect(prof(`/cases/${r.id}`, { method: 'DELETE' })));
+  await expect(prof(`/cases/${used}`, { method: 'DELETE' }));
+  assert.deepEqual(await expect(prof(`/templates/${tid}`, { method: 'DELETE' })), { deleted: true });
+  assert.ok(!(await expect(prof('/templates'))).some(t => t.id === tid));
+  await expect(student(`/templates/${pp.id}`, { method: 'DELETE' }), 403);
+}
+
 // Workspaces: owners create and rename them and invite colleagues; members create cases from the templates and see only
 // their own cases; a workspace keeps at least one owner; deleting needs an empty workspace.
 await expect(student('/workspaces', { body: { name: 'Eigener' } }), 403);

@@ -101,7 +101,9 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Einladungen/Personen: abgelaufene Einladungen sichtbar, erneutes Einladen ersetzt, Suche/Filter/Aktionen auf „Personen“
 - [x] Workspaces verwalten: anlegen, umbenennen, löschen (nur ohne Vorgänge), Mitglieder mit Rolle, Einladungen
       (gleiche Annahme-Seite und gleicher Kontoschutz wie bei Vorgängen); der letzte Owner bleibt
-- [ ] Produkt: Vorlagen-Archiv („läuft in N Vorgängen“), Massenanlage zum Semesterstart
+- [x] Vorlagen löschen bzw. archivieren (wenn schon in Vorgängen), „läuft in N Vorgängen“, wiederherstellen
+- [x] Offene Tabs bemerken neue Deployments (`/api/version`, Binding `CF_VERSION_METADATA`) und laden neu
+- [ ] Produkt: Massenanlage zum Semesterstart
 - [x] Digitale Signaturen in PDFs: Schlüssel wiedererkennen (Erstkontakt + Bestätigung), vertrauenswürdige Aussteller je
       Workspace, Warnung bei anderem Schlüssel (Ereignis `signature.changed`, Regel-Auslöser); keine Rechtsprüfung, kein CRL/OCSP
 - [ ] Workspace-Änderungen (Mitglieder, Name) protokollieren; das Ereignisprotokoll kennt bisher nur Vorgänge

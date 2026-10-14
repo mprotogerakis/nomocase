@@ -4,6 +4,7 @@ export { ACCESS, DECISIONS, NEEDS_FILE, STAFF, TASK_TYPES } from '../public/shar
 // Bindings are constant per isolate; set once per request/cron run by worker.js.
 export let DB, E;
 export const init = env => { DB = env.DB; E = env; };
+export const appVersion = () => E.CF_VERSION_METADATA?.id ?? 'dev';
 
 export class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }

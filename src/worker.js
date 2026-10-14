@@ -1,8 +1,8 @@
 // NomoCase: JSON API on Cloudflare Workers, data in D1, files in R2. The UI is static (public/) and only talks to /api/*.
 // This file: routes, request handling (origin check, session, errors) and the cron entry.
-import { fail, HttpError, init, json, q } from './core.js';
+import { appVersion, fail, HttpError, init, json, q } from './core.js';
 import { deletePasskey, devLogin, listPasskeys, loadUser, logout, me, originOf, passkeyLoginOptions, passkeyLoginVerify, passkeyRegisterOptions, passkeyRegisterVerify, requestLoginLink, sendParticipantLink, updateMe, useLoginLink } from './auth.js';
-import { addTemplateVersion, createTemplate, listTemplates, saveAsTemplate } from './templates.js';
+import { addTemplateVersion, createTemplate, deleteTemplate, listTemplates, restoreTemplate, saveAsTemplate } from './templates.js';
 import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard, deleteCase, getCase, getChanges, updateCase, updateFields } from './cases.js';
 import { addTask, deleteTask, taskAction, updateTask } from './tasks.js';
 import { addClaim, addDecision, addTransaction, reverseTransaction, taskMoney } from './finance.js';
@@ -15,6 +15,7 @@ import { createWorkspace, deleteWorkspace, inviteToWorkspace, listWorkspaces, re
 
 const ROUTES = [
   ['GET', '/api/me', me, true],
+  ['GET', '/api/version', () => ({ version: appVersion() }), true],
   ['PATCH', '/api/me', updateMe],
   ['GET', '/api/people', peopleOverview],
   ['GET', '/api/workspaces', listWorkspaces],
@@ -49,6 +50,8 @@ const ROUTES = [
   ['GET', '/api/templates', listTemplates],
   ['POST', '/api/templates', createTemplate],
   ['POST', '/api/templates/:id/versions', addTemplateVersion],
+  ['DELETE', '/api/templates/:id', deleteTemplate],
+  ['POST', '/api/templates/:id/restore', restoreTemplate],
   ['POST', '/api/cases', createCase],
   ['GET', '/api/cases/:id', getCase],
   ['PATCH', '/api/cases/:id', updateCase],

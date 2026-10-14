@@ -1,7 +1,7 @@
 // Sessions, passkeys, login links, dev login and the own account.
 import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthenticationResponse, verifyRegistrationResponse } from '@simplewebauthn/server';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
-import { arr, DB, E, ev, fail, json, now, q, row, rows, sha256, token, uid } from './core.js';
+import { appVersion, arr, DB, E, ev, fail, json, now, q, row, rows, sha256, token, uid } from './core.js';
 import { caseCtx } from './access.js';
 import { sendMail } from './notify.js';
 
@@ -30,7 +30,7 @@ export async function me({ user }) {
   if (!user) return { user: null, dev_users: E.DEV_LOGIN ? await rows('SELECT email, name FROM users ORDER BY name') : null };
   const workspaces = await rows('SELECT w.id, w.name, m.role FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = ? ORDER BY w.name', user.id);
   const { n } = await row('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?', user.id);
-  return { user: { id: user.id, name: user.name, email: user.email, email_reminders: !!user.email_reminders, email_progress: !!user.email_progress }, workspaces, passkeys: n, dev: !!E.DEV_LOGIN };
+  return { user: { id: user.id, name: user.name, email: user.email, email_reminders: !!user.email_reminders, email_progress: !!user.email_progress }, workspaces, passkeys: n, dev: !!E.DEV_LOGIN, version: appVersion() };
 }
 
 export async function updateMe({ user, body }) {

@@ -1,5 +1,5 @@
 // Cases: dashboard, case view, fields, status, comments, phases, subcases, deletion and retention, change stamps.
-import { arr, DB, E, ev, fail, isDate, now, q, roleList, row, rows, STAFF, uid } from './core.js';
+import { appVersion, arr, DB, E, ev, fail, isDate, now, q, roleList, row, rows, STAFF, uid } from './core.js';
 import { ACCESSIBLE, canSee, canSeeTask, caseCtx } from './access.js';
 import { instantiate, latestTemplate } from './templates.js';
 import { markBlocked } from './tasks.js';
@@ -9,6 +9,7 @@ import { explainSignatures } from './signatures.js';
 
 export async function createCase({ user, body }) {
   const tpl = (await latestTemplate(body.template_id)) ?? fail(404, 'Vorlage nicht gefunden');
+  if (tpl.archived_at) fail(409, 'Diese Vorlage ist archiviert.');
   (await row('SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?', tpl.workspace_id, user.id)) ?? fail(403, 'Kein Mitglied dieses Workspaces');
   const title = String(body.title ?? '').trim().slice(0, 200) || fail(400, 'Titel fehlt');
   const { caseId, stmts } = instantiate(tpl, { title, fields: body.fields, ownerId: user.id });
@@ -22,6 +23,7 @@ export async function addSubcase({ user, params, body }) {
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
   const tpl = (await latestTemplate(body.template_id)) ?? fail(404, 'Vorlage nicht gefunden');
   if (tpl.workspace_id !== ctx.c.workspace_id) fail(400, 'Die Vorlage gehört zu einem anderen Workspace');
+  if (tpl.archived_at) fail(409, 'Diese Vorlage ist archiviert.');
   const title = String(body.title ?? '').trim().slice(0, 200) || fail(400, 'Titel fehlt');
   const { caseId, stmts } = instantiate(tpl, { title, fields: body.fields, ownerId: user.id, parentId: ctx.c.id });
   await DB.batch([...stmts, ev(ctx.c.id, user.id, 'subcase.created', { title, case_id: caseId, template: tpl.name }, [])]);
@@ -40,9 +42,9 @@ const dashboardStamp = async user => {
 // Polled by open pages (see app.js); one indexed lookup per call.
 export async function getChanges({ user, url }) {
   const caseId = url.searchParams.get('case');
-  if (!caseId) return { stamp: await dashboardStamp(user) };
+  if (!caseId) return { stamp: await dashboardStamp(user), version: appVersion() };
   await caseCtx(user, caseId);
-  return { stamp: await caseStamp(caseId) };
+  return { stamp: await caseStamp(caseId), version: appVersion() };
 }
 
 const currentPhase = (phases, tasks) => phases.find(p => tasks.some(t => t.phase_id === p.id && t.status === 'open'))?.title ?? null;
@@ -100,7 +102,7 @@ export async function getCase({ user, params }) {
     subcases: await rows(`SELECT c.id, c.title, c.status, t.name AS template,
         (SELECT ph.title FROM phases ph WHERE ph.case_id = c.id AND EXISTS (SELECT 1 FROM tasks k WHERE k.phase_id = ph.id AND k.status = 'open') ORDER BY ph.position LIMIT 1) AS phase
       FROM cases c LEFT JOIN templates t ON t.id = c.template_id WHERE c.parent_case_id = ?1 AND ${ACCESSIBLE} ORDER BY c.created_at`, id, user.id, now()),
-    templates: ctx.owner ? await rows('SELECT id, name FROM templates WHERE workspace_id = ? ORDER BY name', ctx.c.workspace_id) : [],
+    templates: ctx.owner ? await rows('SELECT id, name FROM templates WHERE workspace_id = ? AND archived_at IS NULL ORDER BY name', ctx.c.workspace_id) : [],
     upload_links: ctx.staff ? await rows(`SELECT task_id, label, expires_at, single_use FROM upload_links
       WHERE case_id = ? AND revoked_at IS NULL AND expires_at > ? AND (single_use = 0 OR used_at IS NULL)`, id, now()) : [],
     rule_runs: ctx.staff ? await rows(`SELECT rule_id, SUM(status = 'done') AS n, MAX(CASE WHEN status = 'done' THEN created_at END) AS last,

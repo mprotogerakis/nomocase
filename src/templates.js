@@ -75,7 +75,9 @@ export function checkDef(d) {
 
 export async function listTemplates({ user }) {
   const list = await rows(`
-    SELECT t.id, t.name, t.workspace_id, w.name AS workspace, v.version, v.definition, v.created_at
+    SELECT t.id, t.name, t.workspace_id, w.name AS workspace, t.archived_at, v.version, v.definition, v.created_at,
+      (SELECT COUNT(*) FROM cases c WHERE c.template_id = t.id) AS cases,
+      (SELECT COUNT(*) FROM cases c WHERE c.template_id = t.id AND c.status = 'open') AS open_cases
     FROM templates t
     JOIN workspaces w ON w.id = t.workspace_id
     JOIN workspace_members m ON m.workspace_id = t.workspace_id AND m.user_id = ?
@@ -102,6 +104,25 @@ export async function createTemplate({ user, body }) {
   return { id };
 }
 
+// A template no case uses is deleted; one that cases use is archived: gone from "new case", the cases keep their copy.
+export async function deleteTemplate({ user, params }) {
+  const t = (await row('SELECT * FROM templates WHERE id = ?', params.id)) ?? fail(404, 'Vorlage nicht gefunden');
+  await requireWsOwner(user, t.workspace_id);
+  const { n } = await row('SELECT COUNT(*) AS n FROM cases WHERE template_id = ?', t.id);
+  if (n) {
+    await q('UPDATE templates SET archived_at = COALESCE(archived_at, ?) WHERE id = ?', now(), t.id).run();
+    return { archived: true, cases: n };
+  }
+  await DB.batch([q('DELETE FROM template_versions WHERE template_id = ?', t.id), q('DELETE FROM templates WHERE id = ?', t.id)]);
+  return { deleted: true };
+}
+
+export async function restoreTemplate({ user, params }) {
+  const t = (await row('SELECT * FROM templates WHERE id = ?', params.id)) ?? fail(404, 'Vorlage nicht gefunden');
+  await requireWsOwner(user, t.workspace_id);
+  await q('UPDATE templates SET archived_at = NULL WHERE id = ?', t.id).run();
+}
+
 export async function addTemplateVersion({ user, params, body }) {
   const t = (await row('SELECT * FROM templates WHERE id = ?', params.id)) ?? fail(404, 'Vorlage nicht gefunden');
   await requireWsOwner(user, t.workspace_id);
@@ -111,7 +132,7 @@ export async function addTemplateVersion({ user, params, body }) {
   return { version: v };
 }
 
-export const latestTemplate = id => row(`SELECT t.id, t.workspace_id, t.name, v.version, v.definition FROM templates t
+export const latestTemplate = id => row(`SELECT t.id, t.workspace_id, t.name, t.archived_at, v.version, v.definition FROM templates t
   JOIN template_versions v ON v.template_id = t.id WHERE t.id = ? ORDER BY v.version DESC LIMIT 1`, id ?? null);
 
 // Statements that create a case (with phases and tasks) from the latest version of a template.

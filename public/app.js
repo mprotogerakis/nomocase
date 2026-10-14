@@ -15,6 +15,7 @@ async function route() {
     if (view === 'login') return await loginLinkView(id);
     if (view === 'upload') return await uploadLinkView(id);
     set({ me: await api('/me') });
+    if (newVersion(me.version)) return;
     if (!me.user) return loginView();
     if (view === 'case') return await caseView(id);
     if (view === 'templates') return await templatesView();
@@ -41,12 +42,30 @@ async function refresh() {
   scrollTo(0, y);
 }
 
+// A tab can stay open for days, but live refresh only reloads data: after a deployment it would keep running old code.
+// So every poll also compares the deployed version with the one this tab started with, and reloads (or asks, while busy).
+let startedWith = null;
+function newVersion(version) {
+  if (!version || version === 'dev') return false;
+  startedWith ??= version;
+  if (version === startedWith) return false;
+  if (!busy()) location.reload();
+  else if (!document.querySelector('.banner.update')) {
+    document.querySelector('#app header')?.insertAdjacentHTML('afterend', esc(html`<div class="banner fresh update">Es gibt eine neue Version von NomoCase. <button data-on="reloadPage">Neu laden</button></div>`));
+  }
+  return true;
+}
+
 async function poll() {
   const [, view, id] = location.hash.split('/');
   const seen = stamp;
-  if (document.hidden || !seen || (view && view !== 'case')) return;
+  if (document.hidden) return;
+  if (!seen || (view && view !== 'case')) { // pages without live refresh: only the version
+    newVersion((await api('/version').catch(() => null))?.version);
+    return;
+  }
   const r = await api(`/changes${view === 'case' ? `?case=${id}` : ''}`).catch(() => null);
-  if (!r || r.stamp === seen || stamp !== seen) return; // unchanged, or the page was re-rendered meanwhile
+  if (!r || newVersion(r.version) || r.stamp === seen || stamp !== seen) return; // unchanged, or the page was re-rendered meanwhile
   if (!busy()) return refresh();
   if (!document.querySelector('.banner.fresh')) {
     document.querySelector('#app header')?.insertAdjacentHTML('afterend', esc(html`<div class="banner fresh">Es gibt Neuigkeiten. <button data-on="refresh">Aktualisieren</button></div>`));
@@ -90,5 +109,6 @@ document.addEventListener('input', e => {
 addEventListener('hashchange', route);
 
 on.refresh = refresh; // hint banner of the live updates
+on.reloadPage = () => location.reload();
 
 route();

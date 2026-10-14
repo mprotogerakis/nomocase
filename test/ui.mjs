@@ -114,6 +114,10 @@ try {
   await go('#/templates', `!!document.querySelector('form[data-submit="saveTemplate"][data-id="${uiTpl.id}"]')`);
   await submit('saveTemplate', {}, uiTpl.id);
   await waitFor(`fetch('/api/templates').then(r => r.json()).then(ts => ts.find(t => t.id === '${uiTpl.id}').version === 2)`, 'Vorlage als Version 2 gespeichert');
+  await until(() => dialogs.some(d => d.startsWith('Gespeichert als Version 2')), 'Bestätigung Version 2');
+  await waitFor(`!!document.querySelector('[data-on="deleteTemplate"][data-id="${uiTpl.id}"]')`, 'Löschen-Knopf');
+  await b.click(`[data-on="deleteTemplate"][data-id="${uiTpl.id}"]`);
+  await waitFor(`fetch('/api/templates').then(r => r.json()).then(ts => !ts.some(t => t.id === '${uiTpl.id}'))`, 'Vorlage gelöscht');
 
   // Assessment: two examiners give grades on the template's scale, the combined value can be taken over into a field
   const mtpl = tpls.find(t => t.name === 'Masterprojekt (M.Sc.)');
@@ -202,7 +206,7 @@ try {
   await waitFor(`document.querySelector('code.hash')?.textContent.length === 64`, 'Quittung mit SHA-256');
 
   assert.deepEqual(errors, [], 'no script errors');
-  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert:|^Workspace „UI-WS/.test(d)), [], 'no error popups');
+  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
   console.log('ok – ui test passed');
 } finally {
   if (caseId) {
