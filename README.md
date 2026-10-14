@@ -31,8 +31,7 @@ npm run db:reset    # alles lokal löschen (Server vorher stoppen)
 Live unter https://nomocase.example.org (workers.dev ist abgeschaltet: Passkeys hängen an der Domain). Die frühere Domain
 nomocase-old.example.org leitet dauerhaft dorthin um (`REDIRECT_HOSTS`); dort angelegte Passkeys gelten auf der neuen Domain nicht.
 D1 und R2 liegen in der EU-Jurisdiktion. Der Token liegt in `nomocase.token.cloudflare.credential` (gitignored).
-E-Mails gehen über Resend (Domain `nomocase-old.example.org`, Region EU, Absender `noreply@nomocase-old.example.org` – bis
-`nomocase.example.org` bei Resend verifiziert ist);
+E-Mails gehen über Resend (Domain `nomocase.example.org`, Region EU, Absender `noreply@nomocase.example.org`);
 der Sende-Key liegt in `resend.credential` und als Worker-Secret `RESEND_API_KEY`. Ohne Key werden Einladungslinks
 angezeigt und die tägliche Übersicht (Cron 05:00 UTC) pausiert.
 
