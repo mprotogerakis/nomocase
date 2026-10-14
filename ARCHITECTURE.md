@@ -122,7 +122,7 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Digitale Signaturen in PDFs: Schlüssel wiedererkennen (Erstkontakt + Bestätigung), vertrauenswürdige Aussteller je
       Workspace, Warnung bei anderem Schlüssel (Ereignis `signature.changed`, Regel-Auslöser); keine Rechtsprüfung, kein CRL/OCSP
 - [x] Formulare aus der Vorlage: vorausgefüllte, ausfüllbare PDFs mit Signaturfeldern, Logo und Akzentfarbe je Workspace,
-  Vorschau auf der Vorlagenseite (Bachelor-Thesis: Zulassung, Verlängerung, Notenmitteilung)
+  Vorschau auf der Vorlagenseite (Bachelor- und Master-Thesis: Zulassung, Verlängerung, Notenmitteilung)
 - [x] Hochgeladene Formulare zurücklesen: an den Feldnamen erkannt, Abweichungen von den Angaben als Warnung (Ereignis
   `form.mismatch`, auch Regel-Auslöser), leere Angaben aus Team-Uploads direkt übernommen, von außen per Knopf
 - [ ] Formulare auch für Praxisprojekt und Masterprojekt

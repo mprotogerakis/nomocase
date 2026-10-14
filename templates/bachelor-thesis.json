@@ -335,7 +335,7 @@
             "visible_to": [
               "second"
             ],
-            "description": "Zuerst die Note unter Angaben übernehmen, dann die Mitteilung vorausgefüllt herunterladen, digital unterschreiben und hochladen. Das offizielle Formular des Fachbereichs geht weiterhin: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Pru%CC%88fungsergebnis_080926.pdf – Solange das Studienbüro Originale verlangt, zusätzlich ausgedruckt und unterschrieben abgeben.",
+            "description": "Die Mitteilung vorausgefüllt herunterladen, die Note eintragen (oder vorher unter Angaben übernehmen), digital unterschreiben und hochladen – eine eingetragene Note übernimmt NomoCase beim Hochladen in die noch leeren Angaben. Das offizielle Formular des Fachbereichs geht weiterhin: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Pru%CC%88fungsergebnis_080926.pdf – Solange das Studienbüro Originale verlangt, zusätzlich ausgedruckt und unterschrieben abgeben.",
             "form": "ergebnis"
           },
           {

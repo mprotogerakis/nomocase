@@ -1,0 +1,862 @@
+{
+  "id": "tpl_mt",
+  "workspace": "ws_hs",
+  "name": "Master-Thesis (M.Sc.)",
+  "definition": {
+    "roles": [
+      {
+        "key": "supervisor",
+        "label": "Erstprüfer:in",
+        "access": "case_owner"
+      },
+      {
+        "key": "student",
+        "label": "Studierende:r",
+        "access": "guest_contributor"
+      },
+      {
+        "key": "second",
+        "label": "Zweitprüfer:in",
+        "access": "guest_contributor"
+      },
+      {
+        "key": "office",
+        "label": "Studienbüro",
+        "access": "guest_viewer"
+      }
+    ],
+    "fields": [
+      {
+        "key": "student",
+        "label": "Name der/des Studierenden"
+      },
+      {
+        "key": "matrikel",
+        "label": "Matrikelnummer"
+      },
+      {
+        "key": "programme",
+        "label": "Studiengang (M. Sc. Elektro- und Informationstechnik)"
+      },
+      {
+        "key": "po",
+        "label": "Prüfungsordnung (z. B. PO 2022)"
+      },
+      {
+        "key": "specialisation",
+        "label": "Vertiefungsrichtung"
+      },
+      {
+        "key": "thesis_title",
+        "label": "Thema (steht so im Zeugnis)"
+      },
+      {
+        "key": "company_name",
+        "label": "Firma/Institut (falls extern)"
+      },
+      {
+        "key": "second_examiner",
+        "label": "Zweitprüfer:in (mit Titel)"
+      },
+      {
+        "key": "issued",
+        "label": "Ausgabe des Themas",
+        "type": "date"
+      },
+      {
+        "key": "deadline",
+        "label": "Abgabetermin (laut Studienbüro)",
+        "type": "date"
+      },
+      {
+        "key": "grade",
+        "label": "Note der Master-Thesis"
+      }
+    ],
+    "document_types": [
+      {
+        "key": "expose",
+        "label": "Exposé",
+        "visible_to": [
+          "student",
+          "second"
+        ]
+      },
+      {
+        "key": "application",
+        "label": "Antrag auf Zulassung zur Master-Thesis",
+        "visible_to": [
+          "student",
+          "second",
+          "office"
+        ]
+      },
+      {
+        "key": "extension",
+        "label": "Antrag auf Verlängerung",
+        "visible_to": [
+          "student",
+          "office"
+        ]
+      },
+      {
+        "key": "thesis",
+        "label": "Master-Thesis",
+        "visible_to": [
+          "student",
+          "second"
+        ]
+      },
+      {
+        "key": "slides",
+        "label": "Präsentationsfolien",
+        "visible_to": [
+          "student",
+          "second"
+        ]
+      },
+      {
+        "key": "result",
+        "label": "Mitteilung der Abschlussnote",
+        "visible_to": [
+          "second",
+          "office"
+        ]
+      }
+    ],
+    "phases": [
+      {
+        "title": "Thema & Betreuung",
+        "tasks": [
+          {
+            "key": "topic",
+            "title": "Thema und Betreuung klären",
+            "type": "task",
+            "role": "student",
+            "description": "Thema mit der/dem Erstprüfer:in abstimmen: eine Professorin bzw. ein Professor des Fachbereichs EI (§ 16 Abs. 2 RahmenPO EI). Extern (Firma/Institut) geht mit Zustimmung der/des Prüfungsausschussvorsitzenden, wenn die Betreuung vor Ort gesichert ist; die/der Zweitprüfer:in braucht mindestens den entsprechenden Abschluss oder eine gleichwertige Qualifikation (§ 9 Abs. 2). Gruppenarbeiten sind möglich, wenn die Einzelbeiträge klar abgrenzbar sind (§ 16 Abs. 3)."
+          },
+          {
+            "key": "expose",
+            "title": "Exposé hochladen",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "expose",
+            "after": [
+              "topic"
+            ],
+            "description": "Bitte die Exposé-Vorlage verwenden: https://dl.proto-hess.com/PeHd2W2k – mit Thema, Ziel, Forschungsfragen, Vorgehensweise, Evaluation und Zeitplan für 18 Wochen. Als PDF hochladen."
+          },
+          {
+            "key": "expose_review",
+            "title": "Exposé prüfen",
+            "type": "review",
+            "role": "supervisor",
+            "after": [
+              "expose"
+            ],
+            "visible_to": [
+              "student"
+            ],
+            "description": "Passt der Umfang zu 18 Wochen Bearbeitungszeit (30 CP)? Danach kann die Zulassung beantragt werden."
+          }
+        ]
+      },
+      {
+        "title": "Zulassung",
+        "tasks": [
+          {
+            "key": "form",
+            "title": "Antrag auf Zulassung ausfüllen und unterschreiben",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "application",
+            "after": [
+              "expose_review"
+            ],
+            "description": "NomoCase erzeugt den Antrag vorausgefüllt („Formular … herunterladen“). In einem PDF-Reader wie Adobe Acrobat ergänzen, digital unterschreiben und hier hochladen; die Prüfer:innen unterschreiben danach in derselben Datei. Das offizielle Formular des Fachbereichs geht weiterhin: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Antrag_Masterthesis_080926.pdf – Voraussetzung: alle nach Studienverlaufsplan vorgesehenen Modulprüfungen bis auf höchstens eine bestanden (§ 17 Abs. 1 RahmenPO EI), laut Modulhandbuch mindestens 80 CP. Nachweis der bestandenen Module beilegen (§ 17 Abs. 2). Das Thema wird genau so ins Zeugnis übernommen. Solange das Studienbüro Originale verlangt, das unterschriebene Formular zusätzlich ausgedruckt einreichen.",
+            "form": "zulassung"
+          },
+          {
+            "key": "sign_supervisor",
+            "title": "Antrag unterschreiben (Erstprüfer:in)",
+            "type": "signature",
+            "role": "supervisor",
+            "doc_type": "application",
+            "after": [
+              "form"
+            ],
+            "visible_to": [
+              "student"
+            ],
+            "description": "Mit der Unterschrift bestätigen Sie die Betreuung als Erstprüfer:in."
+          },
+          {
+            "key": "sign_second",
+            "title": "Antrag unterschreiben (Zweitprüfer:in)",
+            "type": "signature",
+            "role": "second",
+            "doc_type": "application",
+            "after": [
+              "sign_supervisor"
+            ],
+            "visible_to": [
+              "student"
+            ],
+            "description": "Mit der Unterschrift bestätigen Sie die Betreuung als Zweitprüfer:in. Bei externer Betreuung darf ausnahmsweise die/der Erstprüfer:in im Auftrag unterschreiben und bestätigt damit zugleich die Qualifikation der/des Zweitprüfer:in – dann diesen Schritt überspringen."
+          },
+          {
+            "key": "submit_application",
+            "title": "Antrag im Studienbüro einreichen (Original)",
+            "type": "submission",
+            "role": "student",
+            "after": [
+              "sign_second"
+            ],
+            "description": "Das unterschriebene Original im Studienbüro einreichen. Das Studienbüro bestätigt die Angaben, über die Zulassung entscheidet die bzw. der Prüfungsausschussvorsitzende (§ 17 Abs. 3)."
+          },
+          {
+            "key": "issued",
+            "title": "Zulassung und Ausgabe des Themas",
+            "type": "wait",
+            "role": "supervisor",
+            "after": [
+              "submit_application"
+            ],
+            "visible_to": [
+              "student",
+              "second"
+            ],
+            "description": "Ausgabetag ist der Tag, an dem die/der Prüfungsausschussvorsitzende das Thema bekannt gibt (§ 17 Abs. 4). Ausgabe und Abgabetermin (18 Wochen später) bitte unter Angaben eintragen – die Abgabefrist folgt daraus. Falls Sie zusätzlich eine gedruckte Fassung verlangen, jetzt mitteilen (§ 18 Abs. 1)."
+          }
+        ]
+      },
+      {
+        "title": "Bearbeitung",
+        "tasks": [
+          {
+            "key": "work",
+            "title": "Master-Thesis anfertigen (18 Wochen)",
+            "type": "task",
+            "role": "student",
+            "after": [
+              "issued"
+            ],
+            "due_field": "deadline",
+            "visible_to": [
+              "second"
+            ],
+            "description": "Bearbeitungszeit 18 Wochen ab Ausgabe (§ 17 Abs. 6). Das Thema kann einmal und nur in den ersten zwei Wochen ohne Angabe von Gründen zurückgegeben werden (§ 17 Abs. 5). Verlängerung einmal um bis zu 4 Wochen (auf höchstens 22 Wochen) auf begründeten Antrag: den vorausgefüllten Antrag herunterladen, begründen, unterschreiben und als Anliegen „Verlängerung“ einreichen (das offizielle Formular des Fachbereichs geht weiterhin: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Verlaengerung_Masterarbeit_160223.pdf); die/der Erstprüfer:in stimmt zu, der Prüfungsausschuss genehmigt, danach den neuen Abgabetermin unter Angaben eintragen.",
+            "form": "verlaengerung"
+          }
+        ]
+      },
+      {
+        "title": "Abgabe",
+        "tasks": [
+          {
+            "key": "thesis",
+            "title": "Master-Thesis hochladen",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "thesis",
+            "after": [
+              "issued"
+            ],
+            "due_field": "deadline",
+            "visible_to": [
+              "second"
+            ],
+            "description": "Die fertige Arbeit als PDF für die Prüfer:innen – mit unterschriebener eidesstattlicher Versicherung, dass Sie sie selbstständig angefertigt und keine anderen als die angegebenen Quellen und Hilfsmittel benutzt haben (§ 18 Abs. 2)."
+          },
+          {
+            "key": "thesis_office",
+            "title": "Thesis fristgerecht im Studienbüro abgeben",
+            "type": "submission",
+            "role": "student",
+            "after": [
+              "issued"
+            ],
+            "due_field": "deadline",
+            "visible_to": [
+              "second"
+            ],
+            "description": "Offizielle Abgabe: die Thesis auf CD/DVD beim Studienbüro – auch über das SSC, den HSD-Briefkasten oder per Post möglich; eine gedruckte Fassung nur, wenn verlangt (§ 18 Abs. 1). Eine verspätete Abgabe wird mit 5,0 bewertet."
+          },
+          {
+            "key": "talk",
+            "title": "Abschlusspräsentation (optional, nach Absprache)",
+            "type": "upload",
+            "role": "student",
+            "doc_type": "slides",
+            "after": [
+              "thesis"
+            ],
+            "visible_to": [
+              "second"
+            ],
+            "description": "Nur wenn mit der/dem Erstprüfer:in vereinbart; die Präsentation ist keine eigene Prüfung und bekommt keine Note (Modulhandbuch). Folien als PDF hochladen. Für ein Protokoll: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/Pru%CC%88fungsprotokoll_FG_MP_2324.pdf – sonst diesen Schritt überspringen."
+          }
+        ]
+      },
+      {
+        "title": "Bewertung",
+        "tasks": [
+          {
+            "key": "grade_2",
+            "title": "Bewerten (Zweitprüfer:in)",
+            "type": "approval",
+            "role": "second",
+            "after": [
+              "thesis"
+            ],
+            "assess": "note",
+            "description": "Die Arbeit bewerten und die Note hier eintragen. Die Einzelnoten sehen nur die Prüfer:innen."
+          },
+          {
+            "key": "grade_1",
+            "title": "Bewerten (Erstprüfer:in)",
+            "type": "approval",
+            "role": "supervisor",
+            "after": [
+              "thesis"
+            ],
+            "assess": "note",
+            "visible_to": [
+              "second"
+            ],
+            "description": "Zwei Prüfende bewerten (§ 18 Abs. 3). Weichen die Noten ab, gilt das arithmetische Mittel, nur die erste Nachkommastelle zählt (§ 19 Abs. 4 und 6). NomoCase rechnet die Note unter der Phase aus; von dort lässt sie sich in die Angaben übernehmen. Bekanntgabe spätestens sechs Wochen nach Abgabe (§ 18 Abs. 4). Die Master-Thesis zählt 25 % der Endnote (Modulhandbuch)."
+          },
+          {
+            "key": "result_form",
+            "title": "Mitteilung der Abschlussnote ausfüllen und unterschreiben (Erstprüfer:in)",
+            "type": "upload",
+            "role": "supervisor",
+            "doc_type": "result",
+            "after": [
+              "grade_1",
+              "grade_2"
+            ],
+            "visible_to": [
+              "second"
+            ],
+            "description": "Die Mitteilung vorausgefüllt herunterladen, die Note eintragen (oder vorher unter Angaben übernehmen), digital unterschreiben und hochladen – eine eingetragene Note übernimmt NomoCase beim Hochladen in die noch leeren Angaben. Das offizielle Formular des Fachbereichs geht weiterhin: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Pru%CC%88fungsergebnis_080926.pdf – Solange das Studienbüro Originale verlangt, zusätzlich ausgedruckt und unterschrieben abgeben.",
+            "form": "ergebnis"
+          },
+          {
+            "key": "result_sign",
+            "title": "Mitteilung der Abschlussnote unterschreiben (Zweitprüfer:in)",
+            "type": "signature",
+            "role": "second",
+            "doc_type": "result",
+            "after": [
+              "result_form"
+            ],
+            "description": "Unterschriebene PDF hochladen. Bei externer Betreuung darf ausnahmsweise die/der Erstprüfer:in im Auftrag unterschreiben – dann überspringen."
+          },
+          {
+            "key": "result_office",
+            "title": "Mitteilung der Abschlussnote im Studienbüro einreichen (Original)",
+            "type": "submission",
+            "role": "supervisor",
+            "after": [
+              "result_sign"
+            ],
+            "visible_to": [
+              "student",
+              "office"
+            ],
+            "description": "Das Original ans Studienbüro; das Ergebnis der/dem Studierenden mitteilen."
+          }
+        ]
+      },
+      {
+        "title": "Abschluss",
+        "tasks": [
+          {
+            "key": "booked",
+            "title": "Verbuchung durch das Studienbüro",
+            "type": "wait",
+            "role": "supervisor",
+            "after": [
+              "result_office"
+            ],
+            "visible_to": [
+              "student",
+              "office"
+            ]
+          }
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "id": "ausgabe",
+        "name": "Fristen nach der Ausgabe mitteilen",
+        "trigger": "task.complete",
+        "conditions": [
+          {
+            "field": "task.key",
+            "operator": "equals",
+            "value": "issued"
+          }
+        ],
+        "actions": [
+          {
+            "type": "add_comment",
+            "visible_to": [
+              "*"
+            ],
+            "text": "Das Thema ist ausgegeben ({date}). Zurückgeben lässt es sich nur bis {date+14}; abzugeben ist spätestens am {date+126} (18 Wochen), sofern das Studienbüro keinen anderen Termin einträgt."
+          }
+        ]
+      },
+      {
+        "id": "bewertungsfrist",
+        "name": "Bewertungsfrist mitteilen",
+        "trigger": "document.uploaded",
+        "conditions": [
+          {
+            "field": "document.type",
+            "operator": "equals",
+            "value": "thesis"
+          }
+        ],
+        "actions": [
+          {
+            "type": "add_comment",
+            "visible_to": [
+              "second"
+            ],
+            "text": "Die Thesis liegt vor. Die Bewertung ist der/dem Studierenden spätestens am {date+42} bekannt zu geben (§ 18 Abs. 4 RahmenPO EI)."
+          }
+        ]
+      },
+      {
+        "id": "fuenf",
+        "name": "Bei 5,0 Ergebnis klären",
+        "trigger": "task.reject",
+        "conditions": [
+          {
+            "field": "task.key",
+            "operator": "in",
+            "value": [
+              "grade_1",
+              "grade_2"
+            ]
+          }
+        ],
+        "actions": [
+          {
+            "type": "create_task",
+            "title": "Ergebnis klären und besprechen",
+            "task_type": "task",
+            "assign_to_role": "owner",
+            "visible_to": [
+              "second"
+            ],
+            "description": "Mindestens eine Einzelnote lautet 5,0. Note als Mittelwert bilden (§ 19 Abs. 4 und 6): Ist sie schlechter als 4,0, ist die Thesis nicht bestanden. Sie kann nur einmal mit neuem Thema wiederholt werden (§ 16 Abs. 4); das Ergebnis danach mit der/dem Studierenden besprechen."
+          }
+        ]
+      },
+      {
+        "id": "verbucht",
+        "name": "Abschluss mitteilen",
+        "trigger": "task.complete",
+        "conditions": [
+          {
+            "field": "task.key",
+            "operator": "equals",
+            "value": "booked"
+          }
+        ],
+        "actions": [
+          {
+            "type": "add_comment",
+            "visible_to": [
+              "student"
+            ],
+            "text": "Ihre Master-Thesis ist verbucht; die Note sehen Sie im OSSC. Herzlichen Glückwunsch!"
+          }
+        ]
+      }
+    ],
+    "scales": {
+      "note": {
+        "label": "Note",
+        "range": [
+          1,
+          4
+        ],
+        "step": 0.1,
+        "extra": [
+          5
+        ],
+        "pass": {
+          "max": 4
+        },
+        "hint": "1,0 bis 4,0 in Schritten von 0,1, sonst 5,0 (§ 19 Abs. 3 RahmenPO EI)"
+      }
+    },
+    "aggregates": [
+      {
+        "key": "thesisnote",
+        "label": "Note der Master-Thesis",
+        "scale": "note",
+        "from": [
+          "grade_1",
+          "grade_2"
+        ],
+        "method": "mean",
+        "round": "truncate",
+        "fail_value": 5,
+        "field": "grade",
+        "note": "Mittel der Einzelnoten, nur die erste Nachkommastelle zählt (§ 19 Abs. 4 und 6 RahmenPO EI)"
+      }
+    ],
+    "forms": [
+      {
+        "key": "zulassung",
+        "title": "Antrag auf Zulassung zur Master-Thesis",
+        "subtitle": "Ausgefüllt und unterschrieben im Studienbüro einreichen, zusammen mit dem Nachweis der bestandenen Module. Über die Zulassung entscheidet die/der Prüfungsausschussvorsitzende (§ 17 RahmenPO EI).",
+        "items": [
+          {
+            "heading": "Persönliche Angaben"
+          },
+          {
+            "label": "Name, Vorname",
+            "value": "{field.student}",
+            "half": true
+          },
+          {
+            "label": "Matrikelnummer",
+            "value": "{field.matrikel}",
+            "half": true
+          },
+          {
+            "label": "Studiengang",
+            "value": "{field.programme}",
+            "half": true
+          },
+          {
+            "label": "Prüfungsordnung",
+            "value": "{field.po}",
+            "half": true
+          },
+          {
+            "label": "E-Mail-Adresse",
+            "value": "{role.student.email}"
+          },
+          {
+            "heading": "Thema der Master-Thesis"
+          },
+          {
+            "label": "Thema – wird in dieser Fassung ins Zeugnis übernommen",
+            "value": "{field.thesis_title}",
+            "lines": 3
+          },
+          {
+            "label": "Die Thesis wird extern angefertigt (in einer Firma oder an einem Institut)",
+            "check": true,
+            "value": "{field.company_name}"
+          },
+          {
+            "label": "Name der Firma / des Instituts",
+            "value": "{field.company_name}"
+          },
+          {
+            "label": "Anschrift der Firma / des Instituts",
+            "lines": 2
+          },
+          {
+            "label": "Betreuer/in vor Ort (Name, Telefon, E-Mail)",
+            "lines": 2
+          },
+          {
+            "heading": "Erklärung der/des Studierenden"
+          },
+          {
+            "label": "Bisherige Versuche der Master-Thesis",
+            "value": "0",
+            "half": true
+          },
+          {
+            "label": "Davon zurückgegebene Themen",
+            "value": "0",
+            "half": true
+          },
+          {
+            "text": "Ich erfülle die in der für mich gültigen Prüfungsordnung genannten Voraussetzungen zur Anmeldung der Master-Thesis. Ich versichere, die Angaben vollständig und wahrheitsgemäß gemacht zu haben, und bitte um Zulassung zur Master-Thesis."
+          },
+          {
+            "sign": "Unterschrift der/des Studierenden",
+            "name": "{field.student}",
+            "place": "Düsseldorf"
+          },
+          {
+            "heading": "Prüfer/innen"
+          },
+          {
+            "label": "Erstprüfer/in – Professor/in des Fachbereichs EI",
+            "value": "{role.supervisor}"
+          },
+          {
+            "text": "Mit meiner Unterschrift bestätige ich, dass ich die Master-Thesis als Erstprüfer/in betreue."
+          },
+          {
+            "sign": "Unterschrift Erstprüfer/in",
+            "name": "{role.supervisor}",
+            "place": "Düsseldorf"
+          },
+          {
+            "label": "Zweitprüfer/in – mit vollständigem Titel",
+            "value": "{field.second_examiner}"
+          },
+          {
+            "text": "Mit meiner Unterschrift bestätige ich, dass ich die Master-Thesis als Zweitprüfer/in betreue. Bei externer Betreuung darf ausnahmsweise die/der Erstprüfer/in im Auftrag unterschreiben und bestätigt damit zugleich, dass die/der Zweitprüfer/in die zur Bewertung erforderliche Qualifikation hat."
+          },
+          {
+            "sign": "Unterschrift Zweitprüfer/in",
+            "name": "{field.second_examiner}",
+            "place": "Düsseldorf"
+          },
+          {
+            "heading": "Zulassung",
+            "hint": "Von der Hochschule auszufüllen"
+          },
+          {
+            "label": "Die Angaben werden bestätigt.",
+            "check": true
+          },
+          {
+            "sign": "Unterschrift Studienbüro"
+          },
+          {
+            "label": "Zur Master-Thesis zugelassen",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Nicht zugelassen",
+            "check": true,
+            "half": true
+          },
+          {
+            "sign": "Unterschrift Prüfungsausschussvorsitzende/r"
+          },
+          {
+            "label": "Ausgegeben am",
+            "value": "{field.issued}",
+            "half": true
+          },
+          {
+            "label": "Abzugeben bis",
+            "value": "{field.deadline}",
+            "half": true
+          },
+          {
+            "label": "Zurückgetreten am (nur in den ersten 2 Wochen)",
+            "half": true
+          },
+          {
+            "label": "Im Studienbüro abgegeben am",
+            "half": true
+          }
+        ]
+      },
+      {
+        "key": "verlaengerung",
+        "title": "Antrag auf Verlängerung der Bearbeitungszeit",
+        "subtitle": "Master-Thesis · einmal um bis zu 4 Wochen auf begründeten Antrag, auf höchstens 22 Wochen (§ 17 Abs. 6 RahmenPO EI). Mit Zustimmung der/des Erstprüfer/in im Studienbüro einreichen.",
+        "items": [
+          {
+            "heading": "Persönliche Angaben"
+          },
+          {
+            "label": "Name, Vorname",
+            "value": "{field.student}",
+            "half": true
+          },
+          {
+            "label": "Matrikelnummer",
+            "value": "{field.matrikel}",
+            "half": true
+          },
+          {
+            "label": "Studiengang",
+            "value": "{field.programme}",
+            "half": true
+          },
+          {
+            "label": "Prüfungsordnung",
+            "value": "{field.po}",
+            "half": true
+          },
+          {
+            "label": "Vertiefungsrichtung",
+            "value": "{field.specialisation}",
+            "half": true
+          },
+          {
+            "label": "E-Mail-Adresse",
+            "value": "{role.student.email}",
+            "half": true
+          },
+          {
+            "heading": "Antrag"
+          },
+          {
+            "label": "Thema der Master-Thesis",
+            "value": "{field.thesis_title}",
+            "lines": 2
+          },
+          {
+            "label": "Bisheriger Abgabetermin",
+            "value": "{field.deadline}",
+            "half": true
+          },
+          {
+            "label": "Beantragter neuer Abgabetermin",
+            "half": true
+          },
+          {
+            "label": "Begründung",
+            "lines": 6
+          },
+          {
+            "sign": "Unterschrift der/des Studierenden",
+            "name": "{field.student}",
+            "place": "Düsseldorf"
+          },
+          {
+            "heading": "Stellungnahme Erstprüfer/in"
+          },
+          {
+            "label": "Der Verlängerung wird zugestimmt",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Der Verlängerung wird nicht zugestimmt",
+            "check": true,
+            "half": true
+          },
+          {
+            "sign": "Unterschrift Erstprüfer/in",
+            "name": "{role.supervisor}",
+            "place": "Düsseldorf"
+          },
+          {
+            "heading": "Genehmigung",
+            "hint": "Von der Hochschule auszufüllen"
+          },
+          {
+            "label": "Genehmigt",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Nicht genehmigt",
+            "check": true,
+            "half": true
+          },
+          {
+            "sign": "Unterschrift Prüfungsausschussvorsitzende/r"
+          },
+          {
+            "label": "Neuer Abgabetermin",
+            "half": true
+          },
+          {
+            "label": "Erfasst am",
+            "half": true
+          },
+          {
+            "sign": "Unterschrift Studienbüro"
+          }
+        ]
+      },
+      {
+        "key": "ergebnis",
+        "title": "Mitteilung der Note der Master-Thesis",
+        "subtitle": "Von beiden Prüfer/innen unterschrieben an das Studienbüro.",
+        "items": [
+          {
+            "heading": "Persönliche Angaben"
+          },
+          {
+            "label": "Name, Vorname",
+            "value": "{field.student}",
+            "half": true
+          },
+          {
+            "label": "Matrikelnummer",
+            "value": "{field.matrikel}",
+            "half": true
+          },
+          {
+            "label": "Studiengang",
+            "value": "{field.programme}",
+            "half": true
+          },
+          {
+            "label": "Prüfungsordnung",
+            "value": "{field.po}",
+            "half": true
+          },
+          {
+            "label": "Vertiefungsrichtung",
+            "value": "{field.specialisation}"
+          },
+          {
+            "heading": "Ergebnis"
+          },
+          {
+            "label": "Thema der Master-Thesis",
+            "value": "{field.thesis_title}",
+            "lines": 2
+          },
+          {
+            "label": "Note der Master-Thesis",
+            "value": "{field.grade}",
+            "half": true
+          },
+          {
+            "label": "Ausgegeben am",
+            "value": "{field.issued}",
+            "half": true
+          },
+          {
+            "text": "Weichen die Noten der Prüfer/innen voneinander ab, ist die Note das arithmetische Mittel; nur die erste Nachkommastelle zählt, alle weiteren werden gestrichen (§ 19 Abs. 4 und 6 RahmenPO EI)."
+          },
+          {
+            "heading": "Prüfer/innen"
+          },
+          {
+            "label": "Erstprüfer/in",
+            "value": "{role.supervisor}"
+          },
+          {
+            "text": "Mit meiner Unterschrift bestätige ich, dass ich die/den Studierende/n als Erstprüfer/in betreut und die Arbeit bewertet habe."
+          },
+          {
+            "sign": "Unterschrift Erstprüfer/in",
+            "name": "{role.supervisor}",
+            "place": "Düsseldorf"
+          },
+          {
+            "label": "Zweitprüfer/in",
+            "value": "{field.second_examiner}"
+          },
+          {
+            "text": "Mit meiner Unterschrift bestätige ich, dass ich die Arbeit als Zweitprüfer/in bewertet habe. Bei externer Betreuung darf ausnahmsweise die/der Erstprüfer/in im Auftrag unterschreiben."
+          },
+          {
+            "sign": "Unterschrift Zweitprüfer/in",
+            "name": "{field.second_examiner}",
+            "place": "Düsseldorf"
+          }
+        ]
+      }
+    ]
+  }
+}

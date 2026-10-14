@@ -229,4 +229,22 @@ assert.deepEqual([mdef.scales.note.pass, mdef.aggregates[0].from], [{ max: 4 }, 
   assert.equal((await view(prof, b)).tasks.filter(t => t.status === 'open').length, 0, 'nothing left open');
 }
 
+// Master-Thesis (M.Sc.): the same RahmenPO with 18 instead of 12 weeks; the Master forms carry the specialisation.
+{
+  const mt = (await expect(prof('/templates'))).find(t => t.name === 'Master-Thesis (M.Sc.)');
+  const m = (await expect(prof('/cases', { body: { template_id: mt.id, title: 'Master-Thesis Beispiel',
+    fields: { student: 'Erika Beispiel', specialisation: 'Mechatronik', thesis_title: 'Regelung eines Prüfstands' } } }))).id;
+  const mstep = async key => (await view(prof, m)).tasks.find(t => t.key === key);
+  for (const k of ['topic', 'expose', 'expose_review', 'form', 'sign_supervisor', 'sign_second', 'submit_application']) {
+    await expect(prof(`/tasks/${(await mstep(k)).id}/action`, { body: { action: 'skip' } }));
+  }
+  await expect(prof(`/tasks/${(await mstep('issued')).id}/action`, { body: { action: 'complete' } }));
+  assert.ok(ruleSaid(await view(prof, m), 'Fristen nach der Ausgabe mitteilen')?.payload.body.includes(inDays(126)), 'the student learns the 18-week date');
+  const ext = await expect(prof(`/tasks/${(await mstep('work')).id}/form`));
+  assert.deepEqual([ext.title, ext.items.find(it => it.label === 'Vertiefungsrichtung')?.value], ['Antrag auf Verlängerung der Bearbeitungszeit', 'Mechatronik']);
+  assert.match(ext.subtitle, /höchstens 22 Wochen/);
+  assert.equal((await mstep('work')).title, 'Master-Thesis anfertigen (18 Wochen)');
+  await expect(prof(`/cases/${m}`, { method: 'DELETE' }));
+}
+
 console.log('ok – praxisprojekt test passed');
