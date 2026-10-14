@@ -43,8 +43,8 @@ await expect(prof(`/cases/${caseId}/comments`, { body: { body: 'Willkommen! Bitt
 
 // Invitation: single use, gives access to exactly this case.
 const { link } = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `max.${run}@example.org`, role: 'student', access_until: '2027-03-31' } }));
-await expect(student('/invitations/accept', { body: { token: tokenOf(link), name: 'Max Müller' } }));
-await expect(client()('/invitations/accept', { body: { token: tokenOf(link), name: 'Mallory' } }), 404);
+await expect(student('/invitations/accept', { body: { consent: true, token: tokenOf(link), name: 'Max Müller' } }));
+await expect(client()('/invitations/accept', { body: { consent: true, token: tokenOf(link), name: 'Mallory' } }), 404);
 
 const dash = await expect(student('/dashboard'));
 assert.deepEqual(dash.cases.map(c => c.id), [caseId]);
@@ -109,10 +109,10 @@ const colleagueMail = `kollegin.${run}@example.org`;
 const wsInvite = await expect(prof(`/workspaces/${wsId}/invitations`, { body: { email: colleagueMail, role: 'member' } }));
 await expect(prof(`/workspaces/${wsId}/invitations`, { body: { email: colleagueMail, role: 'member' } })); // again: replaces
 assert.equal((await myWs()).invitations.filter(i => i.email === colleagueMail).length, 1);
-await expect(colleague('/invitations/accept', { body: { token: tokenOf(wsInvite.link), name: 'Kollegin' } }), 404, 'the replaced link is dead');
+await expect(colleague('/invitations/accept', { body: { consent: true, token: tokenOf(wsInvite.link), name: 'Kollegin' } }), 404, 'the replaced link is dead');
 const wsInvite2 = await expect(prof(`/workspaces/${wsId}/invitations`, { body: { email: colleagueMail, role: 'member' } }));
 assert.equal((await expect(colleague(`/invitations/${tokenOf(wsInvite2.link)}`))).kind, 'workspace');
-await expect(colleague('/invitations/accept', { body: { token: tokenOf(wsInvite2.link), name: 'Kollegin' } }));
+await expect(colleague('/invitations/accept', { body: { consent: true, token: tokenOf(wsInvite2.link), name: 'Kollegin' } }));
 assert.deepEqual((await expect(colleague('/me'))).workspaces.map(w => [w.id, w.role]), [[wsId, 'member']]);
 const { id: colleagueCase } = await expect(colleague('/cases', { body: { template_id: wsTpl, title: 'Fall der Kollegin' } }));
 await expect(colleague(`/templates/${wsTpl}/versions`, { body: { definition: { roles: [{ key: 'owner', label: 'V', access: 'case_owner' }], phases: [] } } }), 403);
@@ -124,7 +124,7 @@ await expect(prof(`/workspaces/${wsId}/members/${profId}`, { method: 'DELETE' })
 await expect(colleague(`/workspaces/${wsId}/members/${profId}`, { method: 'DELETE' }), 403);
 // An invitation into a workspace never opens an existing account either.
 const intoWs = await expect(prof(`/workspaces/${wsId}/invitations`, { body: { email: `max.${run}@example.org`, role: 'member' } }));
-await expect(client()('/invitations/accept', { body: { token: tokenOf(intoWs.link), name: 'Mallory' } }), 401);
+await expect(client()('/invitations/accept', { body: { consent: true, token: tokenOf(intoWs.link), name: 'Mallory' } }), 401);
 await expect(prof(`/workspaces/${wsId}/invitations/${encodeURIComponent(`max.${run}@example.org`)}`, { method: 'DELETE' }));
 await expect(prof(`/workspaces/${wsId}`, { method: 'DELETE' }), 409); // still has a case
 await expect(prof(`/cases/${colleagueCase}`, { method: 'DELETE' }));
@@ -141,7 +141,7 @@ if (new URL(BASE).hostname === 'localhost') {
   sql("DELETE FROM trusted_issuers WHERE name = 'Test-CA'");
   const signer = client();
   const { link: sigInvite } = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `sig.${run}@example.org`, role: 'student' } }));
-  await expect(signer('/invitations/accept', { body: { token: tokenOf(sigInvite), name: 'Max Beispiel' } }));
+  await expect(signer('/invitations/accept', { body: { consent: true, token: tokenOf(sigInvite), name: 'Max Beispiel' } }));
   const signedUpload = async (who, name) => (await expect(who(`/cases/${caseId}/documents`, { form: file(name, fixture(name), { title: `Signiert ${run}` }) }))).document_id;
   const sigsOf = async (who, docId) => (await expect(who(`/cases/${caseId}`))).documents.find(x => x.id === docId).versions.at(-1).signatures;
   const signedDoc = await signedUpload(signer, 'one.pdf');
@@ -204,6 +204,34 @@ if (new URL(BASE).hostname === 'localhost') {
   const logged = after.events.findLast(e => e.payload.channel === 'mail');
   assert.deepEqual([logged.payload.subject, logged.payload.attachments], ['Termin für das Exposé', ['Bericht.pdf']]);
   assert.ok(!(await expect(student(`/cases/${caseId}`))).documents.some(x => x.title.startsWith('E-Mail:')), 'mails are team-only by default');
+}
+
+// Consent: using NomoCase is voluntary. Joining needs consent, declining informs the team, and without consent to the
+// current text nothing works but agreeing; withdrawing logs out and tells the cases' teams.
+{
+  const { link: cLink } = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `einwilligung.${run}@example.org`, role: 'student' } }));
+  const newcomer = client();
+  await expect(newcomer('/invitations/accept', { body: { token: tokenOf(cLink), name: 'Ohne Haken' } }), 400);
+  await expect(newcomer('/invitations/accept', { body: { token: tokenOf(cLink), name: 'Mit Haken', consent: true } }));
+  assert.equal((await expect(newcomer('/me'))).consent.accepted, true);
+  await expect(newcomer('/dashboard'));
+  await expect(newcomer('/consent/withdraw', { body: {} }));
+  assert.equal((await expect(newcomer('/me'))).user, null, 'withdrawing logs out');
+  assert.ok((await expect(prof(`/cases/${caseId}`))).events.some(e => e.type === 'consent.withdrawn'), 'the team learns it');
+  if (new URL(BASE).hostname === 'localhost') { // log in again (login link): blocked until agreeing again
+    const { link: again } = await expect(newcomer('/login-link/request', { body: { email: `einwilligung.${run}@example.org` } }));
+    await expect(newcomer('/login-link', { body: { token: again.split('/#/login/')[1] } }));
+    assert.equal((await expect(newcomer('/me'))).consent.accepted, false);
+    await expect(newcomer('/dashboard'), 403);
+    await expect(newcomer('/consent', { body: { version: 'alt' } }), 409);
+    await expect(newcomer('/consent', { body: { version: (await expect(newcomer('/legal'))).version } }));
+    await expect(newcomer('/dashboard'));
+  }
+  const { link: dLink } = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `lieber-mail.${run}@example.org`, role: 'student' } }));
+  await expect(client()('/invitations/decline', { body: { token: tokenOf(dLink) } }));
+  await expect(client()(`/invitations/${tokenOf(dLink)}`), 404, 'a declined invitation is gone');
+  assert.ok((await expect(prof(`/cases/${caseId}`))).events.some(e => e.type === 'participant.declined' && e.payload.email === `lieber-mail.${run}@example.org`));
+  assert.ok((await expect(prof('/people'))).people.some(u => u.email === `einwilligung.${run}@example.org` && u.consent_at));
 }
 
 // Live updates: the change stamp in the payload matches the cheap poll and moves when someone else acts.
@@ -297,7 +325,7 @@ await expect(student(`/files/${wrongUpload.id}`), 404);
 
 // Prüfungsamt (guest_viewer) sees only the application, can't upload, loses access on revoke.
 const inv2 = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `pa.${run}@example.org`, role: 'office' } }));
-await expect(office('/invitations/accept', { body: { token: tokenOf(inv2.link), name: 'Prüfungsamt' } }));
+await expect(office('/invitations/accept', { body: { consent: true, token: tokenOf(inv2.link), name: 'Prüfungsamt' } }));
 const oc = await expect(office(`/cases/${caseId}`));
 assert.deepEqual(oc.documents.map(d => d.doc_type), ['application']);
 assert.deepEqual(oc.tasks.map(t => t.title), ['Antrag beim Prüfungsamt einreichen', 'Genehmigung erhalten', 'Note an Prüfungsamt melden']);
@@ -331,10 +359,10 @@ assert.equal((await expect(viaLink('/me'))).user.email, `pa.${run}@example.org`)
 const officeUser = pc.participants.find(p => p.email === `pa.${run}@example.org`);
 const backdoor = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `pa.${run}@example.org`, role: 'office' } }));
 await expect(prof(`/cases/${caseId}/participants/${officeUser.user_id}`, { method: 'DELETE' }));
-await expect(office('/invitations/accept', { body: { token: tokenOf(backdoor.link) } }), 404, 'revoke removed the open invitation');
+await expect(office('/invitations/accept', { body: { consent: true, token: tokenOf(backdoor.link) } }), 404, 'revoke removed the open invitation');
 const typo = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `tippfehler.${run}@example.org`, role: 'student' } }));
 await expect(prof(`/cases/${caseId}/invitations/${encodeURIComponent(`tippfehler.${run}@example.org`)}`, { method: 'DELETE' }));
-await expect(client()('/invitations/accept', { body: { token: tokenOf(typo.link), name: 'x' } }), 404);
+await expect(client()('/invitations/accept', { body: { consent: true, token: tokenOf(typo.link), name: 'x' } }), 404);
 for (let i = 0; i < 4; i++) await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `viel.${run}@example.org`, role: 'student' } }));
 await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `viel.${run}@example.org`, role: 'student' } }));
 await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `viel.${run}@example.org`, role: 'student' } }), 429); // 5 per address and day
@@ -421,9 +449,10 @@ await expect(student(`/tasks/${invoiceTask}/upload-links`, { body: { label: 'x' 
 const upToken = (await expect(prof(`/tasks/${invoiceTask}/upload-links`, { body: { label: 'Praxis Dr. Link', days: 7 } }))).link.split('/#/upload/')[1];
 const anon = client();
 assert.deepEqual(Object.keys(await expect(anon(`/upload-links/${upToken}`))).sort(), ['document', 'expires_at', 'label', 'requester', 'task'], 'nothing about the case');
-await expect(anon(`/upload-links/${upToken}`, { form: file('evil.pdf', '<html>') }), 422); // rejected, link stays usable
-await expect(anon(`/upload-links/${upToken}`, { form: file('Rechnung-Link.pdf', PDF) }));
-await expect(anon(`/upload-links/${upToken}`, { form: file('nochmal.pdf', PDF) }), 404); // single use
+await expect(anon(`/upload-links/${upToken}`, { form: file('Rechnung-Link.pdf', PDF) }), 400); // without consent: nothing stored
+await expect(anon(`/upload-links/${upToken}`, { form: file('evil.pdf', '<html>', { consent: 'yes' }) }), 422); // rejected, link stays usable
+await expect(anon(`/upload-links/${upToken}`, { form: file('Rechnung-Link.pdf', PDF, { consent: 'yes' }) }));
+await expect(anon(`/upload-links/${upToken}`, { form: file('nochmal.pdf', PDF, { consent: 'yes' }) }), 404); // single use
 await expect(anon(`/cases/${linked}`), 401);
 lc = await expect(prof(`/cases/${linked}`));
 assert.equal(lc.documents.find(d => d.doc_type === 'invoice').versions[0].uploader, 'Praxis Dr. Link');
@@ -464,7 +493,7 @@ assert.ok((await expect(prof(`/cases/${caseId}`))).subcases.some(c => c.id === e
 assert.ok(!(await expect(student(`/cases/${caseId}`))).subcases.length, 'student is not part of the subcase');
 const subGuest = client();
 const subInvite = await expect(prof(`/cases/${extension}/invitations`, { body: { email: `sub.${run}@example.org`, role: 'guest' } }));
-await expect(subGuest('/invitations/accept', { body: { token: tokenOf(subInvite.link), name: 'Nur Teilvorgang' } }));
+await expect(subGuest('/invitations/accept', { body: { consent: true, token: tokenOf(subInvite.link), name: 'Nur Teilvorgang' } }));
 assert.equal((await expect(subGuest(`/cases/${extension}`))).parent, null, 'parent title not revealed');
 assert.equal((await expect(subGuest('/dashboard'))).cases[0].parent_title, null);
 const { id: parentToGo } = await expect(prof('/cases', { body: { template_id: free.id, title: 'Elternvorgang' } }));
@@ -501,7 +530,7 @@ if (new URL(BASE).hostname === 'localhost') {
   const { id: doomed } = await expect(prof('/cases', { body: { template_id: free.id, title: 'Löschtest' } }));
   const delInvite = await expect(prof(`/cases/${doomed}/invitations`, { body: { email: `del.${run}@example.org`, role: 'guest' } }));
   const delGuest = client();
-  await expect(delGuest('/invitations/accept', { body: { token: tokenOf(delInvite.link), name: 'Kurzzeitgast' } }));
+  await expect(delGuest('/invitations/accept', { body: { consent: true, token: tokenOf(delInvite.link), name: 'Kurzzeitgast' } }));
   await expect(delGuest(`/cases/${doomed}/documents`, { form: file('Notiz.pdf', PDF) }));
   const delClaim = await claimIn(doomed, { title: 'Test', direction: 'payable', amount_cents: 100 });
   await expect(prof(`/claims/${delClaim}/transactions`, { body: { amount_cents: 100 } }));
@@ -623,8 +652,8 @@ const asVersion = await expect(prof(`/cases/${caseId}/template`, { body: { templ
 const reinvite = await expect(prof(`/cases/${reborn}/invitations`, { body: { email: `max.${run}@example.org`, role: 'student' } }));
 const stranger = client();
 assert.equal((await expect(stranger(`/invitations/${tokenOf(reinvite.link)}`))).needs_login, true, 'existing account without passkey');
-await expect(stranger('/invitations/accept', { body: { token: tokenOf(reinvite.link), name: 'Mallory' } }), 401);
-await expect(student('/invitations/accept', { body: { token: tokenOf(reinvite.link) } }));
+await expect(stranger('/invitations/accept', { body: { consent: true, token: tokenOf(reinvite.link), name: 'Mallory' } }), 401);
+await expect(student('/invitations/accept', { body: { consent: true, token: tokenOf(reinvite.link) } }));
 assert.ok(asVersion.version > pp.version);
 
 // Template versioning: a new version does not touch running cases.

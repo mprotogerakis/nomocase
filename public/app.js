@@ -1,7 +1,7 @@
 // NomoCase UI entry: hash router, live refresh, event delegation (data-on / data-submit / data-change).
 import { change, input, me, on, set, stamp, submit } from './state.js';
 import { api, esc, html, show } from './lib.js';
-import { accountView, inviteView, loginLinkView, loginView, uploadLinkView, welcomeView } from './views/account.js';
+import { accountView, consentView, inviteView, loginLinkView, loginView, uploadLinkView, welcomeView } from './views/account.js';
 import { dashboardView } from './views/dashboard.js';
 import { peopleView, templatesView } from './views/admin.js';
 import { workspacesView } from './views/workspaces.js';
@@ -17,6 +17,7 @@ async function route() {
     set({ me: await api('/me') });
     if (newVersion(me.version)) return;
     if (!me.user) return loginView();
+    if (!me.consent.accepted) return consentView();
     if (view === 'case') return await caseView(id);
     if (view === 'templates') return await templatesView();
     if (view === 'account') return await accountView();

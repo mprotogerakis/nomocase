@@ -193,7 +193,7 @@ async function purgeCase(c, actorId, reason) {
   const orphans = await rows(`SELECT id FROM users WHERE id IN (SELECT value FROM json_each(?))
     AND NOT EXISTS (SELECT 1 FROM case_participants WHERE user_id = users.id) AND NOT EXISTS (SELECT 1 FROM workspace_members WHERE user_id = users.id)`, JSON.stringify(people));
   for (const { id } of orphans) {
-    await DB.batch(['sessions', 'passkeys', 'login_links', 'challenges', 'notifications', 'signing_keys'].map(t => q(`DELETE FROM ${t} WHERE user_id = ?`, id))
+    await DB.batch(['sessions', 'passkeys', 'login_links', 'challenges', 'notifications', 'signing_keys', 'consents'].map(t => q(`DELETE FROM ${t} WHERE user_id = ?`, id))
       .concat(q('UPDATE signing_keys SET vouched_by = NULL WHERE vouched_by = ?', id), q('DELETE FROM users WHERE id = ?', id)))
       .catch(e => console.error('user purge failed', id, e.message));
   }

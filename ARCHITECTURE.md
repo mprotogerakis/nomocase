@@ -105,6 +105,8 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Vorlagen löschen bzw. archivieren (wenn schon in Vorgängen), „läuft in N Vorgängen“, wiederherstellen
 - [x] Offene Tabs bemerken neue Deployments (`/api/version`, Binding `CF_VERSION_METADATA`) und laden neu
 - [x] Mail in Vorgänge: Adresse `v-…@INBOX_DOMAIN` je Vorgang, `.eml` als Dokument (nur Team), je Message-ID einmal
+- [x] Einwilligung (freiwillige Nutzung): bei Einladung, Upload-Link und nach der Anmeldung, serverseitig erzwungen,
+      versioniert, widerrufbar, Nachweis je Person
 - [ ] Anhänge eingehender Mails als eigene, geprüfte Dokumente
 - [ ] Produkt: Massenanlage zum Semesterstart
 - [x] Digitale Signaturen in PDFs: Schlüssel wiedererkennen (Erstkontakt + Bestätigung), vertrauenswürdige Aussteller je

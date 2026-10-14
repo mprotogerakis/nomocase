@@ -42,7 +42,8 @@ export async function peopleView() {
       <b>${u.name}</b> <span class="muted small">${u.email}${u.workspaces ? ` · Workspace ${u.workspaces}` : ''}</span>
       <div class="muted small">seit ${date(u.created_at)} ·
         ${u.passkeys ? `${u.passkeys} Passkey${u.passkeys > 1 ? 's' : ''}` : html`<span class="tag internal">kein Passkey</span>`} ·
-        ${u.last_seen ? `zuletzt aktiv ${dateTime(u.last_seen)}` : 'noch nie aktiv'}
+        ${u.last_seen ? `zuletzt aktiv ${dateTime(u.last_seen)}` : 'noch nie aktiv'} ·
+        ${u.consent_at ? `eingewilligt ${date(u.consent_at)}` : html`<span class="tag internal">keine Einwilligung</span>`}
         ${u.email_reminders && u.email_progress ? '' : ` · Mails: ${[u.email_reminders && 'Übersicht', u.email_progress && 'Fortschritt'].filter(Boolean).join(', ') || 'keine'}`}</div>
       ${u.cases.length ? html`<ul class="list small">${u.cases.map(c => html`<li>${seat(u, c)}</li>`)}</ul>` : ''}
     </div>`)}

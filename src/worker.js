@@ -1,22 +1,29 @@
 // NomoCase: JSON API on Cloudflare Workers, data in D1, files in R2. The UI is static (public/) and only talks to /api/*.
 // This file: routes, request handling (origin check, session, errors) and the cron entry.
 import { appVersion, fail, HttpError, init, json, q } from './core.js';
-import { deletePasskey, devLogin, listPasskeys, loadUser, logout, me, originOf, passkeyLoginOptions, passkeyLoginVerify, passkeyRegisterOptions, passkeyRegisterVerify, requestLoginLink, sendParticipantLink, updateMe, useLoginLink } from './auth.js';
+import { deletePasskey, devLogin, giveConsent, legalInfo, listPasskeys, loadUser, logout, me, originOf, passkeyLoginOptions, passkeyLoginVerify, passkeyRegisterOptions, passkeyRegisterVerify, requestLoginLink, sendParticipantLink, updateMe, useLoginLink, withdrawConsent } from './auth.js';
 import { addTemplateVersion, createTemplate, deleteTemplate, listTemplates, restoreTemplate, saveAsTemplate } from './templates.js';
 import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard, deleteCase, getCase, getChanges, updateCase, updateFields } from './cases.js';
 import { addTask, deleteTask, taskAction, updateTask } from './tasks.js';
 import { addClaim, addDecision, addTransaction, reverseTransaction, taskMoney } from './finance.js';
 import { processRules, toggleRule } from './rules.js';
 import { createUploadLink, deleteVersion, download, getUploadLink, revokeUploadLinks, updateDocument, upload, useUploadLink } from './documents.js';
-import { acceptInvitation, getInvitation, invite, peopleOverview, revoke, withdrawInvitation } from './people.js';
+import { acceptInvitation, declineInvitation, getInvitation, invite, peopleOverview, revoke, withdrawInvitation } from './people.js';
 import { DAILY_CRON, sendDigests, sendProgress, testMail } from './notify.js';
 import { addSigningKey, addTrustedIssuer, assignSignature, claimSignature, mySigningKeys, removeSigningKey, removeTrustedIssuer } from './signatures.js';
 import { receiveMail } from './inbox.js';
 import { createWorkspace, deleteWorkspace, inviteToWorkspace, listWorkspaces, removeMember, renameWorkspace, setMemberRole, withdrawWorkspaceInvitation } from './workspaces.js';
 
+// Without consent to the current text only this works: reading it, agreeing or withdrawing, the own status, logging out.
+const CONSENT_FREE = new Set([me, logout, giveConsent, withdrawConsent]);
+
 const ROUTES = [
   ['GET', '/api/me', me, true],
   ['GET', '/api/version', () => ({ version: appVersion() }), true],
+  ['GET', '/api/legal', legalInfo, true],
+  ['POST', '/api/consent', giveConsent],
+  ['POST', '/api/consent/withdraw', withdrawConsent],
+  ['POST', '/api/invitations/decline', declineInvitation, true],
   ['PATCH', '/api/me', updateMe],
   ['GET', '/api/people', peopleOverview],
   ['GET', '/api/workspaces', listWorkspaces],
@@ -103,6 +110,7 @@ export default {
       if (req.method !== 'GET' && origin && origin !== url.origin && origin !== originOf(url)) fail(403, 'Anfrage von fremder Seite');
       const user = await loadUser(req);
       if (!user && !isPublic) fail(401, 'Nicht angemeldet');
+      if (user && !isPublic && !user.consented && !CONSENT_FREE.has(handler)) fail(403, 'Bitte stimmen Sie zuerst der Nutzung zu.');
       const body = req.headers.get('content-type')?.includes('application/json') ? await req.json().catch(() => fail(400, 'Ungültiges JSON')) : {};
       const res = await handler({ req, url, user, exec, body: body ?? {}, params: url.pathname.match(re).groups ?? {} });
       if (req.method !== 'GET') await processRules().catch(e => console.error('rules', e.message));

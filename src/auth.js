@@ -4,6 +4,7 @@ import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import { appVersion, arr, DB, E, ev, fail, json, now, q, row, rows, rpId, sha256, token, uid } from './core.js';
 import { caseCtx } from './access.js';
 import { sendMail } from './notify.js';
+import { CONSENT_VERSION } from '../public/shared/consent.js';
 
 // The canonical origin. Not the request URL: wrangler dev rewrites that to the production route.
 export const originOf = url => E.ORIGIN || url.origin;
@@ -15,7 +16,8 @@ const sidOf = req => req.headers.get('cookie')?.match(/(?:^|;\s*)sid=([0-9a-f]+)
 export async function loadUser(req) {
   const sid = sidOf(req);
   return sid
-    ? row('SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?', await sha256(sid), now())
+    ? row(`SELECT u.*, EXISTS (SELECT 1 FROM consents c WHERE c.user_id = u.id AND c.version = ? AND c.withdrawn_at IS NULL) AS consented
+        FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?`, CONSENT_VERSION, await sha256(sid), now())
     : null;
 }
 
@@ -30,7 +32,9 @@ export async function me({ user }) {
   if (!user) return { user: null, dev_users: E.DEV_LOGIN ? await rows('SELECT email, name FROM users ORDER BY name') : null };
   const workspaces = await rows('SELECT w.id, w.name, m.role FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = ? ORDER BY w.name', user.id);
   const { n } = await row('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ? AND rp_id IS ?', user.id, rpId());
-  return { user: { id: user.id, name: user.name, email: user.email, email_reminders: !!user.email_reminders, email_progress: !!user.email_progress }, workspaces, passkeys: n, dev: !!E.DEV_LOGIN, version: appVersion() };
+  const consent = await row('SELECT accepted_at FROM consents WHERE user_id = ? AND version = ? AND withdrawn_at IS NULL', user.id, CONSENT_VERSION);
+  return { user: { id: user.id, name: user.name, email: user.email, email_reminders: !!user.email_reminders, email_progress: !!user.email_progress }, workspaces, passkeys: n, dev: !!E.DEV_LOGIN, version: appVersion(),
+    consent: { version: CONSENT_VERSION, accepted: !!consent, accepted_at: consent?.accepted_at ?? null } };
 }
 
 export async function updateMe({ user, body }) {
@@ -158,7 +162,33 @@ export async function deletePasskey({ user, params }) {
 export async function devLogin({ body, url }) {
   if (!E.DEV_LOGIN) fail(404, 'Nicht gefunden');
   const u = (await row('SELECT id FROM users WHERE email = ?', body.email ?? null)) ?? fail(404, 'Unbekannter Benutzer');
+  await consentStmt(u.id).run(); // dev only: test accounts have agreed (the consent gate has its own tests)
   return json({ ok: true }, 200, { 'set-cookie': await sessionCookie(u.id, url) });
+}
+
+// --- consent (public/shared/consent.js) ---------------------------------------------------------------------------
+// Using NomoCase is voluntary; whoever uses it agrees to the processing first. Every agreement is kept per text version.
+export const consentStmt = userId => q(`INSERT INTO consents (user_id, version, accepted_at) VALUES (?, ?, ?)
+  ON CONFLICT (user_id, version) DO UPDATE SET accepted_at = excluded.accepted_at, withdrawn_at = NULL`, userId, CONSENT_VERSION, now());
+export const hasConsent = async userId => !!(await row('SELECT 1 FROM consents WHERE user_id = ? AND version = ? AND withdrawn_at IS NULL', userId, CONSENT_VERSION));
+
+// Who operates NomoCase and whom to contact – shown in the consent text, also before login (invitations, upload links).
+export const legalInfo = () => ({ version: CONSENT_VERSION, operator: E.OPERATOR ?? '[Betreiber]', contact: E.PRIVACY_CONTACT ?? '[Kontakt]' });
+
+export async function giveConsent({ user, body }) {
+  if (body.version !== CONSENT_VERSION) fail(409, 'Der Text wurde inzwischen geändert. Bitte neu laden.');
+  await consentStmt(user.id).run();
+}
+
+// Withdrawing ends the use: logged out everywhere; the cases' teams learn to continue the conventional way.
+export async function withdrawConsent({ user }) {
+  const cases = await rows('SELECT case_id FROM case_participants WHERE user_id = ? AND revoked_at IS NULL', user.id);
+  await DB.batch([
+    q('UPDATE consents SET withdrawn_at = ? WHERE user_id = ? AND withdrawn_at IS NULL', now(), user.id),
+    ...cases.map(c => ev(c.case_id, user.id, 'consent.withdrawn', {}, [])),
+    q('DELETE FROM sessions WHERE user_id = ?', user.id),
+  ]);
+  return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; Max-Age=0' });
 }
 
 export async function logout({ req }) {

@@ -11,7 +11,7 @@ const fields = { student: 'Erika Beispiel', matrikel: '1000001', company_name: '
 const { id } = await expect(prof('/cases', { body: { template_id: tpl.id, title: 'Praxisprojekt Beispiel', fields } }));
 const join = async (who, email, role, name) => {
   const { link } = await expect(prof(`/cases/${id}/invitations`, { body: { email, role } }));
-  await expect(who('/invitations/accept', { body: { token: tokenOf(link), name } }));
+  await expect(who('/invitations/accept', { body: { consent: true, token: tokenOf(link), name } }));
 };
 await join(student, `erika.${run}@example.org`, 'student', 'Erika Beispiel');
 await join(company, `muster.${run}@example.org`, 'company', 'Dr. Muster');
@@ -117,7 +117,7 @@ const m = (await expect(prof('/cases', { body: { template_id: mtpl.id, title: 'M
 const mstudent = client(), second = client();
 for (const [who, email, role, name] of [[mstudent, `m.erika.${run}@example.org`, 'student', 'Erika Beispiel'], [second, `m.muster.${run}@example.org`, 'second', 'Dr. Muster']]) {
   const { link } = await expect(prof(`/cases/${m}/invitations`, { body: { email, role } }));
-  await expect(who('/invitations/accept', { body: { token: tokenOf(link), name } }));
+  await expect(who('/invitations/accept', { body: { consent: true, token: tokenOf(link), name } }));
 }
 let mc = await view(prof, m);
 assert.equal(mc.tasks.length, 18);

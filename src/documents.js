@@ -8,6 +8,7 @@ import { originOf } from './auth.js';
 import { loadTask, markBlocked } from './tasks.js';
 import { moneyStmts } from './finance.js';
 import { sendMail } from './notify.js';
+import { CONSENT_VERSION } from '../public/shared/consent.js';
 
 export const MAX_UPLOAD = 20 * 1024 * 1024;
 
@@ -166,6 +167,7 @@ export async function getUploadLink({ params }) {
 export async function useUploadLink({ req, params }) {
   const l = await loadUploadLink(params.token);
   const form = await req.formData();
+  if (form.get('consent') !== 'yes') fail(400, 'Bitte stimmen Sie der Verarbeitung zu – oder schicken Sie die Datei auf dem bisherigen Weg per E-Mail.');
   const f = await readUpload(form.get('file'), true, form.get('sha256'));
   if (f.problem) { // logged for the team; the link stays usable for a corrected file
     await ev(l.case_id, null, 'upload.rejected', { filename: f.filename, note: f.problem, via: l.label }, []).run();
@@ -182,7 +184,7 @@ export async function useUploadLink({ req, params }) {
   const ctx = { c, def, user: { id: l.created_by }, role: null, staff: true };
   const doc = await taskDocument(ctx, task, null, f.filename);
   if (doc.final) fail(410, 'Dieses Dokument ist bereits als Endfassung markiert.');
-  await storeVersion({ c, actorId: null, uploadedBy: l.created_by, label: l.label, f, task, doc });
+  await storeVersion({ c, actorId: null, uploadedBy: l.created_by, label: l.label, f, task, doc, extra: { consent: CONSENT_VERSION } });
   return { ok: true };
 }
 

@@ -10,7 +10,9 @@
   // Mail goes out via Resend; the API key is the secret RESEND_API_KEY (wrangler secret put).
   // INBOX_DOMAIN: case addresses v-<inbox>@… (Cloudflare Email Routing, catch-all → this Worker). Unset = no case mail.
   "vars": { "ORIGIN": "https://nomocase.example.org", "MAIL_FROM": "NomoCase <noreply@nomocase.example.org>", "REDIRECT_HOSTS": "nomocase-old.example.org",
-    "INBOX_DOMAIN": "example.org" },
+    "INBOX_DOMAIN": "example.org",
+    // Shown in the consent text (public/shared/consent.js): who operates NomoCase, whom to contact about data protection.
+    "OPERATOR": "[Betreiber – bitte eintragen]", "PRIVACY_CONTACT": "[Kontakt Datenschutz – bitte eintragen]" },
   // Both stores are restricted to the EU jurisdiction (GDPR: health and university data).
   "d1_databases": [{ "binding": "DB", "database_name": "nomocase", "database_id": "00000000-0000-0000-0000-000000000000" }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "nomocase-files", "jurisdiction": "eu" }],

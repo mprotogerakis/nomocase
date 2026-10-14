@@ -1,9 +1,10 @@
 // People: invitations, participants, the admin overview of people.
 import { DB, E, ev, fail, isDate, json, now, q, row, rows, rpId, sha256, token, uid } from './core.js';
 import { caseCtx } from './access.js';
-import { originOf, sessionCookie } from './auth.js';
+import { consentStmt, hasConsent, originOf, sessionCookie } from './auth.js';
 import { bulkCap, sendMail } from './notify.js';
 import { workspaceInvitation, WORKSPACE_ROLES } from './workspaces.js';
+import { CONSENT_VERSION } from '../public/shared/consent.js';
 
 export async function invite({ user, params, body, url }) {
   const ctx = await caseCtx(user, params.id);
@@ -80,12 +81,30 @@ export async function getInvitation({ user, params }) {
 }
 
 // An invitation never opens an existing account (log in first); a new address gets an account here.
+// Joining needs consent to the processing (unless given already); declining keeps the conventional way open.
 async function invitee(email, user, body) {
   const existing = await accountByEmail(email);
   if (needsLogin(existing, user)) fail(401, 'Für diese E-Mail gibt es schon ein Konto. Bitte zuerst mit Passkey anmelden.');
   const userId = existing?.id ?? uid();
   const name = existing?.name ?? (String(body.name ?? '').trim() || email);
-  return { userId, stmts: existing ? [] : [q('INSERT INTO users (id, email, name, created_at) VALUES (?, ?, ?, ?)', userId, email, name, now())] };
+  const agreed = existing && await hasConsent(existing.id);
+  if (!agreed && body.consent !== true) fail(400, 'Bitte stimmen Sie der Nutzung zu – oder wählen Sie den bisherigen Weg per E-Mail.');
+  return { userId, stmts: [
+    ...(existing ? [] : [q('INSERT INTO users (id, email, name, created_at) VALUES (?, ?, ?, ?)', userId, email, name, now())]),
+    ...(agreed ? [] : [consentStmt(userId)]),
+  ] };
+}
+
+// "Lieber per E-Mail": the invitation ends, the team learns it in the case (or it simply lapses for a workspace).
+export async function declineInvitation({ body }) {
+  const hash = await sha256(String(body.token ?? ''));
+  const inv = await row('SELECT * FROM invitations WHERE token_hash = ? AND accepted_at IS NULL AND expires_at > ?', hash, now());
+  if (inv) {
+    await DB.batch([q('DELETE FROM invitations WHERE token_hash = ?', hash), ev(inv.case_id, null, 'participant.declined', { email: inv.email }, [])]);
+    return;
+  }
+  (await workspaceInvitation(hash)) ?? fail(404, 'Einladung ungültig oder abgelaufen');
+  await q('UPDATE workspace_invitations SET revoked_at = ? WHERE token_hash = ?', now(), hash).run();
 }
 
 // Possession of the emailed link stands in for email verification. That's enough for new
@@ -152,6 +171,7 @@ export async function peopleOverview({ user }) {
   const [list, seats, invitations, cases, mails] = await Promise.all([
     rows(`SELECT u.id, u.name, u.email, u.created_at, u.email_reminders, u.email_progress,
         (SELECT COUNT(*) FROM passkeys WHERE user_id = u.id AND rp_id IS ?3) AS passkeys,
+        (SELECT accepted_at FROM consents WHERE user_id = u.id AND version = ?4 AND withdrawn_at IS NULL) AS consent_at,
         (SELECT MAX(t) FROM (SELECT last_used_at AS t FROM passkeys WHERE user_id = u.id
           UNION ALL SELECT used_at FROM login_links WHERE user_id = u.id
           UNION ALL SELECT MAX(created_at) FROM events WHERE actor_id = u.id)) AS last_seen,
@@ -159,7 +179,7 @@ export async function peopleOverview({ user }) {
           WHERE m.user_id = u.id AND m.workspace_id ${IN_WS}) AS workspaces
       FROM users u WHERE u.id IN (SELECT user_id FROM workspace_members WHERE workspace_id ${IN_WS}
         UNION SELECT p.user_id FROM case_participants p JOIN cases c ON c.id = p.case_id WHERE c.workspace_id ${IN_WS})
-      ORDER BY u.name COLLATE NOCASE`, ws, null, rpId()),
+      ORDER BY u.name COLLATE NOCASE`, ws, null, rpId(), CONSENT_VERSION),
     rows(`SELECT p.user_id, c.id AS case_id, c.title, c.status, p.access, p.revoked_at, p.expires_at, ${roleLabel('c', 'p')} AS role
       FROM case_participants p JOIN cases c ON c.id = p.case_id WHERE c.workspace_id ${IN_WS} ORDER BY c.created_at DESC`, ws),
     // Expired ones too: otherwise nobody notices that someone never joined.

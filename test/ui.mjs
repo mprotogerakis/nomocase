@@ -25,7 +25,10 @@ const until = async (check, what) => {
 // Fill a form (found by its data-submit name and optional data-id) and submit it like a user would.
 const submit = (name, values = {}, id) => evaluate(`(() => {
   const f = document.querySelector('form[data-submit="${name}"]${id ? `[data-id="${id}"]` : ''}');
-  for (const [k, v] of Object.entries(${J(values)})) f.elements[k].value = v;
+  for (const [k, v] of Object.entries(${J(values)})) {
+    const el = f.elements[k];
+    if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
+  }
   f.requestSubmit();
   return true;
 })()`);
@@ -190,7 +193,7 @@ try {
   await b.cdp('Network.clearBrowserCookies');
   await b.navigate(inviteLink);
   await waitFor(`!!document.querySelector('form[data-submit="accept"]')`, 'Einladungsseite');
-  await submit('accept', { name: 'Ulla Test' });
+  await submit('accept', { name: 'Ulla Test', consent: true });
   await waitFor(`location.hash.startsWith('#/welcome/')`, 'Willkommensseite');
   await go(`#/case/${caseId}`, has(`UI-Test ${run}`));
   assert.ok(!(await evaluate(has('4711'))), 'guests do not see the Angaben');
@@ -204,6 +207,7 @@ try {
   await b.cdp('Network.clearBrowserCookies');
   await b.navigate(uploadLink);
   await waitFor(`!!document.querySelector('form[data-submit="linkUpload"]')`, 'Upload-Link-Seite');
+  await evaluate(`document.querySelector('form[data-submit="linkUpload"] [name=consent]').checked = true`);
   await upload('form[data-submit="linkUpload"]', pdf);
   await waitFor(`document.querySelector('code.hash')?.textContent.length === 64`, 'Quittung mit SHA-256');
 

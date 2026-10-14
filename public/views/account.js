@@ -1,5 +1,6 @@
 // Login, own account, invitations, welcome page, login links, upload links for people without an account.
 import { STAFF } from '../shared/vocab.js';
+import { CONSENT_LABEL, CONSENT_VERSION, consentText } from '../shared/consent.js';
 import { change, me, on, set, submit } from '../state.js';
 import { api, date, dateTime, go, html, page, reload, show } from '../lib.js';
 
@@ -70,6 +71,9 @@ export async function accountView() {
       <button class="link" data-on="removeSigningKey" data-fp="${k.key_fingerprint}">entfernen</button></li>`)}</ul>` : ''}
     <form data-submit="addSigningKey" class="row small"><input type="file" name="file" accept=".pdf,application/pdf" required aria-label="Signierte PDF">
       <button>Signierte Probe-PDF hinterlegen</button></form>
+    <h3>Einwilligung</h3>
+    <p class="small">Erteilt am ${dateTime(me.consent.accepted_at)} (Fassung ${me.consent.version}).
+      <button class="link" data-on="withdrawConsent">widerrufen</button></p>
     <h3>Benachrichtigungen per E-Mail</h3>
     <p class="row small"><button data-on="testMail">Testmail an mich</button> <output id="test-mail" class="muted"></output></p>
     <label class="row"><input type="checkbox" data-change="mailSetting" data-key="email_progress" ${me.user.email_progress ? 'checked' : ''}>
@@ -107,8 +111,11 @@ export async function uploadLinkView(token) {
     <p>${l.requester} bittet ${l.label ? html`<b>${l.label}</b>` : 'Sie'}, für „${l.task}“ ${l.document ? `das Dokument „${l.document}“` : 'eine Datei'} hochzuladen.</p>
     <form data-submit="linkUpload" data-token="${token}" class="stack card">
       <input type="file" name="file" required>
+      <label class="row consent-check"><input type="checkbox" name="consent" value="yes" required>
+        Ich bin einverstanden, dass die Datei in NomoCase gespeichert wird (Hinweise unten). Alternativ können Sie sie wie bisher per E-Mail schicken.</label>
       <button class="primary">Hochladen</button>
     </form>
+    ${consentBlock(await api('/legal'))}
     <p class="muted small">Erlaubt sind PDF, Bilder (PNG, JPG), Word, Excel, OpenDocument und Text bis 20 MB.
       Gültig bis ${dateTime(l.expires_at)}. Eine Anmeldung ist nicht nötig.</p>
   </main>`);
@@ -168,14 +175,46 @@ export async function inviteView(token) {
         <button class="block primary" data-on="passkeyLogin">Mit Passkey anmelden</button>
         <button class="block" data-on="linkForInvite" data-email="${inv.email}">Anmeldelink an ${inv.email} schicken</button>
         <p class="muted small">Der Anmeldelink kommt per E-Mail. Öffnen Sie danach diesen Einladungslink noch einmal.</p>`
-      : html`<form data-submit="accept" data-token="${token}" class="stack">
+      : html`${consentBlock(await api('/legal'))}
+      <form data-submit="accept" data-token="${token}" class="stack">
         <label class="stack">E-Mail <input value="${inv.email}" disabled></label>
         ${inv.existing ? '' : html`<label class="stack">Ihr Name <input name="name" required autofocus></label>`}
-        <button>Einladung annehmen</button>
+        <label class="row consent-check"><input type="checkbox" name="consent" required> ${CONSENT_LABEL}</label>
+        <button class="primary">Einwilligen und teilnehmen</button>
       </form>
-      <p class="muted small">Danach können Sie einen Passkey einrichten, um sich später wieder anzumelden.</p>`}
+      <p class="small"><button class="link" data-on="declineInvite" data-token="${token}">Lieber per E-Mail weitermachen</button>
+        <span class="muted">– ohne Nachteil; ${inv.inviter} erfährt es im Vorgang.</span></p>
+      <p class="muted small">Nach dem Annehmen können Sie einen Passkey einrichten, um sich später wieder anzumelden.</p>`}
   </main>`);
 }
+
+// The consent text (public/shared/consent.js) with operator and contact from the server's configuration.
+export const consentBlock = legal => html`<details class="consent card" open><summary><b>Datenschutz: freiwillig, mit Einwilligung</b></summary>
+  <dl>${consentText(legal).map(([title, text]) => html`<dt>${title}</dt><dd>${text}</dd>`)}</dl></details>`;
+
+// After login without consent to the current text: nothing else works until agreed (the server enforces it too).
+export async function consentView() {
+  page(html`<main class="narrow"><h1>Einwilligung</h1>
+    ${consentBlock(await api('/legal'))}
+    <form data-submit="giveConsent" class="stack">
+      <label class="row consent-check"><input type="checkbox" name="consent" required> ${CONSENT_LABEL}</label>
+      <button class="primary">Einwilligen und fortfahren</button>
+    </form>
+    <p class="small"><button class="link" data-on="logout">Nicht einwilligen und abmelden</button>
+      <span class="muted">– Ihr Verfahren läuft dann wie bisher per E-Mail.</span></p>
+  </main>`);
+}
+submit.giveConsent = async () => { await api('/consent', { body: { version: CONSENT_VERSION } }); reload(); };
+on.declineInvite = async ({ token }) => {
+  if (!confirm('Die Einladung ablehnen und auf dem bisherigen Weg per E-Mail weitermachen?')) return;
+  await api('/invitations/decline', { body: { token } });
+  show(html`<main class="narrow"><h1>Danke</h1><p>Ihr Verfahren läuft wie bisher per E-Mail weiter. Die einladende Person ist informiert.</p></main>`);
+};
+on.withdrawConsent = async () => {
+  if (!confirm('Einwilligung widerrufen? Sie werden abgemeldet und können NomoCase nicht mehr nutzen; Ihre Verfahren laufen auf dem bisherigen Weg weiter.')) return;
+  await api('/consent/withdraw', { body: {} });
+  go('#/');
+};
 
 on.linkForInvite = async ({ email }) => {
   const { link } = await api('/login-link/request', { body: { email } });
@@ -184,7 +223,7 @@ on.linkForInvite = async ({ email }) => {
 };
 
 submit.accept = async (fd, form) => {
-  const { case_id } = await api('/invitations/accept', { body: { token: form.dataset.token, name: fd.get('name') } });
+  const { case_id } = await api('/invitations/accept', { body: { token: form.dataset.token, name: fd.get('name'), consent: fd.get('consent') === 'on' } });
   set({ me: await api('/me') });
   // a workspace invitation has no case: then the dashboard
   go(me.passkeys ? (case_id ? `#/case/${case_id}` : '#/') : `#/welcome/${case_id ?? ''}`);

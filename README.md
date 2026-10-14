@@ -104,6 +104,11 @@ veröffentlicht mit `npm run templates`, Produktion: `npm run templates -- --rem
   Änderungsstand (letzte Event-ID; in der Übersicht zusätzlich die Zahl der Vorgänge) und laden bei Änderung neu, Scrollposition
   bleibt. Wird gerade getippt oder ist ein Menü offen, erscheint nur „Es gibt Neuigkeiten · Aktualisieren“. Upgrade-Pfad bei
   vielen gleichzeitigen Nutzern: Durable Object mit WebSockets.
+- **Einwilligung**: Die Nutzung ist freiwillig (der bisherige Weg per E-Mail bleibt offen). Wer teilnimmt, willigt vorher ein:
+  beim Annehmen einer Einladung (oder „Lieber per E-Mail“ – die einladende Person erfährt es im Vorgang), bei Upload-Links vor
+  dem Hochladen, bestehende Konten nach der Anmeldung – vorher lässt der Server nichts zu. Text und Version in
+  `public/shared/consent.js` (neue Version = alle werden erneut gefragt), Betreiber und Kontakt als `OPERATOR`/`PRIVACY_CONTACT`.
+  Widerruf im Konto: abgemeldet, die Teams der Vorgänge werden informiert. Nachweis je Person auf „Personen“.
 - **E-Mails an Vorgänge**: Jeder Vorgang hat eine nicht erratbare Adresse `v-…@example.org` (Details, nur Team). Mails an
   diese Adresse (auch in CC) landen als `.eml`-Dokument im Vorgang – Titel = Betreff, Absender als Hochlader, Anhänge im Verlauf,
   nur für das Team sichtbar, je Message-ID einmal; unbekannte Adressen werden abgewiesen, höchstens 100 Mails pro Vorgang und Tag.
