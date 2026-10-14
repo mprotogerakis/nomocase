@@ -11,7 +11,7 @@ import { checkDef } from '../src/templates.js';
 // Client handlers live in plain objects: a second `submit.x = …` silently replaces the first (broke template saving once).
 const ui = new URL('../public/', import.meta.url);
 const handlers = readdirSync(ui, { recursive: true }).filter(f => f.endsWith('.js'))
-  .flatMap(f => readFileSync(new URL(f, ui), 'utf8').match(/^(on|submit|change)\.\w+ =/gm) ?? []);
+  .flatMap(f => readFileSync(new URL(f, ui), 'utf8').match(/^(on|submit|change|input)\.\w+ =/gm) ?? []);
 assert.deepEqual(handlers.filter((h, i) => handlers.indexOf(h) !== i), [], 'duplicate client handlers');
 
 // Daily mail caps (bulk 80, self-service login links 20) would trip on reruns: locally each run starts with an empty mail log.

@@ -30,6 +30,8 @@
   .stats { display: flex; gap: 12px; flex-wrap: wrap; }
   .stats div { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; }
   .stats b { font-size: 1.4rem; display: block; }
+  .stats .link-tile { cursor: pointer; } .stats .link-tile:hover { border-color: var(--accent); }
+  .filters { gap: 8px; margin-bottom: 10px; } .filters input[type=search] { flex: 1 1 220px; } .filters .seg { margin-bottom: 0; flex-wrap: wrap; }
   .cards { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
   .cards a { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: inherit; }
   .cards a:hover { border-color: var(--accent); }

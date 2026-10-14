@@ -130,6 +130,16 @@ try {
   await waitFor(has('steht in den Angaben'), 'Modulnote übernommen');
   await evaluate(`fetch('/api/cases/${master}', { method: 'DELETE' }).then(r => r.status)`);
 
+  // Dashboard as a worklist: search narrows the cards in place, filters and the template choice reload the list
+  await go('#/', `!!document.querySelector('[data-input="caseSearch"]')`);
+  await evaluate(`(() => { const s = document.querySelector('[data-input="caseSearch"]'); s.value = ${J(`ui-test ${run}`)}; s.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  assert.equal(await evaluate(`[...document.querySelectorAll('.cards li')].filter(li => !li.hidden).length`), 1, 'search finds exactly the new case');
+  const onCard = `[...document.querySelectorAll('.cards li')].some(li => li.textContent.includes(${J(`UI-Test ${run}`)}))`;
+  await b.click('[data-on="caseFilter"][data-id="closed"]');
+  await waitFor(`!${onCard} && document.querySelector('[data-on="caseFilter"][data-id="closed"]').classList.contains('on')`, 'Filter abgeschlossen');
+  await b.click('[data-on="caseFilter"][data-id="open"]');
+  await waitFor(onCard, 'Filter offen');
+
   // People, account, phone layout
   await go('#/people', has(guestEmail));
   await go('#/account', `document.querySelector('main h1')?.textContent === 'Konto'`);

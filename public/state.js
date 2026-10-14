@@ -9,5 +9,5 @@ export let stamp = null; // change stamp of the shown case or overview (live upd
 export let templates = [];
 export const set = values => ({ me, cur, stamp, templates } = { me, cur, stamp, templates, ...values });
 
-// Event delegation: data-on (click), data-submit (forms), data-change (inputs).
-export const on = {}, submit = {}, change = {};
+// Event delegation: data-on (click), data-submit (forms), data-change (inputs, on change), data-input (as you type).
+export const on = {}, submit = {}, change = {}, input = {};

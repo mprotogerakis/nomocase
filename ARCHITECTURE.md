@@ -93,4 +93,6 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Beispielvorlagen als JSON-Dateien (`templates/`), veröffentlicht mit `npm run templates [-- --remote]`;
       über die Oberfläche geänderte Versionen werden nur mit `--force` ersetzt
 - [ ] Kosten: Änderungsstand per Trigger, Übersicht in SQL verdichten, Aufräumen alter Benachrichtigungen
-- [ ] Produkt: Übersicht als Arbeitsliste, Einladungen/Personen verwalten, Vorlagen-Archiv, Massenanlage
+- [x] Übersicht als Arbeitsliste: Suche ohne Neuaufbau, Filter, Sortierung nach Dringlichkeit, „wartet auf … seit“,
+      überfällig bei anderen, „+ Neuer Vorgang“ oben
+- [ ] Produkt: Einladungen/Personen verwalten, Vorlagen-Archiv, Massenanlage

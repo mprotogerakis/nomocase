@@ -1,5 +1,5 @@
 // NomoCase UI entry: hash router, live refresh, event delegation (data-on / data-submit / data-change).
-import { change, me, on, set, stamp, submit } from './state.js';
+import { change, input, me, on, set, stamp, submit } from './state.js';
 import { api, esc, html, show } from './lib.js';
 import { accountView, inviteView, loginLinkView, loginView, uploadLinkView, welcomeView } from './views/account.js';
 import { dashboardView } from './views/dashboard.js';
@@ -78,6 +78,11 @@ document.addEventListener('submit', e => {
 document.addEventListener('change', e => {
   const el = e.target.closest('[data-change]');
   if (el) run(change[el.dataset.change], el);
+});
+
+document.addEventListener('input', e => {
+  const el = e.target.closest('[data-input]');
+  if (el) run(input[el.dataset.input], el);
 });
 
 addEventListener('hashchange', route);

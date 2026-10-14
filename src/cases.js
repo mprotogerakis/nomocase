@@ -218,18 +218,24 @@ ${E.ORIGIN}/#/case/${c.id}`,
 export async function dashboard({ user }) {
   const stamp = await dashboardStamp(user); // before the data: a change in between only causes one extra refresh
   const cases = await rows(`
-    SELECT c.id, c.title, c.status, c.workspace_id, c.parent_case_id, w.name AS workspace, p.role, p.access, m.role AS ws_role
+    SELECT c.id, c.title, c.status, c.workspace_id, c.parent_case_id, w.name AS workspace, t.name AS template,
+      json_extract(c.definition, '$.roles') AS roles, p.role, p.access, m.role AS ws_role,
+      (SELECT created_at FROM events WHERE id = (SELECT MAX(id) FROM events WHERE case_id = c.id)) AS last_activity
     FROM cases c
     JOIN workspaces w ON w.id = c.workspace_id
+    LEFT JOIN templates t ON t.id = c.template_id
     LEFT JOIN case_participants p ON p.case_id = c.id AND p.user_id = ?1 AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?2)
     LEFT JOIN workspace_members m ON m.workspace_id = c.workspace_id AND m.user_id = ?1
     WHERE p.user_id IS NOT NULL OR m.role = 'owner'
     ORDER BY c.created_at DESC`, user.id, now());
   const caseIds = JSON.stringify(cases.map(c => c.id));
-  const [phases, tasks] = (await DB.batch([
+  const [phases, tasks, holders] = (await DB.batch([
     q('SELECT * FROM phases WHERE case_id IN (SELECT value FROM json_each(?)) ORDER BY position', caseIds),
     q('SELECT * FROM tasks WHERE case_id IN (SELECT value FROM json_each(?)) ORDER BY position, created_at', caseIds),
+    q(`SELECT p.case_id, p.role, u.name FROM case_participants p JOIN users u ON u.id = p.user_id
+       WHERE p.case_id IN (SELECT value FROM json_each(?)) AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?)`, caseIds, now()),
   ])).map(r => r.results);
+  const today = now().slice(0, 10);
   markBlocked(tasks);
   for (const c of cases) {
     c.staff = c.ws_role === 'owner' || STAFF.includes(c.access);
@@ -246,6 +252,15 @@ export async function dashboard({ user }) {
     c.next_due = open.map(t => t.due_date).filter(Boolean).sort()[0] ?? null;
     c.open_tasks = open.length;
     c.open_receivable_cents = openReceivable(claims.filter(x => x.case_id === c.id));
+    // Worklist: whom the case waits for (names only for the team, guests see roles), and overdue steps of others.
+    const roles = JSON.parse(c.roles ?? '[]');
+    delete c.roles;
+    const othersOpen = open.filter(t => !t.blocked && !(c.role && t.role === c.role));
+    c.waiting_for = [...new Set(othersOpen.map(t => t.role).filter(Boolean))].map(r => ({
+      role: roles.find(x => x.key === r)?.label ?? r,
+      names: c.staff ? holders.filter(h => h.case_id === c.id && h.role === r).map(h => h.name) : [],
+    }));
+    c.overdue_others = c.staff ? othersOpen.filter(t => t.due_date && t.due_date < today).length : 0;
     for (const t of open) if (c.role && t.role === c.role && !t.blocked) myTasks.push({ id: t.id, title: t.title, type: t.type, assess: t.assess, due_date: t.due_date, case_id: c.id, case_title: c.title });
   }
   myTasks.sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'));
