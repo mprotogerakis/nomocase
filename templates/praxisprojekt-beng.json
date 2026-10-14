@@ -173,7 +173,7 @@
             "visible_to": [
               "student"
             ],
-            "description": "Mit Ihrer Unterschrift bestätigen Sie, dass Sie das Praxisprojekt als Prüfer:in betreuen (§ 11 Abs. 2 PO). Unterschriebene PDF hochladen."
+            "description": "Mit Ihrer Unterschrift bestätigen Sie, dass Sie das Praxisprojekt als Prüfer:in betreuen und mindestens den entsprechenden Abschluss oder eine gleichwertige Qualifikation haben (§ 9 Abs. 2–3 RahmenPO EI). Unterschriebene PDF hochladen."
           },
           {
             "key": "sign_supervisor",
@@ -233,7 +233,8 @@
             "due_field": "end",
             "visible_to": [
               "company"
-            ]
+            ],
+            "description": "Ausarbeitung als PDF, mit unterschriebener eidesstattlicher Versicherung, dass Sie sie selbstständig und ohne unzulässige fremde Hilfe erstellt haben (§ 10 Abs. 6 RahmenPO EI)."
           },
           {
             "key": "ossc",
