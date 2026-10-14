@@ -118,6 +118,19 @@ const { id: colleagueCase } = await expect(colleague('/cases', { body: { templat
 await expect(colleague(`/templates/${wsTpl}/versions`, { body: { definition: { roles: [{ key: 'owner', label: 'V', access: 'case_owner' }], phases: [] } } }), 403);
 assert.ok((await expect(prof('/dashboard'))).cases.some(c => c.id === colleagueCase), 'owners see every case of the workspace');
 await expect(colleague('/workspaces')).then(list => assert.equal(list[0].members, undefined, 'members do not see the member list'));
+// The look of the workspace's forms: owners set it, members (template preview) read it; PNG/JPEG only.
+const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+const brand = (who, body, status) => expect(who(`/workspaces/${wsId}/branding`, { method: 'PUT', body }), status);
+await brand(colleague, { accent: '#e60028' }, 403);
+await brand(prof, { accent: 'red' }, 400);
+await brand(prof, { logo: 'data:image/svg+xml;base64,PHN2Zy8+' }, 400);
+await brand(prof, { logo: `data:image/jpeg;base64,${PIXEL.split(',')[1]}` }, 400); // a PNG claiming to be a JPEG
+await brand(prof, { accent: '#E60028', logo: PIXEL });
+assert.deepEqual(await expect(colleague(`/workspaces/${wsId}/branding`)), { accent: '#e60028', logo: PIXEL });
+assert.equal((await myWs()).has_logo, 1);
+await brand(prof, { logo: null });
+assert.equal((await myWs()).has_logo, 0);
+await expect(student(`/workspaces/${wsId}/branding`), 404);
 const profId = (await expect(prof('/me'))).user.id;
 await expect(prof(`/workspaces/${wsId}/members/${profId}`, { method: 'PATCH', body: { role: 'member' } }), 409); // last owner
 await expect(prof(`/workspaces/${wsId}/members/${profId}`, { method: 'DELETE' }), 409);

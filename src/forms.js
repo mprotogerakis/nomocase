@@ -4,6 +4,7 @@ import { fail, isDate, now, rows } from './core.js';
 import { loadTask } from './tasks.js';
 import { deDate } from './notify.js';
 import { fillForm } from '../public/shared/forms.js';
+import { branding } from './workspaces.js';
 
 export async function taskForm({ user, params }) {
   const { ctx, t } = await loadTask(user, params.id);
@@ -20,5 +21,5 @@ export async function taskForm({ user, params }) {
     if (kind === 'role') return people.filter(p => p.role === key).map(p => (extra === 'email' ? p.email : p.name)).join(', ');
     return '';
   };
-  return { ...fillForm(form, lookup), case_title: ctx.c.title, template: ctx.c.template_name ?? '', created: deDate(now().slice(0, 10)) };
+  return { ...fillForm(form, lookup), ...(await branding(ctx.c.workspace_id)), case_title: ctx.c.title, template: ctx.c.template_name ?? '', created: deDate(now().slice(0, 10)) };
 }

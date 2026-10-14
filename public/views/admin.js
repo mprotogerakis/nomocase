@@ -138,8 +138,8 @@ on.previewForm = async ({ id, key }) => {
     const [kind, k2, extra] = k.split('.');
     return `‹${(kind === 'field' ? def.fields : def.roles)?.find(x => x.key === k2)?.label ?? k}${extra ? ', E-Mail' : ''}›`;
   };
-  const { formPdf, formFilename, saveFile } = await import('../formpdf.js');
-  const f = { ...fillForm(form, label), case_title: 'Vorschau', template: t.name, created: new Date().toLocaleDateString('de-DE') };
+  const [{ formPdf, formFilename, saveFile }, look] = await Promise.all([import('../formpdf.js'), api(`/workspaces/${t.workspace_id}/branding`)]);
+  const f = { ...fillForm(form, label), ...look, case_title: 'Vorschau', template: t.name, created: new Date().toLocaleDateString('de-DE') };
   saveFile(await formPdf(f), formFilename(f));
 };
 on.restoreTemplate = async ({ id }) => { await api(`/templates/${id}/restore`, { body: {} }); reload(); };

@@ -30,6 +30,15 @@ function workspaceCard(w) {
       <form data-submit="wsInvite" data-id="${w.id}" class="row small">
         <input name="email" type="email" placeholder="E-Mail" required aria-label="E-Mail">${roleSelect('role', 'member', 'aria-label="Rolle"')}<button>Einladen</button>
       </form>
+      <h3>Erscheinungsbild der Formulare</h3>
+      <p class="muted small">Logo und Akzentfarbe der PDF-Formulare, die NomoCase aus den Vorlagen dieses Workspace erzeugt
+        (PNG oder JPEG, höchstens 300 KB). Die Vorschau gibt es auf der Seite „Vorlagen“.</p>
+      <form data-submit="wsBranding" data-id="${w.id}" class="row small">
+        <label class="row">Logo <input type="file" name="logo" accept="image/png,image/jpeg" aria-label="Logo"></label>
+        <label class="row">Farbe <input type="color" name="accent" value="${w.accent ?? '#0f6e78'}" aria-label="Akzentfarbe"></label>
+        <button>Speichern</button>
+        ${w.has_logo ? html`<span class="muted">Logo hinterlegt · <button type="button" class="link" data-on="wsLogoRemove" data-id="${w.id}">entfernen</button></span>` : ''}
+      </form>
       <h3>Vertrauenswürdige Aussteller</h3>
       <p class="muted small">Signaturen mit Zertifikaten dieser Aussteller (z. B. der CA Ihres Lehrstuhls) gelten als identifiziert,
         ohne dass jemand sie erst zuordnen muss.</p>
@@ -91,6 +100,14 @@ submit.wsIssuer = async (fd, form) => {
   alert(`„${name}“ ist jetzt ein vertrauenswürdiger Aussteller.`);
   reload();
 };
+const dataUrl = file => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => no(r.error); r.readAsDataURL(file); });
+submit.wsBranding = async (fd, form) => {
+  const logo = fd.get('logo');
+  await api(`/workspaces/${form.dataset.id}/branding`, { method: 'PUT', body: { accent: fd.get('accent'), ...(logo?.size && { logo: await dataUrl(logo) }) } });
+  reload();
+};
+on.wsLogoRemove = async ({ id }) => { await api(`/workspaces/${id}/branding`, { method: 'PUT', body: { logo: null } }); reload(); };
+
 on.wsIssuerRemove = async ({ id, fp, name }) => {
   if (!confirm(`„${name}“ nicht mehr als vertrauenswürdig behandeln?`)) return;
   await api(`/workspaces/${id}/issuers/${fp}`, { method: 'DELETE' });

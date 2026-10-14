@@ -143,8 +143,13 @@ try {
   await waitFor(has('steht in den Angaben'), 'Modulnote übernommen');
   await evaluate(`fetch('/api/cases/${master}', { method: 'DELETE' }).then(r => r.status)`);
 
-  // Forms: a step's form is generated in the browser (pdf-lib loaded on demand), prefilled from the case, with the logo
+  // Forms: a step's form is generated in the browser (pdf-lib loaded on demand), prefilled from the case, with the
+  // workspace's logo (a one-pixel test image here)
   const btpl = tpls.find(t => t.name === 'Bachelor-Thesis (B.Eng.)');
+  const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+  const setLogo = logo => evaluate(`fetch('/api/workspaces/${btpl.workspace_id}/branding', { method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: ${J(J({ logo }))} }).then(r => r.status)`);
+  assert.equal(await setLogo(PIXEL), 200);
   const thesis = await evaluate(`fetch('/api/cases', { method: 'POST', headers: { 'content-type': 'application/json' },
     body: ${J(J({ template_id: btpl.id, title: `UI-BA ${run}`, fields: { student: 'Ulla Test', matrikel: '4242' } }))} }).then(r => r.json()).then(r => r.id)`);
   await go(`#/case/${thesis}`, `!!document.querySelector('[data-on="taskForm"]')`);
@@ -165,6 +170,7 @@ try {
   await waitFor('pdfs.length === 1', 'Formular-Vorschau');
   assert.equal(await evaluate(`import('/vendor/pdf-lib.esm.min.js').then(async ({ PDFDocument }) =>
     (await PDFDocument.load(await pdfs[0].arrayBuffer())).getForm().getTextField('Matrikelnummer').getText())`), '‹Matrikelnummer›');
+  assert.equal(await setLogo(null), 200);
 
   // Dashboard as a worklist: search narrows the cards in place, filters and the template choice reload the list
   await go('#/', `!!document.querySelector('[data-input="caseSearch"]')`);

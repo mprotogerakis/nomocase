@@ -13,7 +13,7 @@ import { DAILY_CRON, sendDigests, sendProgress, testMail } from './notify.js';
 import { addSigningKey, addTrustedIssuer, assignSignature, claimSignature, mySigningKeys, removeSigningKey, removeTrustedIssuer } from './signatures.js';
 import { receiveMail } from './inbox.js';
 import { taskForm } from './forms.js';
-import { createWorkspace, deleteWorkspace, inviteToWorkspace, listWorkspaces, removeMember, renameWorkspace, setMemberRole, withdrawWorkspaceInvitation } from './workspaces.js';
+import { createWorkspace, deleteWorkspace, getBranding, inviteToWorkspace, listWorkspaces, removeMember, renameWorkspace, setBranding, setMemberRole, withdrawWorkspaceInvitation } from './workspaces.js';
 
 // Without consent to the current text only this works: reading it, agreeing or withdrawing, the own status, logging out.
 const CONSENT_FREE = new Set([me, logout, giveConsent, withdrawConsent]);
@@ -38,6 +38,8 @@ const ROUTES = [
   ['DELETE', '/api/me/signing-keys/:fp', removeSigningKey],
   ['POST', '/api/workspaces', createWorkspace],
   ['PATCH', '/api/workspaces/:id', renameWorkspace],
+  ['GET', '/api/workspaces/:id/branding', getBranding],
+  ['PUT', '/api/workspaces/:id/branding', setBranding],
   ['DELETE', '/api/workspaces/:id', deleteWorkspace],
   ['POST', '/api/workspaces/:id/invitations', inviteToWorkspace],
   ['DELETE', '/api/workspaces/:id/invitations/:email', withdrawWorkspaceInvitation],

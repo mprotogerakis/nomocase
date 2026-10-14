@@ -11,10 +11,9 @@ const GAP = 14;            // between two half-width fields
 
 const hexColor = (rgb, s, fallback) => (/^#[0-9a-f]{6}$/i.test(s ?? '') ? rgb(...[1, 3, 5].map(i => parseInt(s.slice(i, i + 2), 16) / 255)) : fallback);
 
-// loadImage: how to get the logo's bytes (the browser fetches it from NomoCase; tests read the file).
-const fetchBytes = async url => { const r = await fetch(url); if (!r.ok) throw new Error(`${url}: ${r.status}`); return new Uint8Array(await r.arrayBuffer()); };
-
-export async function formPdf(form, { loadImage = fetchBytes } = {}) {
+// form: a filled form (shared/forms.js) plus the workspace's look (accent "#rrggbb", logo as PNG/JPEG data URL),
+// template name and date for the footer.
+export async function formPdf(form) {
   const { PDFDocument, PDFHexString, StandardFonts, rgb, setCharacterSpacing } = await import('./vendor/pdf-lib.esm.min.js');
   const doc = await PDFDocument.create();
   const [font, bold] = await Promise.all([doc.embedFont(StandardFonts.Helvetica), doc.embedFont(StandardFonts.HelveticaBold)]);
@@ -72,10 +71,11 @@ export async function formPdf(form, { loadImage = fetchBytes } = {}) {
   newPage();
   y = H - 40;
   let logo = null;
+  const image = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(form.logo ?? '');
   try {
-    const bytes = form.logo && new Uint8Array(await loadImage(form.logo)); // a copy: pdf-lib reads the whole underlying buffer
-    if (bytes) logo = bytes[0] === 0x89 ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
-  } catch (e) { console.warn('Logo nicht geladen:', e); } // the form works without it
+    const bytes = image && Uint8Array.from(atob(image[2]), c => c.charCodeAt(0));
+    if (bytes) logo = image[1] === 'png' ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+  } catch (e) { console.warn('Logo nicht lesbar:', e); } // the form works without it
   if (logo) {
     const h = 46, w = Math.min(logo.width * (h / logo.height), CW * 0.62);
     page.drawImage(logo, { x: W - M - w, y: H - 30 - w * (logo.height / logo.width), width: w, height: w * (logo.height / logo.width) });
@@ -146,7 +146,8 @@ export async function formPdf(form, { loadImage = fetchBytes } = {}) {
     y -= Math.max(...row.map(it => cellHeight(it, cellWidth(row))));
   };
 
-  // Place and date, plus a signature field that PDF readers offer for a digital signature (or print and sign by hand).
+  // Place and date, a signature field that PDF readers offer for a digital signature (or print and sign by hand), and the
+  // signer's name – a field too, like every value from the case, so it can be corrected.
   const SIGNATURE = 72;
   const signature = it => {
     const h = 38, dateW = 150, sigX = M + dateW + GAP, sigW = CW - dateW - GAP, by = y - 12 - h;
@@ -165,7 +166,10 @@ export async function formPdf(form, { loadImage = fetchBytes } = {}) {
     text('Ort, Datum', M, by - 12, { size: 7.5, color: C.muted });
     const label = fit(it.sign, font, 7.5, sigW * 0.55), lw = font.widthOfTextAtSize(label, 7.5);
     text(label, sigX, by - 12, { size: 7.5, color: C.muted });
-    if (it.name?.trim()) text(fit(`· ${it.name}`, bold, 7.5, sigW - lw - 6), sigX + lw + 4, by - 12, { size: 7.5, f: bold });
+    const who = pdfForm.createTextField(fieldName(`Name – ${it.sign}`));
+    who.setText(safe(it.name ?? ''));
+    who.addToPage(page, { x: sigX + lw + 4, y: by - 17, width: sigW - lw - 4, height: 14, font: bold, textColor: C.ink, backgroundColor: undefined, borderColor: undefined, borderWidth: 0 });
+    who.setFontSize(7.5);
     y -= SIGNATURE;
   };
 
@@ -198,12 +202,11 @@ export async function formPdf(form, { loadImage = fetchBytes } = {}) {
     p.drawLine({ start: { x: M, y: 50 }, end: { x: W - M, y: 50 }, thickness: 0.6, color: C.line });
     const n = `Seite ${i + 1} von ${pages.length}`;
     text(n, W - M - font.widthOfTextAtSize(n, 7), 38, { size: 7, color: C.muted });
-    text(fit([form.case_title && `Vorgang „${form.case_title}“`, form.template].filter(Boolean).join(' · '), font, 7, CW - 80), M, 38, { size: 7, color: C.muted });
+    if (form.template) text(fit(form.template, font, 7, CW - 80), M, 38, { size: 7, color: C.muted });
     text(`Erzeugt mit NomoCase${form.created ? ` am ${form.created}` : ''} – ausgefüllt und unterschrieben im Vorgang hochladen.`, M, 28, { size: 7, color: C.muted });
   });
 
   doc.setTitle(safe(form.title), { showInWindowTitleBar: true });
-  if (form.case_title) doc.setSubject(safe(form.case_title));
   doc.setCreator('NomoCase');
   doc.setProducer('NomoCase (pdf-lib)');
   doc.setLanguage('de-DE');

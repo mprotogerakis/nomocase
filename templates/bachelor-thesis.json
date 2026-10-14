@@ -514,8 +514,6 @@
         "key": "zulassung",
         "title": "Antrag auf Zulassung zur Bachelor-Thesis",
         "subtitle": "Ausgefüllt und unterschrieben im Studienbüro einreichen, zusammen mit dem Nachweis der bestandenen Module. Über die Zulassung entscheidet die/der Prüfungsausschussvorsitzende (§ 17 RahmenPO EI).",
-        "logo": "/brand/hsd-ei.png",
-        "accent": "#E60028",
         "items": [
           {
             "heading": "Persönliche Angaben"
@@ -662,8 +660,6 @@
         "key": "verlaengerung",
         "title": "Antrag auf Verlängerung der Bearbeitungszeit",
         "subtitle": "Bachelor-Thesis · einmal um bis zu 4 Wochen auf begründeten Antrag (§ 17 Abs. 6 RahmenPO EI). Mit Zustimmung der/des Erstprüfer/in im Studienbüro einreichen.",
-        "logo": "/brand/hsd-ei.png",
-        "accent": "#E60028",
         "items": [
           {
             "heading": "Persönliche Angaben"
@@ -770,8 +766,6 @@
         "key": "ergebnis",
         "title": "Mitteilung der Note der Bachelor-Thesis",
         "subtitle": "Von beiden Prüfer/innen unterschrieben an das Studienbüro.",
-        "logo": "/brand/hsd-ei.png",
-        "accent": "#E60028",
         "items": [
           {
             "heading": "Persönliche Angaben"

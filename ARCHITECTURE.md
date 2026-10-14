@@ -38,7 +38,7 @@ Widerspruch ist, weiß nur die jeweilige Vorlage – nicht der Code.
 | `rules.js` | Regel-Engine: Auslöser, Bedingungen, Aktionen; idempotent je Ereignis |
 | `documents.js` | Upload-Prüfung, Fassungen in R2, Upload-Links, Downloads |
 | `people.js` | Einladungen (auch die Annahme von Workspace-Einladungen), Beteiligte, Personenübersicht |
-| `workspaces.js` | Workspaces anlegen/umbenennen/löschen, Mitglieder (Owner/Mitglied), Workspace-Einladungen |
+| `workspaces.js` | Workspaces anlegen/umbenennen/löschen, Mitglieder (Owner/Mitglied), Workspace-Einladungen, Erscheinungsbild der Formulare (Logo, Farbe) |
 | `notify.js` | Mail über Resend, Tageskontingente, Tagesübersicht, gebündelte Fortschrittsmails, Testmail |
 | `inbox.js` | Mail in einen Vorgang: Adresse je Vorgang, Empfang über Cloudflare Email Routing, Ablage als `.eml` |
 | `validate.js` | Inhaltsprüfung hochgeladener Dateien (aktive Inhalte in PDF/Office) |
@@ -60,7 +60,6 @@ Aufrufe in beide Richtungen, aber nur zur Laufzeit (keine Auswertung beim Laden)
 | `shared/vocab.js` | Begriffe, die Server und Oberfläche teilen (Zugriffsstufen, Aufgabentypen) |
 | `shared/forms.js` | Formulare der Vorlage: Prüfung, Platzhalter füllen (Server: echte Werte, Vorschau: Platzhalternamen) |
 | `formpdf.js` | Formular als ausfüllbare PDF mit Signaturfeldern; lädt `vendor/pdf-lib` erst bei Bedarf (nichts von Fremdservern) |
-| `brand/` | Logos, auf die Vorlagen verweisen (`"logo": "/brand/…"`) |
 
 Jede Ansicht registriert ihre Handler selbst (`on.x = …`). Ein Test verhindert doppelte Handlernamen über alle
 Module hinweg.
@@ -81,9 +80,10 @@ oder geändert wird), `visible_to`, `labels`, `money`, `assess`. Regeln: `trigge
 `add_comment`, `create_subcase`). Dazu `due_base_field` (Datumsfeld, ab dem `due_days` zählen), `finance`
 (`true` oder `{ "labels": { … } }` mit eigenen Begriffen), `scales` (Skala: `range`+`step`+`extra` oder `options`,
 `pass`, `verdicts`, `hint`) und `aggregates` (`from` Schritt-Keys, `method`, `round`, `fail_value`, `field`, `note`).
-`forms` (Formulare, die NomoCase als ausfüllbare PDF erzeugt: `title`, `subtitle`, `logo`, `accent`, `items` aus
-`heading`/`text`/`label`(+`value`, `half`, `lines`, `check`)/`sign`; Platzhalter `{field.x}`, `{role.x}`, `{role.x.email}`,
-`{case.title}`, `{date+N}`), am Schritt `form`. Neue fachliche
+`forms` (Formulare, die NomoCase als ausfüllbare PDF erzeugt: `title`, `subtitle`, `header`, `items` aus
+`heading`/`text`/`label`(+`value`, `half`, `lines`, `check`)/`sign`(+`name`, `place`); Platzhalter `{field.x}`, `{role.x}`,
+`{role.x.email}`, `{case.title}`, `{date+N}` nur in `value`/`name`/`place` – Werte aus dem Vorgang stehen immer in
+korrigierbaren Feldern, nie im gedruckten Text), am Schritt `form`. Logo und Akzentfarbe gehören dem Workspace. Neue fachliche
 Anforderungen werden als allgemeines Konzept hier ergänzt, nicht als Sonderfall im Code.
 
 ## Umbauplan
@@ -120,7 +120,7 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [ ] Produkt: Massenanlage zum Semesterstart
 - [x] Digitale Signaturen in PDFs: Schlüssel wiedererkennen (Erstkontakt + Bestätigung), vertrauenswürdige Aussteller je
       Workspace, Warnung bei anderem Schlüssel (Ereignis `signature.changed`, Regel-Auslöser); keine Rechtsprüfung, kein CRL/OCSP
-- [x] Formulare aus der Vorlage: vorausgefüllte, ausfüllbare PDFs mit Signaturfeldern, Logo und Akzentfarbe je Vorlage,
+- [x] Formulare aus der Vorlage: vorausgefüllte, ausfüllbare PDFs mit Signaturfeldern, Logo und Akzentfarbe je Workspace,
   Vorschau auf der Vorlagenseite (Bachelor-Thesis: Zulassung, Verlängerung, Notenmitteilung)
 - [ ] Formulare auch für Praxisprojekt und Masterprojekt; Werte aus hochgeladenen Formularen zurücklesen (z. B. Note)
 - [ ] Workspace-Änderungen (Mitglieder, Name) protokollieren; das Ereignisprotokoll kennt bisher nur Vorgänge

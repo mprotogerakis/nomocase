@@ -15,7 +15,7 @@ const owners = async wsId => (await row("SELECT COUNT(*) AS n FROM workspace_mem
 
 // The user's workspaces; owners also get members, open invitations and what the workspace holds.
 export async function listWorkspaces({ user }) {
-  const list = await rows(`SELECT w.id, w.name, m.role,
+  const list = await rows(`SELECT w.id, w.name, m.role, w.accent, w.logo IS NOT NULL AS has_logo,
       (SELECT COUNT(*) FROM cases c WHERE c.workspace_id = w.id) AS cases,
       (SELECT COUNT(*) FROM templates t WHERE t.workspace_id = w.id) AS templates
     FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = ? ORDER BY w.name`, user.id);
@@ -32,6 +32,34 @@ export async function listWorkspaces({ user }) {
     invitations: invitations.filter(i => i.workspace_id === w.id),
     issuers: issuers.filter(i => i.workspace_id === w.id),
   }) }));
+}
+
+// The look of the workspace's forms: accent colour and logo. PNG/JPEG only (no SVG: it can carry scripts), kept small.
+const MAX_LOGO = 300 * 1024;
+export const branding = async wsId => (await row('SELECT accent, logo FROM workspaces WHERE id = ?', wsId)) ?? {};
+
+export async function getBranding({ user, params }) {
+  if (!(await row('SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?', params.id, user.id))) fail(404, 'Workspace nicht gefunden');
+  return branding(params.id);
+}
+
+export async function setBranding({ user, params, body }) {
+  await requireWsOwner(user, params.id);
+  const set = {};
+  if ('accent' in body) set.accent = body.accent ? (/^#[0-9a-f]{6}$/i.test(body.accent) ? body.accent.toLowerCase() : fail(400, 'Farbe als #rrggbb')) : null;
+  if ('logo' in body) {
+    const m = body.logo && /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(body.logo);
+    if (body.logo && !m) fail(400, 'Logo bitte als PNG oder JPEG');
+    if (m) {
+      const bytes = Uint8Array.from(atob(m[2]), c => c.charCodeAt(0));
+      if (bytes.length > MAX_LOGO) fail(413, 'Das Logo ist zu groß (höchstens 300 KB).');
+      const png = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47, jpeg = bytes[0] === 0xff && bytes[1] === 0xd8;
+      if (!(m[1] === 'png' ? png : jpeg)) fail(400, 'Die Datei ist kein PNG- bzw. JPEG-Bild.');
+    }
+    set.logo = body.logo || null;
+  }
+  const keys = Object.keys(set);
+  if (keys.length) await q(`UPDATE workspaces SET ${keys.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, ...Object.values(set), params.id).run();
 }
 
 // New workspaces come from people who already own one (no self-service for guests).

@@ -4,15 +4,15 @@
 //   { "text": "Hiermit beantrage ich …" }                                              paragraph
 //   { "label": "Matrikelnummer", "value": "{field.matrikel}", "half": true, "lines": 1 } text field
 //   { "label": "extern (Firma oder Institut)", "check": true, "value": "{field.company_name}" } checkbox, ticked when value is not empty
-//   { "sign": "Unterschrift der/des Studierenden", "name": "{field.student}", "place": "Düsseldorf" } place/date + signature field
-// Besides items: title, subtitle, header (issuer line on top), accent ("#rrggbb"), logo (a PNG/JPEG NomoCase serves itself,
-// e.g. "/brand/hsd-ei.jpg" – never a third-party address, so generating a form tells no one else about it).
-// Placeholders: {case.title} {field.<key>} {role.<key>} (names) {role.<key>.email} {date} {date+N}.
+//   { "sign": "Unterschrift der/des Studierenden", "name": "{field.student}", "place": "Düsseldorf" } place/date, signature, name
+// Besides items: title, subtitle, header (a line on top). Logo and accent colour come from the workspace.
+// Placeholders: {case.title} {field.<key>} {role.<key>} (names) {role.<key>.email} {date} {date+N} – only in value, name
+// and place: whatever comes from the case lands in a form field, so it can still be corrected in the PDF.
 // Shared by the Worker (check, fill with real values) and the UI (PDF, preview with placeholder names).
 
 const PLACEHOLDER = /\{([^{}]*)\}/g;
-const TEXTS = ['title', 'subtitle', 'header'];
-const ITEM_TEXTS = ['heading', 'hint', 'text', 'label', 'value', 'sign', 'name', 'place'];
+const FILLED = ['value', 'name', 'place'];
+const FIXED = ['heading', 'hint', 'text', 'label', 'sign'];
 
 // Why a placeholder does not work in this template (null if it does).
 function placeholderProblem(def, k) {
@@ -33,26 +33,28 @@ export function formProblems(def) {
     const name = `Formular "${f?.key ?? '?'}"`;
     if (!f?.key || keys.has(f.key) || !f.title || !Array.isArray(f.items) || !f.items.length) { out.push(`${name}: eindeutiger key, title und items nötig`); continue; }
     keys.add(f.key);
-    if (f.accent !== undefined && !/^#[0-9a-f]{6}$/i.test(f.accent)) out.push(`${name}: accent als Farbe "#rrggbb"`);
-    if (f.logo !== undefined && !/^\/[\w/.-]+\.(png|jpe?g)$/i.test(f.logo)) out.push(`${name}: logo als Pfad zu einer PNG/JPEG-Datei von NomoCase, z. B. "/brand/logo.png"`);
     f.items.forEach((it, i) => {
+      const at = `${name}, Eintrag ${i + 1}`;
       const kinds = ['heading', 'text', 'label', 'sign'].filter(k => typeof it?.[k] === 'string' && it[k].trim());
-      if (kinds.length !== 1) out.push(`${name}, Eintrag ${i + 1}: genau eines von heading, text, label, sign`);
-      if (it?.lines !== undefined && !(Number.isInteger(it.lines) && it.lines >= 1 && it.lines <= 12)) out.push(`${name}, Eintrag ${i + 1}: lines 1–12`);
+      if (kinds.length !== 1) out.push(`${at}: genau eines von heading, text, label, sign`);
+      if (it?.lines !== undefined && !(Number.isInteger(it.lines) && it.lines >= 1 && it.lines <= 12)) out.push(`${at}: lines 1–12`);
+      for (const k of FILLED) for (const [, p] of String(it?.[k] ?? '').matchAll(PLACEHOLDER)) { const problem = placeholderProblem(def, p); if (problem) out.push(`${at}: ${problem}`); }
     });
-    const texts = [...TEXTS.map(k => f[k]), ...f.items.flatMap(it => ITEM_TEXTS.map(k => it?.[k]))].filter(s => typeof s === 'string');
-    for (const s of texts) for (const [, k] of s.matchAll(PLACEHOLDER)) { const p = placeholderProblem(def, k); if (p) out.push(`${name}: ${p}`); }
+    const fixed = [f.title, f.subtitle, f.header, ...f.items.flatMap(it => FIXED.map(k => it?.[k]))];
+    if (fixed.some(s => /\{[^{}]*\}/.test(s ?? ''))) {
+      out.push(`${name}: Platzhalter nur in value, name und place – Werte aus dem Vorgang gehören in Formularfelder, damit sie sich korrigieren lassen`);
+    }
   }
   return out;
 }
 
-// The form with every placeholder replaced by lookup(placeholder); checkboxes get `checked`.
+// The form with the placeholders in value/name/place replaced by lookup(placeholder); checkboxes get `checked`.
 export function fillForm(form, lookup) {
   const fill = s => (typeof s === 'string' ? s.replace(PLACEHOLDER, (_, k) => lookup(k) ?? '') : s);
   return {
-    ...Object.fromEntries(TEXTS.map(k => [k, fill(form[k])])), key: form.key, accent: form.accent, logo: form.logo,
+    key: form.key, title: form.title, subtitle: form.subtitle, header: form.header,
     items: form.items.map(it => {
-      const out = { ...it, ...Object.fromEntries(ITEM_TEXTS.filter(k => k in it).map(k => [k, fill(it[k])])) };
+      const out = { ...it, ...Object.fromEntries(FILLED.filter(k => k in it).map(k => [k, fill(it[k])])) };
       if (it.check) out.checked = !!out.value?.trim();
       return out;
     }),
