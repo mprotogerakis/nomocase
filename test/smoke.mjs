@@ -419,7 +419,7 @@ await expect(anon(`/upload-links/${multiUse}`));
 await expect(prof(`/tasks/${bescheid}/action`, { body: { action: 'skip' } }));
 await expect(anon(`/upload-links/${multiUse}`), 404, 'task no longer open');
 // Writes only from our own pages (CSRF from sibling subdomains).
-assert.equal((await fetchOnce(`${BASE}/api/logout`, { method: 'POST', headers: { origin: 'https://evil.example.net' } })).status, 403);
+assert.equal((await fetchOnce(`${BASE}/api/logout`, { method: 'POST', headers: { origin: 'https://evil.example' } })).status, 403);
 
 // Subcases: "Beanstanden" on the cut review creates the objection as a subcase (rule), closing it reports to the parent.
 await expect(prof(`/tasks/${kt('Kürzung prüfen: Beihilfe')}/action`, { body: { action: 'reject', note: 'Widerspruch einlegen' } }));

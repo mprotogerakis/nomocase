@@ -28,9 +28,11 @@ npm run db:reset    # alles lokal löschen (Server vorher stoppen)
 
 ## Deployment
 
-Live unter https://nomocase-old.example.org (workers.dev ist abgeschaltet: Passkeys hängen an der Domain).
+Live unter https://nomocase.example.org (workers.dev ist abgeschaltet: Passkeys hängen an der Domain). Die frühere Domain
+nomocase-old.example.org leitet dauerhaft dorthin um (`REDIRECT_HOSTS`); dort angelegte Passkeys gelten auf der neuen Domain nicht.
 D1 und R2 liegen in der EU-Jurisdiktion. Der Token liegt in `nomocase.token.cloudflare.credential` (gitignored).
-E-Mails gehen über Resend (Domain `nomocase-old.example.org`, Region EU, Absender `noreply@nomocase-old.example.org`);
+E-Mails gehen über Resend (Domain `nomocase-old.example.org`, Region EU, Absender `noreply@nomocase-old.example.org` – bis
+`nomocase.example.org` bei Resend verifiziert ist);
 der Sende-Key liegt in `resend.credential` und als Worker-Secret `RESEND_API_KEY`. Ohne Key werden Einladungslinks
 angezeigt und die tägliche Übersicht (Cron 05:00 UTC) pausiert.
 
@@ -38,7 +40,7 @@ angezeigt und die tägliche Übersicht (Cron 05:00 UTC) pausiert.
 export CLOUDFLARE_API_TOKEN=$(tr -d '[:space:]' < nomocase.token.cloudflare.credential)
 npx wrangler d1 migrations apply nomocase --remote   # nur bei neuen Migrationen
 npx wrangler deploy
-BASE=https://nomocase-old.example.org EMAIL=<owner> node test/passkey.mjs   # Check gegen Produktion
+BASE=https://nomocase.example.org EMAIL=<owner> node test/passkey.mjs   # Check gegen Produktion
 npm run login-link -- <email> --remote                                     # Recovery
 tr -d "[:space:]" < resend.credential | npx wrangler secret put RESEND_API_KEY   # Mail-Key (erledigt)
 ```

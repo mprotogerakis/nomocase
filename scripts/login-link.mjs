@@ -23,4 +23,4 @@ if (!out[0].results.length) {
   console.error(`Kein Benutzer mit der E-Mail ${email}`);
   process.exit(1);
 }
-console.log(`${values.base ?? (values.remote ? 'https://nomocase-old.example.org' : 'http://localhost:8787')}/#/login/${token}`);
+console.log(`${values.base ?? (values.remote ? 'https://nomocase.example.org' : 'http://localhost:8787')}/#/login/${token}`);

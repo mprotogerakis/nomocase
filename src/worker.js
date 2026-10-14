@@ -90,6 +90,8 @@ export default {
   async fetch(req, env, exec) {
     init(env);
     const url = new URL(req.url);
+    // A former domain: permanent redirect to the canonical origin (the #fragment of the old link survives in the browser).
+    if ((env.REDIRECT_HOSTS ?? '').split(',').filter(Boolean).includes(url.hostname)) return Response.redirect(`${env.ORIGIN}${url.pathname}${url.search}`, 301);
     const route = ROUTES.find(([method, re]) => method === req.method && re.test(url.pathname));
     if (!route) return json({ error: 'Nicht gefunden' }, 404);
     const [, re, handler, isPublic] = route;
