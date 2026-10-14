@@ -71,6 +71,7 @@ export async function accountView() {
     <form data-submit="addSigningKey" class="row small"><input type="file" name="file" accept=".pdf,application/pdf" required aria-label="Signierte PDF">
       <button>Signierte Probe-PDF hinterlegen</button></form>
     <h3>Benachrichtigungen per E-Mail</h3>
+    <p class="row small"><button data-on="testMail">Testmail an mich</button> <output id="test-mail" class="muted"></output></p>
     <label class="row"><input type="checkbox" data-change="mailSetting" data-key="email_progress" ${me.user.email_progress ? 'checked' : ''}>
       Neuigkeiten aus meinen Vorgängen: Nachrichten, Uploads, Entscheidungen (gebündelt, höchstens 3 Mails pro Stunde)</label>
     <label class="row"><input type="checkbox" data-change="mailSetting" data-key="email_reminders" ${me.user.email_reminders ? 'checked' : ''}>
@@ -87,6 +88,14 @@ on.removeSigningKey = async ({ fp }) => {
   if (!confirm('Diese Signatur nicht mehr Ihnen zuordnen?')) return;
   await api(`/me/signing-keys/${fp}`, { method: 'DELETE' });
   reload();
+};
+
+on.testMail = async () => {
+  const out = document.getElementById('test-mail');
+  out.textContent = 'wird gesendet …';
+  const r = await api('/me/test-mail', { body: {} });
+  out.textContent = r.ok ? `Resend hat die Mail angenommen (${new Date().toLocaleTimeString('de-DE')}). Kommt sie nicht an, liegt es beim Empfang – Spam-Ordner prüfen.`
+    : `Nicht verschickt: ${r.status ? `HTTP ${r.status} – ` : ''}${r.error ?? 'unbekannter Fehler'}`;
 };
 
 change.mailSetting = async el => { await api('/me', { method: 'PATCH', body: { [el.dataset.key]: el.checked } }); reload(); };

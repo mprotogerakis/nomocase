@@ -45,7 +45,7 @@ const LOGIN_REQUEST_CAP = 20; // self-service login link mails per day, so stran
 
 async function mailLoginLink(u, url, kind = null) {
   if (await row('SELECT 1 FROM login_links WHERE user_id = ? AND used_at IS NULL AND expires_at > ?', u.id, new Date(Date.now() + 864e5 - 10 * 60e3).toISOString())) return { throttled: true };
-  if (kind && (await row('SELECT COUNT(*) AS n FROM mail_log WHERE kind = ? AND sent_at >= ?', kind, now().slice(0, 10))).n >= LOGIN_REQUEST_CAP) {
+  if (kind && (await row('SELECT COUNT(*) AS n FROM mail_log WHERE kind = ? AND ok = 1 AND sent_at >= ?', kind, now().slice(0, 10))).n >= LOGIN_REQUEST_CAP) {
     console.error('login link requests: daily cap reached');
     return { throttled: true };
   }

@@ -25,6 +25,7 @@ export async function peopleView() {
       <div class="${expired ? 'warn' : ''}"><b>${String(invitations.length)}</b>offene Einladungen${expired ? `, ${expired} abgelaufen` : ''}</div>
       <div class="${stats.bulk_today >= stats.bulk_cap ? 'warn' : ''}"><b>${String(stats.mails_today)}</b>Mails heute</div>
     </section>
+    ${stats.mails_failed ? html`<p class="warn small">Heute ${count(stats.mails_failed, 'Mail', 'Mails')} nicht verschickt. Letzter Fehler (${dateTime(stats.last_error_at)}): ${stats.last_error}</p>` : ''}
     <p class="muted small">Sammelmails (Tagesübersicht, Fortschritt) heute: ${stats.bulk_today} von ${stats.bulk_cap}.
       ${stats.bulk_today >= stats.bulk_cap ? 'Sie pausieren bis morgen; Einladungen und Anmeldelinks gehen weiter.' : 'Ist die Grenze erreicht, pausieren sie bis morgen; Einladungen und Anmeldelinks gehen weiter.'}</p>
     ${invitations.length ? html`<h2>Einladungen</h2><ul class="list">${invitations.map(i => html`<li>${i.email}

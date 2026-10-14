@@ -171,6 +171,8 @@ try {
   await waitFor(`!${has(`UI-WS umbenannt ${run}`)}`, 'Workspace gelöscht');
 
   await go('#/account', `document.querySelector('main h1')?.textContent === 'Konto'`);
+  await b.click('[data-on="testMail"]');
+  await waitFor(`document.getElementById('test-mail')?.textContent.includes('angenommen')`, 'Testmail angenommen');
   const reminders = (await api('/me')).user.email_reminders;
   await b.click('[data-change="mailSetting"][data-key="email_reminders"]');
   await waitFor(`fetch('/api/me').then(r => r.json()).then(m => m.user.email_reminders === ${!reminders})`, 'Mail-Einstellung');

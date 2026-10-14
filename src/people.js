@@ -167,7 +167,10 @@ export async function peopleOverview({ user }) {
       FROM invitations i JOIN cases c ON c.id = i.case_id
       WHERE c.workspace_id ${IN_WS} AND i.accepted_at IS NULL ORDER BY expired, i.created_at DESC`, ws, now()),
     row(`SELECT SUM(status = 'open') AS open, SUM(status = 'closed') AS closed FROM cases WHERE workspace_id ${IN_WS}`, ws),
-    row('SELECT COUNT(*) AS total, COALESCE(SUM(bulk), 0) AS bulk FROM mail_log WHERE sent_at >= ?', now().slice(0, 10)),
+    row(`SELECT SUM(ok) AS total, COALESCE(SUM(bulk * ok), 0) AS bulk, SUM(1 - ok) AS failed,
+      (SELECT COALESCE(status || ': ', '') || error FROM mail_log WHERE ok = 0 ORDER BY id DESC LIMIT 1) AS last_error,
+      (SELECT sent_at FROM mail_log WHERE ok = 0 ORDER BY id DESC LIMIT 1) AS last_error_at
+      FROM mail_log WHERE sent_at >= ?`, now().slice(0, 10)),
   ]);
   const t = now();
   return {
@@ -177,6 +180,7 @@ export async function peopleOverview({ user }) {
         ({ ...s, active: !revoked_at && (!expires_at || expires_at > t) })),
     })),
     invitations,
-    stats: { cases_open: cases.open ?? 0, cases_closed: cases.closed ?? 0, mails_today: mails.total, bulk_today: mails.bulk, bulk_cap: bulkCap() },
+    stats: { cases_open: cases.open ?? 0, cases_closed: cases.closed ?? 0, mails_today: mails.total ?? 0, bulk_today: mails.bulk, bulk_cap: bulkCap(),
+      mails_failed: mails.failed ?? 0, last_error: mails.last_error, last_error_at: mails.last_error_at },
   };
 }

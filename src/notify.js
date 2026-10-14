@@ -1,5 +1,5 @@
 // Mail via Resend, daily caps, daily digest and bundled progress mails.
-import { DB, E, now, q, row, rows, STAFF } from './core.js';
+import { DB, E, fail, now, q, row, rows, STAFF } from './core.js';
 import { canSee } from './access.js';
 import { markBlocked } from './tasks.js';
 
@@ -11,19 +11,25 @@ import { markBlocked } from './tasks.js';
 // login links and deletion notices always have room.
 export const bulkCap = () => Number(E.MAIL_DAILY_CAP ?? 80);
 
-const mailsToday = async bulk => (await row('SELECT COUNT(*) AS n FROM mail_log WHERE sent_at >= ? AND (? = 0 OR bulk = 1)', now().slice(0, 10), bulk ? 1 : 0)).n;
+const mailsToday = async bulk => (await row('SELECT COUNT(*) AS n FROM mail_log WHERE ok = 1 AND sent_at >= ? AND (? = 0 OR bulk = 1)', now().slice(0, 10), bulk ? 1 : 0)).n;
 
+// Returns true when the provider accepted the mail. Every attempt is logged (mail_log: ok, HTTP status, error text).
 export async function sendMail(to, subject, paragraphs, { replyTo, bulk = false, kind = null } = {}) {
+  return (await deliver(to, subject, paragraphs, { replyTo, bulk, kind })).ok;
+}
+
+// Same, with the provider's answer (for the test mail on the account page).
+export async function deliver(to, subject, paragraphs, { replyTo, bulk = false, kind = null } = {}) {
   if (bulk && (await mailsToday(true)) >= bulkCap()) {
     console.error('sendMail skipped: daily cap for digest/progress mails reached');
-    return false;
+    return { ok: false, error: 'Tageskontingent für Sammelmails erreicht' };
   }
   const text = paragraphs.join('\n\n');
-  let ok = false;
+  let r;
   if (!E.RESEND_API_KEY) {
-    if (!E.DEV_LOGIN) return false;
+    if (!E.DEV_LOGIN) return { ok: false, error: 'kein Mail-Anbieter eingerichtet' };
     console.log(`[mail] to ${to}: ${subject}\n${text}`);
-    ok = true;
+    r = { ok: true, status: 200 };
   } else {
     try {
       const res = await fetch('https://api.resend.com/emails', {
@@ -31,14 +37,24 @@ export async function sendMail(to, subject, paragraphs, { replyTo, bulk = false,
         headers: { authorization: `Bearer ${E.RESEND_API_KEY}`, 'content-type': 'application/json' },
         body: JSON.stringify({ from: E.MAIL_FROM, to: [to], subject, text, ...(replyTo && { reply_to: replyTo }) }),
       });
-      ok = res.ok;
-      if (!ok) console.error('sendMail failed', res.status, await res.text());
+      const body = await res.text();
+      r = { ok: res.ok, status: res.status, ...(res.ok ? { id: JSON.parse(body).id } : { error: body.slice(0, 300) }) };
     } catch (e) {
-      console.error('sendMail failed', e.message);
+      r = { ok: false, error: String(e.message).slice(0, 300) };
     }
+    if (!r.ok) console.error('sendMail failed', r.status, r.error);
   }
-  if (ok) await q('INSERT INTO mail_log (bulk, kind, sent_at) VALUES (?, ?, ?)', bulk ? 1 : 0, kind, now()).run();
-  return ok;
+  await q('INSERT INTO mail_log (bulk, kind, sent_at, ok, status, error) VALUES (?, ?, ?, ?, ?, ?)',
+    bulk ? 1 : 0, kind, now(), r.ok ? 1 : 0, r.status ?? null, r.error ?? null).run();
+  return r;
+}
+
+// Account page: a test mail to oneself shows whether sending works and what the provider answered. At most 3 per hour.
+export async function testMail({ user }) {
+  const { n } = await row("SELECT COUNT(*) AS n FROM mail_log WHERE kind = 'test' AND sent_at >= ?", new Date(Date.now() - 36e5).toISOString());
+  if (n >= 3) fail(429, 'Höchstens drei Testmails pro Stunde.');
+  return deliver(user.email, 'NomoCase: Testmail', [`Guten Tag ${user.name},`, 'diese Testmail zeigt, dass NomoCase Ihnen Mails schicken kann.',
+    `Gesendet: ${new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })}`], { kind: 'test' });
 }
 
 // One mail per person and day at most: actionable tasks that are new to them or reach a deadline stage,

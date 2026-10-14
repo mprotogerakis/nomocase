@@ -73,6 +73,12 @@ if (new URL(BASE).hostname === 'localhost') {
 }
 assert.ok(admin.people.some(u => u.email === 'prof@example.org' && u.workspaces));
 
+// Test mail to oneself: says whether the provider accepted it; at most three per hour. Every attempt is logged.
+for (let i = 0; i < 3; i++) assert.equal((await expect(prof('/me/test-mail', { body: {} }))).ok, true);
+await expect(prof('/me/test-mail', { body: {} }), 429);
+assert.equal((await expect(prof('/people'))).stats.mails_failed, 0);
+if (new URL(BASE).hostname === 'localhost') sql("DELETE FROM mail_log WHERE kind = 'test'"); // the UI test sends one too
+
 // Templates: one that cases use is archived instead of deleted (no new cases from it), one without cases is deleted.
 {
   const { id: tid } = await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Archivtest ${run}`, definition: {

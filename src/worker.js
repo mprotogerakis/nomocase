@@ -9,7 +9,7 @@ import { addClaim, addDecision, addTransaction, reverseTransaction, taskMoney } 
 import { processRules, toggleRule } from './rules.js';
 import { createUploadLink, deleteVersion, download, getUploadLink, revokeUploadLinks, updateDocument, upload, useUploadLink } from './documents.js';
 import { acceptInvitation, getInvitation, invite, peopleOverview, revoke, withdrawInvitation } from './people.js';
-import { DAILY_CRON, sendDigests, sendProgress } from './notify.js';
+import { DAILY_CRON, sendDigests, sendProgress, testMail } from './notify.js';
 import { addSigningKey, addTrustedIssuer, assignSignature, claimSignature, mySigningKeys, removeSigningKey, removeTrustedIssuer } from './signatures.js';
 import { createWorkspace, deleteWorkspace, inviteToWorkspace, listWorkspaces, removeMember, renameWorkspace, setMemberRole, withdrawWorkspaceInvitation } from './workspaces.js';
 
@@ -24,6 +24,7 @@ const ROUTES = [
   ['POST', '/api/signatures/claim', claimSignature],
   ['POST', '/api/signatures/assign', assignSignature],
   ['GET', '/api/me/signing-keys', mySigningKeys],
+  ['POST', '/api/me/test-mail', testMail],
   ['POST', '/api/me/signing-keys', addSigningKey],
   ['DELETE', '/api/me/signing-keys/:fp', removeSigningKey],
   ['POST', '/api/workspaces', createWorkspace],

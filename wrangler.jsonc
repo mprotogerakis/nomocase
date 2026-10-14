@@ -11,6 +11,8 @@
   // Both stores are restricted to the EU jurisdiction (GDPR: health and university data).
   "d1_databases": [{ "binding": "DB", "database_name": "nomocase", "database_id": "00000000-0000-0000-0000-000000000000" }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "nomocase-files", "jurisdiction": "eu" }],
+  // Keep the Worker's console output (e.g. failed mails) for later reading in the dashboard (Workers Logs).
+  "observability": { "enabled": true },
   // Id of the deployed version: open pages notice a new deployment and reload (otherwise a tab keeps running old code).
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
   // progress mails every 20 minutes; retention + daily digest at 05:00 UTC (06:00/07:00 in Germany)
