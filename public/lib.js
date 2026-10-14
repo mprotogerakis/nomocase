@@ -96,6 +96,7 @@ const header = () => html`<header>
     <a href="#/">Vorgänge</a>
     ${me.workspaces.length ? html`<a href="#/templates">Vorlagen</a>` : ''}
     ${me.workspaces.some(w => w.role === 'owner') ? html`<a href="#/people">Personen</a>` : ''}
+    ${me.workspaces.length ? html`<a href="#/workspaces">Workspaces</a>` : ''}
     <a href="#/account">${me.user.name}</a>
     <button class="link" data-on="logout">${me.dev ? 'Benutzer wechseln' : 'Abmelden'}</button>
   </nav>

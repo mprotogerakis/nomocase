@@ -10,11 +10,20 @@ import { processRules, toggleRule } from './rules.js';
 import { createUploadLink, deleteVersion, download, getUploadLink, revokeUploadLinks, updateDocument, upload, useUploadLink } from './documents.js';
 import { acceptInvitation, getInvitation, invite, peopleOverview, revoke, withdrawInvitation } from './people.js';
 import { DAILY_CRON, sendDigests, sendProgress } from './notify.js';
+import { createWorkspace, deleteWorkspace, inviteToWorkspace, listWorkspaces, removeMember, renameWorkspace, setMemberRole, withdrawWorkspaceInvitation } from './workspaces.js';
 
 const ROUTES = [
   ['GET', '/api/me', me, true],
   ['PATCH', '/api/me', updateMe],
   ['GET', '/api/people', peopleOverview],
+  ['GET', '/api/workspaces', listWorkspaces],
+  ['POST', '/api/workspaces', createWorkspace],
+  ['PATCH', '/api/workspaces/:id', renameWorkspace],
+  ['DELETE', '/api/workspaces/:id', deleteWorkspace],
+  ['POST', '/api/workspaces/:id/invitations', inviteToWorkspace],
+  ['DELETE', '/api/workspaces/:id/invitations/:email', withdrawWorkspaceInvitation],
+  ['PATCH', '/api/workspaces/:id/members/:userId', setMemberRole],
+  ['DELETE', '/api/workspaces/:id/members/:userId', removeMember],
   ['GET', '/api/changes', getChanges],
   ['POST', '/api/dev-login', devLogin, true],
   ['POST', '/api/logout', logout, true],

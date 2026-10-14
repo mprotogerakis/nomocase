@@ -73,6 +73,44 @@ if (new URL(BASE).hostname === 'localhost') {
 }
 assert.ok(admin.people.some(u => u.email === 'prof@example.org' && u.workspaces));
 
+// Workspaces: owners create and rename them and invite colleagues; members create cases from the templates and see only
+// their own cases; a workspace keeps at least one owner; deleting needs an empty workspace.
+await expect(student('/workspaces', { body: { name: 'Eigener' } }), 403);
+const { id: wsId } = await expect(prof('/workspaces', { body: { name: `Lehrstuhl ${run}` } }));
+await expect(prof(`/workspaces/${wsId}`, { method: 'PATCH', body: { name: `Lehrstuhl EI ${run}` } }));
+const myWs = () => expect(prof('/workspaces')).then(list => list.find(w => w.id === wsId));
+assert.equal((await myWs()).name, `Lehrstuhl EI ${run}`);
+const { id: wsTpl } = await expect(prof('/templates', { body: { workspace_id: wsId, name: 'Kurzablauf', definition: {
+  roles: [{ key: 'owner', label: 'Verantwortlich', access: 'case_owner' }], phases: [{ title: 'Allgemein', tasks: [{ key: 'a', title: 'Erledigen' }] }] } } }));
+const colleague = client();
+const colleagueMail = `kollegin.${run}@example.org`;
+const wsInvite = await expect(prof(`/workspaces/${wsId}/invitations`, { body: { email: colleagueMail, role: 'member' } }));
+await expect(prof(`/workspaces/${wsId}/invitations`, { body: { email: colleagueMail, role: 'member' } })); // again: replaces
+assert.equal((await myWs()).invitations.filter(i => i.email === colleagueMail).length, 1);
+await expect(colleague('/invitations/accept', { body: { token: tokenOf(wsInvite.link), name: 'Kollegin' } }), 404, 'the replaced link is dead');
+const wsInvite2 = await expect(prof(`/workspaces/${wsId}/invitations`, { body: { email: colleagueMail, role: 'member' } }));
+assert.equal((await expect(colleague(`/invitations/${tokenOf(wsInvite2.link)}`))).kind, 'workspace');
+await expect(colleague('/invitations/accept', { body: { token: tokenOf(wsInvite2.link), name: 'Kollegin' } }));
+assert.deepEqual((await expect(colleague('/me'))).workspaces.map(w => [w.id, w.role]), [[wsId, 'member']]);
+const { id: colleagueCase } = await expect(colleague('/cases', { body: { template_id: wsTpl, title: 'Fall der Kollegin' } }));
+await expect(colleague(`/templates/${wsTpl}/versions`, { body: { definition: { roles: [{ key: 'owner', label: 'V', access: 'case_owner' }], phases: [] } } }), 403);
+assert.ok((await expect(prof('/dashboard'))).cases.some(c => c.id === colleagueCase), 'owners see every case of the workspace');
+await expect(colleague('/workspaces')).then(list => assert.equal(list[0].members, undefined, 'members do not see the member list'));
+const profId = (await expect(prof('/me'))).user.id;
+await expect(prof(`/workspaces/${wsId}/members/${profId}`, { method: 'PATCH', body: { role: 'member' } }), 409); // last owner
+await expect(prof(`/workspaces/${wsId}/members/${profId}`, { method: 'DELETE' }), 409);
+await expect(colleague(`/workspaces/${wsId}/members/${profId}`, { method: 'DELETE' }), 403);
+// An invitation into a workspace never opens an existing account either.
+const intoWs = await expect(prof(`/workspaces/${wsId}/invitations`, { body: { email: `max.${run}@example.org`, role: 'member' } }));
+await expect(client()('/invitations/accept', { body: { token: tokenOf(intoWs.link), name: 'Mallory' } }), 401);
+await expect(prof(`/workspaces/${wsId}/invitations/${encodeURIComponent(`max.${run}@example.org`)}`, { method: 'DELETE' }));
+await expect(prof(`/workspaces/${wsId}`, { method: 'DELETE' }), 409); // still has a case
+await expect(prof(`/cases/${colleagueCase}`, { method: 'DELETE' }));
+await expect(prof(`/workspaces/${wsId}/members/${(await expect(colleague('/me'))).user.id}`, { method: 'DELETE' }));
+assert.deepEqual((await expect(colleague('/me'))).workspaces, []);
+await expect(prof(`/workspaces/${wsId}`, { method: 'DELETE' }));
+assert.ok(!(await expect(prof('/templates'))).some(t => t.id === wsTpl), 'templates go with the workspace');
+
 // Live updates: the change stamp in the payload matches the cheap poll and moves when someone else acts.
 const stampNow = (who, c) => expect(who(`/changes${c ? `?case=${c}` : ''}`)).then(r => r.stamp);
 const before = await expect(student(`/cases/${caseId}`));

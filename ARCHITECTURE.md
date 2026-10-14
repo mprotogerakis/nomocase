@@ -37,7 +37,8 @@ Widerspruch ist, weiß nur die jeweilige Vorlage – nicht der Code.
 | `finance.js` | Forderungen, Entscheidungen, Buchungen; Geldschritte |
 | `rules.js` | Regel-Engine: Auslöser, Bedingungen, Aktionen; idempotent je Ereignis |
 | `documents.js` | Upload-Prüfung, Fassungen in R2, Upload-Links, Downloads |
-| `people.js` | Einladungen, Beteiligte, Personenübersicht |
+| `people.js` | Einladungen (auch die Annahme von Workspace-Einladungen), Beteiligte, Personenübersicht |
+| `workspaces.js` | Workspaces anlegen/umbenennen/löschen, Mitglieder (Owner/Mitglied), Workspace-Einladungen |
 | `notify.js` | Mail über Resend, Tageskontingente, Tagesübersicht, gebündelte Fortschrittsmails |
 | `validate.js` | Inhaltsprüfung hochgeladener Dateien (aktive Inhalte in PDF/Office) |
 
@@ -51,7 +52,7 @@ Aufrufe in beide Richtungen, aber nur zur Laufzeit (keine Auswertung beim Laden)
 | `app.js` | Einstieg: Hash-Router, Live-Aktualisierung, Event-Delegation (`data-on`, `data-submit`, `data-change`) |
 | `state.js` | Gemeinsamer Zustand (`me`, `cur`, `stamp`, `templates`) mit `set()`, Handler-Register |
 | `lib.js` | Sicheres HTML (`html`/`esc`), Formatierung, Beschriftungen, API-Client, Navigation, Seitenrahmen |
-| `views/*.js` | Ansichten: `account`, `dashboard`, `admin`, `case`, `tasks`, `documents`, `finance` |
+| `views/*.js` | Ansichten: `account`, `dashboard`, `admin`, `workspaces`, `case`, `tasks`, `documents`, `finance` |
 | `shared/vocab.js` | Begriffe, die Server und Oberfläche teilen (Zugriffsstufen, Aufgabentypen) |
 
 Jede Ansicht registriert ihre Handler selbst (`on.x = …`). Ein Test verhindert doppelte Handlernamen über alle
@@ -59,7 +60,7 @@ Module hinweg.
 
 ### Tests (`npm test`, gegen `npm run dev`)
 
-`validate` (Upload-Prüfung, ohne Server) · `smoke` (Berechtigungen, Finanzen, Regeln, Mails) ·
+`check` (Server und Oberfläche bündeln: jeder Import hat seinen Export) · `validate` (Upload-Prüfung, ohne Server) · `smoke` (Berechtigungen, Finanzen, Regeln, Mails) ·
 `praxisprojekt` (Beispielvorlagen von Anfang bis Ende) · `ui` (alle Ansichten im echten Browser, ohne Skriptfehler) ·
 `passkey` (Anmeldung, auch gegen Produktion). `test/browser.mjs` steuert Chrome über das DevTools-Protokoll.
 
@@ -96,4 +97,7 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Übersicht als Arbeitsliste: Suche ohne Neuaufbau, Filter, Sortierung nach Dringlichkeit, „wartet auf … seit“,
       überfällig bei anderen, „+ Neuer Vorgang“ oben
 - [x] Einladungen/Personen: abgelaufene Einladungen sichtbar, erneutes Einladen ersetzt, Suche/Filter/Aktionen auf „Personen“
+- [x] Workspaces verwalten: anlegen, umbenennen, löschen (nur ohne Vorgänge), Mitglieder mit Rolle, Einladungen
+      (gleiche Annahme-Seite und gleicher Kontoschutz wie bei Vorgängen); der letzte Owner bleibt
 - [ ] Produkt: Vorlagen-Archiv („läuft in N Vorgängen“), Massenanlage zum Semesterstart
+- [ ] Workspace-Änderungen (Mitglieder, Name) protokollieren; das Ereignisprotokoll kennt bisher nur Vorgänge

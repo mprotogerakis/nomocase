@@ -99,6 +99,9 @@ veröffentlicht mit `npm run templates`, Produktion: `npm run templates -- --rem
   Änderungsstand (letzte Event-ID; in der Übersicht zusätzlich die Zahl der Vorgänge) und laden bei Änderung neu, Scrollposition
   bleibt. Wird gerade getippt oder ist ein Menü offen, erscheint nur „Es gibt Neuigkeiten · Aktualisieren“. Upgrade-Pfad bei
   vielen gleichzeitigen Nutzern: Durable Object mit WebSockets.
+- **Workspaces** (Menü): Owner legen Workspaces an, benennen sie um, laden Kolleg:innen als Owner oder Mitglied ein
+  (gleicher Link-Ablauf wie bei Vorgängen) und löschen leere Workspaces. Owner sehen alle Vorgänge und pflegen Vorlagen,
+  Mitglieder legen aus den Vorlagen Vorgänge an und sehen ihre eigenen. Externe werden weiter pro Vorgang eingeladen.
 - **Personen** (Menü, nur Workspace-Owner): alle Konten in den eigenen Workspaces und deren Vorgängen, auch frühere, mit
   Passkey-Status, letzter Anmeldung, Mail-Einstellungen, Plätzen je Vorgang, offenen Einladungen und dem Mail-Kontingent von heute.
 - **Angaben bearbeiten** (rechte Spalte, „bearbeiten“; nur Team): Ändert sich ein Datumsfeld, wandern offene Aufgaben mit,

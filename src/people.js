@@ -3,6 +3,7 @@ import { DB, E, ev, fail, isDate, json, now, q, row, rows, sha256, token, uid } 
 import { caseCtx } from './access.js';
 import { originOf, sessionCookie } from './auth.js';
 import { bulkCap, sendMail } from './notify.js';
+import { workspaceInvitation, WORKSPACE_ROLES } from './workspaces.js';
 
 export async function invite({ user, params, body, url }) {
   const ctx = await caseCtx(user, params.id);
@@ -57,36 +58,46 @@ export async function invite({ user, params, body, url }) {
   return { sent, role: role.key, link };
 }
 
-const accountByEmail = email =>
+export const accountByEmail = email =>
   row('SELECT u.id, u.name, (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = u.id) AS passkeys FROM users u WHERE u.email = ?', email);
 
 // The inviter could get hold of the link, so it must never open an existing account – with or without passkey.
 const needsLogin = (existing, user) => !!existing && user?.id !== existing.id;
 
+// One link page for both kinds of invitation: into a case (a seat in it) or into a workspace.
 export async function getInvitation({ user, params }) {
-  const inv = (await row(`
+  const hash = await sha256(params.token);
+  const inv = await row(`
     SELECT i.email, i.role, i.access, c.title, c.definition, u.name AS inviter FROM invitations i
     JOIN cases c ON c.id = i.case_id JOIN users u ON u.id = i.created_by
-    WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.expires_at > ?`, await sha256(params.token), now()))
-    ?? fail(404, 'Einladung ungültig oder abgelaufen');
+    WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.expires_at > ?`, hash, now());
+  const ws = inv ? null : (await workspaceInvitation(hash)) ?? fail(404, 'Einladung ungültig oder abgelaufen');
+  const existing = await accountByEmail((inv ?? ws).email);
+  const who = { existing: !!existing, needs_login: needsLogin(existing, user) };
+  if (ws) return { kind: 'workspace', email: ws.email, workspace: ws.workspace, role: WORKSPACE_ROLES[ws.role], inviter: ws.inviter, ...who };
   const role = JSON.parse(inv.definition).roles.find(r => r.key === inv.role);
-  const existing = await accountByEmail(inv.email);
-  return { email: inv.email, case_title: inv.title, role: role?.label ?? inv.role, access: inv.access, inviter: inv.inviter, existing: !!existing, needs_login: needsLogin(existing, user) };
+  return { kind: 'case', email: inv.email, case_title: inv.title, role: role?.label ?? inv.role, access: inv.access, inviter: inv.inviter, ...who };
+}
+
+// An invitation never opens an existing account (log in first); a new address gets an account here.
+async function invitee(email, user, body) {
+  const existing = await accountByEmail(email);
+  if (needsLogin(existing, user)) fail(401, 'Für diese E-Mail gibt es schon ein Konto. Bitte zuerst mit Passkey anmelden.');
+  const userId = existing?.id ?? uid();
+  const name = existing?.name ?? (String(body.name ?? '').trim() || email);
+  return { userId, stmts: existing ? [] : [q('INSERT INTO users (id, email, name, created_at) VALUES (?, ?, ?, ?)', userId, email, name, now())] };
 }
 
 // Possession of the emailed link stands in for email verification. That's enough for new
 // accounts (and old ones without a passkey); accounts with a passkey must log in first.
 export async function acceptInvitation({ user, body, url }) {
   const hash = await sha256(String(body.token ?? ''));
-  const inv = (await row('SELECT i.*, c.definition FROM invitations i JOIN cases c ON c.id = i.case_id WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.expires_at > ?', hash, now()))
-    ?? fail(404, 'Einladung ungültig oder abgelaufen');
-  const existing = await accountByEmail(inv.email);
-  if (needsLogin(existing, user)) fail(401, 'Für diese E-Mail gibt es schon ein Konto. Bitte zuerst mit Passkey anmelden.');
-  const userId = existing?.id ?? uid();
-  const name = existing?.name ?? (String(body.name ?? '').trim() || inv.email);
+  const inv = await row('SELECT i.*, c.definition FROM invitations i JOIN cases c ON c.id = i.case_id WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.expires_at > ?', hash, now());
+  if (!inv) return acceptWorkspaceInvitation(hash, user, body, url);
+  const { userId, stmts } = await invitee(inv.email, user, body);
   const role = JSON.parse(inv.definition).roles.find(r => r.key === inv.role);
   await DB.batch([
-    ...(existing ? [] : [q('INSERT INTO users (id, email, name, created_at) VALUES (?, ?, ?, ?)', userId, inv.email, name, now())]),
+    ...stmts,
     q('UPDATE invitations SET accepted_at = ? WHERE token_hash = ?', now(), hash),
     q(`INSERT INTO case_participants (case_id, user_id, access, role, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (case_id, user_id) DO UPDATE SET access = excluded.access, role = excluded.role, expires_at = excluded.expires_at, revoked_at = NULL`,
@@ -94,6 +105,18 @@ export async function acceptInvitation({ user, body, url }) {
     ev(inv.case_id, userId, 'participant.joined', { role: role?.label ?? inv.role }, ['*']),
   ]);
   return json({ case_id: inv.case_id }, 200, { 'set-cookie': await sessionCookie(userId, url) });
+}
+
+async function acceptWorkspaceInvitation(hash, user, body, url) {
+  const ws = (await workspaceInvitation(hash)) ?? fail(404, 'Einladung ungültig oder abgelaufen');
+  const { userId, stmts } = await invitee(ws.email, user, body);
+  await DB.batch([
+    ...stmts,
+    q('UPDATE workspace_invitations SET accepted_at = ? WHERE token_hash = ?', now(), hash),
+    // someone who is in the workspace already keeps their role
+    q('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?) ON CONFLICT (workspace_id, user_id) DO NOTHING', ws.workspace_id, userId, ws.role),
+  ]);
+  return json({ workspace_id: ws.workspace_id }, 200, { 'set-cookie': await sessionCookie(userId, url) });
 }
 
 export async function revoke({ user, params }) {

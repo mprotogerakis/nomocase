@@ -146,6 +146,20 @@ try {
   assert.equal(await evaluate(`[...document.querySelectorAll('main .card[data-search]')].filter(c => !c.hidden).length`), 1, 'people search');
   await b.click('[data-on="peopleFilter"][data-id="nopasskey"]');
   await waitFor(`document.querySelector('.seg [data-on="peopleFilter"][data-id="nopasskey"]').classList.contains('on')`, 'Filter ohne Passkey');
+  // Workspaces: create, invite a colleague, rename, delete again (empty)
+  await go('#/workspaces', `!!document.querySelector('form[data-submit="wsCreate"]')`);
+  await submit('wsCreate', { name: `UI-WS ${run}` });
+  await waitFor(has(`UI-WS ${run}`), 'Workspace angelegt');
+  const ws = (await api('/workspaces')).find(w => w.name === `UI-WS ${run}`);
+  const invitesBefore = dialogs.filter(d => d.includes('/#/invite/')).length;
+  await submit('wsInvite', { email: `kollege.${run}@example.org`, role: 'member' }, ws.id);
+  await until(() => dialogs.filter(d => d.includes('/#/invite/')).length > invitesBefore, 'Workspace-Einladung');
+  await waitFor(has(`kollege.${run}@example.org`), 'Einladung in der Liste');
+  await submit('wsRename', { name: `UI-WS umbenannt ${run}` }, ws.id);
+  await waitFor(has(`UI-WS umbenannt ${run}`), 'umbenannt');
+  await b.click(`[data-on="wsDelete"][data-id="${ws.id}"]`);
+  await waitFor(`!${has(`UI-WS umbenannt ${run}`)}`, 'Workspace gelöscht');
+
   await go('#/account', `document.querySelector('main h1')?.textContent === 'Konto'`);
   const reminders = (await api('/me')).user.email_reminders;
   await b.click('[data-change="mailSetting"][data-key="email_reminders"]');
@@ -182,7 +196,7 @@ try {
   await waitFor(`document.querySelector('code.hash')?.textContent.length === 64`, 'Quittung mit SHA-256');
 
   assert.deepEqual(errors, [], 'no script errors');
-  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert:/.test(d)), [], 'no error popups');
+  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert:|^Workspace „UI-WS/.test(d)), [], 'no error popups');
   console.log('ok – ui test passed');
 } finally {
   if (caseId) {

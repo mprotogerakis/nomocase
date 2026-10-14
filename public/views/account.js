@@ -120,11 +120,14 @@ on.welcomePasskey = webauthn(async ({ next }) => { await passkeyRegister(); go(n
 export async function inviteView(token) {
   const inv = await api(`/invitations/${token}`);
   show(html`<main class="narrow"><h1>Einladung</h1>
-    <p>${inv.inviter} lädt Sie zum Vorgang <b>${inv.case_title}</b> ein.</p>
+    ${inv.kind === 'workspace' ? html`<p>${inv.inviter} lädt Sie in den Workspace <b>${inv.workspace}</b> ein, als <b>${inv.role}</b>.</p>
+      <p>${inv.role === 'Owner' ? 'Sie sehen alle Vorgänge des Workspaces und pflegen Vorlagen und Mitglieder.'
+        : 'Sie können aus den Vorlagen des Workspaces Vorgänge anlegen und sehen die, an denen Sie beteiligt sind.'}</p>`
+    : html`<p>${inv.inviter} lädt Sie zum Vorgang <b>${inv.case_title}</b> ein.</p>
     <p>Sie sind als <b>${inv.role}</b> beteiligt: ${inv.access === 'guest_viewer'
       ? `Sie können die für ${inv.role} freigegebenen Dokumente und Nachrichten lesen.`
       : STAFF.includes(inv.access) ? 'Sie sehen den ganzen Vorgang und arbeiten mit.'
-      : `Sie sehen Ihre Aufgaben und die für ${inv.role} freigegebenen Dokumente und können Dateien hochladen und Nachrichten schreiben.`}</p>
+      : `Sie sehen Ihre Aufgaben und die für ${inv.role} freigegebenen Dokumente und können Dateien hochladen und Nachrichten schreiben.`}</p>`}
     ${inv.needs_login
       ? html`<p>Für ${inv.email} gibt es bereits ein Konto. Bitte melden Sie sich zuerst an, danach können Sie die Einladung annehmen.</p>
         <button class="block primary" data-on="passkeyLogin">Mit Passkey anmelden</button>
@@ -148,5 +151,6 @@ on.linkForInvite = async ({ email }) => {
 submit.accept = async (fd, form) => {
   const { case_id } = await api('/invitations/accept', { body: { token: form.dataset.token, name: fd.get('name') } });
   set({ me: await api('/me') });
-  go(me.passkeys ? `#/case/${case_id}` : `#/welcome/${case_id}`);
+  // a workspace invitation has no case: then the dashboard
+  go(me.passkeys ? (case_id ? `#/case/${case_id}` : '#/') : `#/welcome/${case_id ?? ''}`);
 };

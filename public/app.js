@@ -4,6 +4,7 @@ import { api, esc, html, show } from './lib.js';
 import { accountView, inviteView, loginLinkView, loginView, uploadLinkView, welcomeView } from './views/account.js';
 import { dashboardView } from './views/dashboard.js';
 import { peopleView, templatesView } from './views/admin.js';
+import { workspacesView } from './views/workspaces.js';
 import { caseView } from './views/case.js';
 
 async function route() {
@@ -19,6 +20,7 @@ async function route() {
     if (view === 'templates') return await templatesView();
     if (view === 'account') return await accountView();
     if (view === 'people') return await peopleView();
+    if (view === 'workspaces') return await workspacesView();
     if (view === 'welcome') return welcomeView(id ? `#/case/${id}` : '#/');
     return await dashboardView();
   } catch (e) {

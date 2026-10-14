@@ -83,10 +83,11 @@ export async function templatesView() {
     <p class="muted">Speichern erzeugt eine neue Version. Laufende Vorgänge behalten ihre Kopie der Version, aus der sie entstanden sind.</p>
     ${tpls.map(t => html`<details class="card">
       <summary><b>${t.name}</b> <span class="muted small">${t.workspace} · v${t.version} · ${count(t.definition.phases.length, 'Phase', 'Phasen')} · ${count(t.definition.phases.flatMap(p => p.tasks).length, 'Aufgabe', 'Aufgaben')}</span></summary>
-      <form data-submit="saveTemplate" data-id="${t.id}" class="stack">
+      ${owned.some(w => w.id === t.workspace_id) ? html`<form data-submit="saveTemplate" data-id="${t.id}" class="stack">
         <textarea name="definition" rows="26" class="code" spellcheck="false">${JSON.stringify(t.definition, null, 2)}</textarea>
         <button>Als Version ${t.version + 1} speichern</button>
-      </form>
+      </form>` : html`<p class="muted small">Ändern können die Owner des Workspaces.</p>
+        <textarea rows="16" class="code" readonly aria-label="Vorlage (nur lesen)">${JSON.stringify(t.definition, null, 2)}</textarea>`}
     </details>`)}
     ${owned.length ? html`<h2>Neue Vorlage</h2>
       <form data-submit="newTemplate" class="row">

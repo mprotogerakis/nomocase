@@ -1,0 +1,83 @@
+// Workspaces: create and rename them, members with their role, invitations, deleting an empty workspace.
+import { change, me, on, submit } from '../state.js';
+import { api, count, date, go, html, page, reload } from '../lib.js';
+
+const ROLES = [['member', 'Mitglied'], ['owner', 'Owner']];
+const roleSelect = (name, selected, attrs = '') => html`<select name="${name}" ${attrs}>${ROLES.map(([k, label]) =>
+  html`<option value="${k}" ${k === selected ? 'selected' : ''}>${label}</option>`)}</select>`;
+
+function workspaceCard(w) {
+  const owner = w.role === 'owner';
+  // the last owner can neither leave nor step down (the server refuses it too)
+  const lastOwner = m => m.role === 'owner' && w.members.filter(x => x.role === 'owner').length === 1;
+  return html`<div class="card">
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">${w.name}</h2>
+      <span class="muted small">${count(w.cases, 'Vorgang', 'Vorgänge')} · ${count(w.templates, 'Vorlage', 'Vorlagen')} · Sie: ${owner ? 'Owner' : 'Mitglied'}</span></div>
+    ${owner ? html`
+      <details class="add"><summary>umbenennen</summary>
+        <form data-submit="wsRename" data-id="${w.id}" class="row"><input name="name" value="${w.name}" required><button>Speichern</button></form></details>
+      <h3>Mitglieder</h3>
+      <ul class="list small">${w.members.map(m => html`<li class="row" style="justify-content:space-between">
+        <span>${m.user_id === me.user.id ? 'Sie' : m.name} <span class="muted">${m.email}</span>${m.passkeys ? '' : html` <span class="tag internal">kein Passkey</span>`}</span>
+        ${lastOwner(m) ? html`<span class="muted" title="Ein Workspace braucht mindestens einen Owner.">Owner</span>`
+          : html`<span class="row">${roleSelect('role', m.role, `data-change="wsRole" data-id="${w.id}" data-user="${m.user_id}" aria-label="Rolle von ${m.name}"`)}
+          <button class="link" data-on="wsRemove" data-id="${w.id}" data-user="${m.user_id}" data-name="${m.name}">${m.user_id === me.user.id ? 'verlassen' : 'entfernen'}</button></span>`}
+      </li>`)}
+      ${w.invitations.map(i => html`<li>${i.email} <span class="small ${i.expired ? 'warn' : 'muted'}">· ${ROLES.find(r => r[0] === i.role)[1]} ·
+        ${i.expired ? `Einladung abgelaufen am ${date(i.expires_at)}` : `eingeladen, gültig bis ${date(i.expires_at)}`}</span>
+        <span class="small"><button class="link" data-on="wsReinvite" data-id="${w.id}" data-email="${i.email}" data-role="${i.role}">erneut einladen</button>
+          · <button class="link" data-on="wsWithdraw" data-id="${w.id}" data-email="${i.email}">zurückziehen</button></span></li>`)}</ul>
+      <form data-submit="wsInvite" data-id="${w.id}" class="row small">
+        <input name="email" type="email" placeholder="E-Mail" required aria-label="E-Mail">${roleSelect('role', 'member', 'aria-label="Rolle"')}<button>Einladen</button>
+      </form>
+      ${w.cases ? '' : html`<p class="small"><button class="link danger" data-on="wsDelete" data-id="${w.id}" data-name="${w.name}">Workspace löschen</button>
+        <span class="muted">– geht nur ohne Vorgänge; ${w.templates ? 'die Vorlagen werden mitgelöscht' : 'er ist leer'}</span></p>`}`
+    : html`<p class="muted small">Sie können aus den Vorlagen dieses Workspaces Vorgänge anlegen und sehen die, an denen Sie beteiligt sind.</p>`}
+  </div>`;
+}
+
+export async function workspacesView() {
+  const list = await api('/workspaces');
+  page(html`<main class="narrow"><h1>Workspaces</h1>
+    <p class="muted">Owner sehen alle Vorgänge eines Workspaces, pflegen seine Vorlagen und Mitglieder. Mitglieder legen aus den Vorlagen
+      Vorgänge an und sehen die, an denen sie beteiligt sind. Externe (Studierende, Firmen …) werden nicht hier, sondern in einzelne
+      Vorgänge eingeladen.</p>
+    ${list.map(workspaceCard)}
+    ${list.some(w => w.role === 'owner') ? html`<h2>Neuer Workspace</h2>
+      <form data-submit="wsCreate" class="row"><input name="name" placeholder="Name, z. B. Lehrstuhl" required><button>Anlegen</button></form>` : ''}
+  </main>`);
+}
+
+const invited = (email, { sent, link }) => (link
+  ? prompt(sent ? 'E-Mail verschickt. Lokal zusätzlich der Link:' : 'E-Mail-Versand gerade nicht möglich. Bitte den Link selbst schicken:', link)
+  : alert(`Einladung an ${email} verschickt.`));
+
+submit.wsCreate = async fd => { await api('/workspaces', { body: { name: fd.get('name') } }); reload(); };
+submit.wsRename = async (fd, form) => { await api(`/workspaces/${form.dataset.id}`, { method: 'PATCH', body: { name: fd.get('name') } }); reload(); };
+submit.wsInvite = async (fd, form) => {
+  invited(fd.get('email'), await api(`/workspaces/${form.dataset.id}/invitations`, { body: { email: fd.get('email'), role: fd.get('role') } }));
+  reload();
+};
+on.wsReinvite = async ({ id, email, role }) => { invited(email, await api(`/workspaces/${id}/invitations`, { body: { email, role } })); reload(); };
+on.wsWithdraw = async ({ id, email }) => {
+  if (!confirm(`Einladung an ${email} zurückziehen?`)) return;
+  await api(`/workspaces/${id}/invitations/${encodeURIComponent(email)}`, { method: 'DELETE' });
+  reload();
+};
+change.wsRole = async el => {
+  const self = el.dataset.user === me.user.id;
+  if (self && el.value !== 'owner' && !confirm('Sie geben damit Ihre Owner-Rechte für diesen Workspace ab. Fortfahren?')) return reload();
+  await api(`/workspaces/${el.dataset.id}/members/${el.dataset.user}`, { method: 'PATCH', body: { role: el.value } }).catch(e => { reload(); throw e; });
+  reload();
+};
+on.wsRemove = async ({ id, user, name }) => {
+  const self = user === me.user.id;
+  if (!confirm(self ? 'Workspace verlassen? Beteiligungen an einzelnen Vorgängen bleiben.' : `${name} aus dem Workspace entfernen? Beteiligungen an einzelnen Vorgängen bleiben.`)) return;
+  await api(`/workspaces/${id}/members/${user}`, { method: 'DELETE' });
+  self ? go('#/') : reload();
+};
+on.wsDelete = async ({ id, name }) => {
+  if (!confirm(`Workspace „${name}“ endgültig löschen?`)) return;
+  await api(`/workspaces/${id}`, { method: 'DELETE' });
+  reload();
+};
