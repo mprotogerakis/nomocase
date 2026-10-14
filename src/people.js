@@ -25,16 +25,21 @@ export async function invite({ user, params, body, url }) {
     role = ctx.def.roles.find(r => r.key === body.role) ?? fail(400, 'Unbekannte Rolle');
   }
   const access = role.access;
-  if ((await row('SELECT COUNT(*) AS n FROM invitations WHERE email = ? AND created_at >= ?', email, now().slice(0, 10))).n >= 5) {
-    fail(429, 'An diese Adresse gingen heute schon fünf Einladungen.');
-  }
+  // Each invitation is a mail: at most five per address and day from one inviter. Counted in the log (index on actor and
+  // time), because re-inviting replaces the invitation row.
+  const sentToday = await row(`SELECT COUNT(*) AS n FROM events WHERE actor_id = ? AND created_at >= ? AND type = 'participant.invited'
+    AND json_extract(payload, '$.email') = ?`, user.id, now().slice(0, 10), email);
+  if (sentToday.n >= 5) fail(429, 'An diese Adresse gingen heute schon fünf Einladungen.');
   const t = token();
+  // Inviting the same address again (e.g. after the link expired) replaces the open invitation: one row, a fresh link.
+  const again = await row('SELECT 1 FROM invitations WHERE case_id = ? AND email = ? AND accepted_at IS NULL', ctx.c.id, email);
   await DB.batch([
     ...stmts,
+    q('DELETE FROM invitations WHERE case_id = ? AND email = ? AND accepted_at IS NULL', ctx.c.id, email),
     q('INSERT INTO invitations (token_hash, case_id, email, role, access, access_until, expires_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       await sha256(t), ctx.c.id, email, role.key, access, body.access_until ? `${body.access_until}T23:59:59` : null,
       new Date(Date.now() + 14 * 864e5).toISOString(), user.id, now()),
-    ev(ctx.c.id, user.id, 'participant.invited', { email, role: role.label }, []),
+    ev(ctx.c.id, user.id, 'participant.invited', { email, role: role.label, ...(again && { again: true }) }, []),
   ]);
   const link = `${originOf(url)}/#/invite/${t}`;
   const sent = await sendMail(email, `Einladung: ${ctx.c.title}`, [
@@ -134,9 +139,10 @@ export async function peopleOverview({ user }) {
       ORDER BY u.name COLLATE NOCASE`, ws),
     rows(`SELECT p.user_id, c.id AS case_id, c.title, c.status, p.access, p.revoked_at, p.expires_at, ${roleLabel('c', 'p')} AS role
       FROM case_participants p JOIN cases c ON c.id = p.case_id WHERE c.workspace_id ${IN_WS} ORDER BY c.created_at DESC`, ws),
-    rows(`SELECT i.email, i.created_at, i.expires_at, c.id AS case_id, c.title, ${roleLabel('c', 'i')} AS role
+    // Expired ones too: otherwise nobody notices that someone never joined.
+    rows(`SELECT i.email, i.created_at, i.expires_at, i.expires_at <= ?2 AS expired, i.role AS role_key, c.id AS case_id, c.title, ${roleLabel('c', 'i')} AS role
       FROM invitations i JOIN cases c ON c.id = i.case_id
-      WHERE c.workspace_id ${IN_WS} AND i.accepted_at IS NULL AND i.expires_at > ?2 ORDER BY i.created_at DESC`, ws, now()),
+      WHERE c.workspace_id ${IN_WS} AND i.accepted_at IS NULL ORDER BY expired, i.created_at DESC`, ws, now()),
     row(`SELECT SUM(status = 'open') AS open, SUM(status = 'closed') AS closed FROM cases WHERE workspace_id ${IN_WS}`, ws),
     row('SELECT COUNT(*) AS total, COALESCE(SUM(bulk), 0) AS bulk FROM mail_log WHERE sent_at >= ?', now().slice(0, 10)),
   ]);

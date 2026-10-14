@@ -60,7 +60,17 @@ const max = admin.people.find(u => u.email === `max.${run}@example.org`);
 assert.deepEqual(max.cases.map(c => [c.case_id, c.role, c.access, c.active]), [[caseId, 'Studierende:r', 'guest_contributor', true]]);
 assert.equal(max.passkeys, 0);
 assert.ok(max.last_seen, 'joining counts as activity');
-assert.ok(admin.invitations.some(i => i.email === `later.${run}@example.org` && i.case_id === caseId));
+assert.ok(admin.invitations.some(i => i.email === `later.${run}@example.org` && i.case_id === caseId && !i.expired));
+// Inviting the same address again replaces the open invitation (fresh link, no duplicate); expired ones stay visible.
+await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `later.${run}@example.org`, role: 'office' } }));
+let invited = (await expect(prof(`/cases/${caseId}`))).invitations.filter(i => i.email === `later.${run}@example.org`);
+assert.equal(invited.length, 1);
+if (new URL(BASE).hostname === 'localhost') {
+  sql(`UPDATE invitations SET expires_at = '2020-01-01T00:00:00Z' WHERE email = 'later.${run}@example.org'`);
+  invited = (await expect(prof(`/cases/${caseId}`))).invitations.filter(i => i.email === `later.${run}@example.org`);
+  assert.deepEqual(invited.map(i => i.expired), [1], 'expired invitation still listed, marked');
+  assert.ok((await expect(prof('/people'))).invitations.some(i => i.email === `later.${run}@example.org` && i.expired && i.role_key === 'office'));
+}
 assert.ok(admin.people.some(u => u.email === 'prof@example.org' && u.workspaces));
 
 // Live updates: the change stamp in the payload matches the cheap poll and moves when someone else acts.

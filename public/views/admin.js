@@ -1,33 +1,80 @@
 // Workspace administration: templates and people.
-import { me, submit } from '../state.js';
+import { input, me, on, submit } from '../state.js';
 import { ACCESS_LABELS, api, count, date, dateTime, html, page, reload } from '../lib.js';
 
-// Admin overview (workspace owners): who has an account, how they log in, where they take part, open invitations.
+// Admin overview (workspace owners): who has an account, how they log in, where they take part, open invitations –
+// with the actions an admin needs right there (login link, re-invite, withdraw, end access).
+let peopleFilter = 'all';
+const PEOPLE_FILTERS = [['all', 'Alle'], ['nopasskey', 'Ohne Passkey'], ['never', 'Nie aktiv'], ['former', 'Ehemalige']];
+const peopleMatch = (u, f) => ({ all: true, nopasskey: !u.passkeys, never: !u.last_seen,
+  former: !u.workspaces && !u.cases.some(c => c.active) })[f];
+
 export async function peopleView() {
   const { people, invitations, stats } = await api('/people');
-  const seat = c => html`<a href="#/case/${c.case_id}">${c.title}</a> <span class="muted small">${[c.role, ACCESS_LABELS[c.access]].filter((x, i, a) => x && a.indexOf(x) === i).join(' · ')}${c.status === 'closed' ? ' · abgeschlossen' : ''}</span>
-    ${c.active ? '' : html`<span class="tag">Zugang beendet</span>`}`;
+  const shown = people.filter(u => peopleMatch(u, peopleFilter));
+  const expired = invitations.filter(i => i.expired).length;
+  const seat = (u, c) => html`<a href="#/case/${c.case_id}">${c.title}</a> <span class="muted small">${[c.role, ACCESS_LABELS[c.access]].filter((x, i, a) => x && a.indexOf(x) === i).join(' · ')}${c.status === 'closed' ? ' · abgeschlossen' : ''}</span>
+    ${c.active ? (u.id === me.user.id ? '' : html`<span class="small"><button class="link" data-on="peopleLink" data-case="${c.case_id}" data-user="${u.id}" data-name="${u.name}">Anmeldelink senden</button>
+      · <button class="link" data-on="peopleRevoke" data-case="${c.case_id}" data-user="${u.id}" data-name="${u.name}" data-title="${c.title}">Zugang beenden</button></span>`)
+      : html`<span class="tag">Zugang beendet</span>`}`;
   page(html`<main class="narrow"><h1>Personen</h1>
     <p class="muted">Alle, die in Ihren Workspaces mitarbeiten oder an deren Vorgängen beteiligt sind oder waren.</p>
     <section class="stats">
       <div><b>${String(people.length)}</b>Personen</div>
-      <div><b>${String(invitations.length)}</b>offene Einladungen</div>
-      <div><b>${String(stats.cases_open)}</b>offene Vorgänge</div>
-      <div class="${stats.bulk_today >= stats.bulk_cap ? 'warn' : ''}"><b>${String(stats.mails_today)}</b>Mails heute (Sammelmails ${stats.bulk_today}/${stats.bulk_cap})</div>
+      <div class="${people.some(u => !u.passkeys) ? 'link-tile' : ''}" data-on="peopleFilter" data-id="nopasskey"><b>${String(people.filter(u => !u.passkeys).length)}</b>ohne Passkey</div>
+      <div class="${expired ? 'warn' : ''}"><b>${String(invitations.length)}</b>offene Einladungen${expired ? `, ${expired} abgelaufen` : ''}</div>
+      <div class="${stats.bulk_today >= stats.bulk_cap ? 'warn' : ''}"><b>${String(stats.mails_today)}</b>Mails heute</div>
     </section>
-    ${people.map(u => html`<div class="card">
+    <p class="muted small">Sammelmails (Tagesübersicht, Fortschritt) heute: ${stats.bulk_today} von ${stats.bulk_cap}.
+      ${stats.bulk_today >= stats.bulk_cap ? 'Sie pausieren bis morgen; Einladungen und Anmeldelinks gehen weiter.' : 'Ist die Grenze erreicht, pausieren sie bis morgen; Einladungen und Anmeldelinks gehen weiter.'}</p>
+    ${invitations.length ? html`<h2>Einladungen</h2><ul class="list">${invitations.map(i => html`<li>${i.email}
+      <span class="muted small">als ${i.role ?? '–'} in</span> <a href="#/case/${i.case_id}">${i.title}</a>
+      <span class="small ${i.expired ? 'warn' : 'muted'}">· ${i.expired ? `abgelaufen am ${date(i.expires_at)}` : `eingeladen ${date(i.created_at)}, gültig bis ${date(i.expires_at)}`}</span>
+      <span class="small"><button class="link" data-on="peopleReinvite" data-case="${i.case_id}" data-email="${i.email}" data-role="${i.role_key}">erneut einladen</button>
+        · <button class="link" data-on="peopleWithdraw" data-case="${i.case_id}" data-email="${i.email}">zurückziehen</button></span></li>`)}</ul>` : ''}
+    <h2>Konten</h2>
+    <div class="row filters">
+      <input type="search" placeholder="Suchen: Name, E-Mail, Vorgang …" data-input="peopleSearch" aria-label="Personen durchsuchen">
+      <div class="seg">${PEOPLE_FILTERS.map(([id, label]) => html`<button class="${peopleFilter === id ? 'on' : ''}" data-on="peopleFilter" data-id="${id}">${label}</button>`)}</div>
+    </div>
+    ${shown.map(u => html`<div class="card" data-search="${[u.name, u.email, ...u.cases.map(c => c.title)].join(' ').toLowerCase()}">
       <b>${u.name}</b> <span class="muted small">${u.email}${u.workspaces ? ` · Workspace ${u.workspaces}` : ''}</span>
       <div class="muted small">seit ${date(u.created_at)} ·
         ${u.passkeys ? `${u.passkeys} Passkey${u.passkeys > 1 ? 's' : ''}` : html`<span class="tag internal">kein Passkey</span>`} ·
         ${u.last_seen ? `zuletzt aktiv ${dateTime(u.last_seen)}` : 'noch nie aktiv'}
         ${u.email_reminders && u.email_progress ? '' : ` · Mails: ${[u.email_reminders && 'Übersicht', u.email_progress && 'Fortschritt'].filter(Boolean).join(', ') || 'keine'}`}</div>
-      ${u.cases.length ? html`<ul class="list small">${u.cases.map(c => html`<li>${seat(c)}</li>`)}</ul>` : ''}
+      ${u.cases.length ? html`<ul class="list small">${u.cases.map(c => html`<li>${seat(u, c)}</li>`)}</ul>` : ''}
     </div>`)}
-    ${invitations.length ? html`<h2>Offene Einladungen</h2><ul class="list">${invitations.map(i => html`<li>${i.email}
-      <span class="muted small">als ${i.role ?? '–'} in</span> <a href="#/case/${i.case_id}">${i.title}</a>
-      <span class="muted small">· eingeladen ${date(i.created_at)}, gültig bis ${date(i.expires_at)}</span></li>`)}</ul>` : ''}
+    ${shown.length ? '' : html`<p class="muted">Niemand für diesen Filter.</p>`}
   </main>`);
 }
+
+on.peopleFilter = ({ id }) => { peopleFilter = peopleFilter === id ? 'all' : id; reload(); };
+input.peopleSearch = el => {
+  const words = el.value.toLowerCase().split(/\s+/).filter(Boolean);
+  for (const card of document.querySelectorAll('main .card[data-search]')) card.hidden = !words.every(w => card.dataset.search.includes(w));
+};
+on.peopleReinvite = async ({ case: caseId, email, role }) => {
+  const { sent, link } = await api(`/cases/${caseId}/invitations`, { body: { email, role } });
+  if (link) prompt(sent ? 'E-Mail verschickt. Lokal zusätzlich der Link:' : 'E-Mail-Versand gerade nicht möglich. Bitte den Link selbst schicken:', link);
+  else alert(`Neue Einladung an ${email} verschickt.`);
+  reload();
+};
+on.peopleWithdraw = async ({ case: caseId, email }) => {
+  if (!confirm(`Einladung an ${email} zurückziehen?`)) return;
+  await api(`/cases/${caseId}/invitations/${encodeURIComponent(email)}`, { method: 'DELETE' });
+  reload();
+};
+on.peopleLink = async ({ case: caseId, user, name }) => {
+  const { link } = await api(`/cases/${caseId}/participants/${user}/login-link`, { body: {} });
+  if (link) prompt(`Lokal: Anmeldelink für ${name}`, link);
+  else alert(`Anmeldelink an ${name} verschickt.`);
+};
+on.peopleRevoke = async ({ case: caseId, user, name, title }) => {
+  if (!confirm(`Zugang von ${name} zu „${title}“ beenden?`)) return;
+  await api(`/cases/${caseId}/participants/${user}`, { method: 'DELETE' });
+  reload();
+};
 
 export async function templatesView() {
   const tpls = await api('/templates');

@@ -142,6 +142,10 @@ try {
 
   // People, account, phone layout
   await go('#/people', has(guestEmail));
+  await evaluate(`(() => { const s = document.querySelector('[data-input="peopleSearch"]'); s.value = 'prof@example.org'; s.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  assert.equal(await evaluate(`[...document.querySelectorAll('main .card[data-search]')].filter(c => !c.hidden).length`), 1, 'people search');
+  await b.click('[data-on="peopleFilter"][data-id="nopasskey"]');
+  await waitFor(`document.querySelector('.seg [data-on="peopleFilter"][data-id="nopasskey"]').classList.contains('on')`, 'Filter ohne Passkey');
   await go('#/account', `document.querySelector('main h1')?.textContent === 'Konto'`);
   const reminders = (await api('/me')).user.email_reminders;
   await b.click('[data-change="mailSetting"][data-key="email_reminders"]');

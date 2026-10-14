@@ -60,7 +60,7 @@ export async function getCase({ user, params }) {
        WHERE d.case_id = ? ORDER BY v.version`, id),
     q('SELECT e.*, u.name AS actor FROM events e LEFT JOIN users u ON u.id = e.actor_id WHERE e.case_id = ? ORDER BY e.id', id),
     q('SELECT p.user_id, p.role, p.access, p.expires_at, p.revoked_at, u.name, u.email FROM case_participants p JOIN users u ON u.id = p.user_id WHERE p.case_id = ? ORDER BY p.created_at', id),
-    q('SELECT email, role, access, access_until, expires_at FROM invitations WHERE case_id = ? AND accepted_at IS NULL AND expires_at > ?', id, now()),
+    q('SELECT email, role, access, access_until, expires_at, expires_at <= ? AS expired FROM invitations WHERE case_id = ? AND accepted_at IS NULL', now(), id),
   ])).map(r => r.results);
   markBlocked(tasks);
   const roleLabel = key => ctx.def.roles.find(r => r.key === key)?.label ?? key;

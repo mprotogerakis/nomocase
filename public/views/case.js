@@ -34,7 +34,7 @@ const EVENTS = {
   'subcase.closed': p => `hat den Teilvorgang „${p.title}“ abgeschlossen`,
   'case.saved_as_template': p => `hat den Ablauf als Vorlage „${p.template}“ (Version ${p.version}) gespeichert`,
   'rule.toggled': p => `hat die Regel „${p.rule}“ ${p.enabled ? 'eingeschaltet' : 'ausgeschaltet'}`,
-  'participant.invited': p => `hat ${p.email} als ${p.role} eingeladen`,
+  'participant.invited': p => `hat ${p.email} als ${p.role} ${p.again ? 'erneut ' : ''}eingeladen`,
   'participant.joined': p => `ist als ${p.role} beigetreten`,
   'participant.revoked': p => `hat den Zugang von ${p.name} beendet`,
   'claim.added': (p, d) => `hat „${p.claim}“ (${moneyWord(d, p.direction)}) über ${eur(p.amount_cents)} erfasst`,
@@ -114,8 +114,8 @@ function participantsSection(d) {
           <span class="muted">${p.revoked_at ? `· Zugang beendet am ${date(p.revoked_at)}` : p.expires_at ? `· Zugang bis ${date(p.expires_at)}` : ''}</span>
           ${d.me.owner && active(p) && p.user_id !== me.user.id ? html`<button class="link" data-on="sendLink" data-id="${p.user_id}" data-name="${p.name}">Anmeldelink senden</button>
             · <button class="link" data-on="revoke" data-id="${p.user_id}">Zugang beenden</button>` : ''}</div>`)}
-        ${pending.map(i => html`<div class="muted">${i.email} – eingeladen, noch nicht angenommen
-          ${d.me.owner ? html`· <button class="link" data-on="withdraw" data-email="${i.email}">zurückziehen</button>` : ''}</div>`)}
+        ${pending.map(i => html`<div class="${i.expired ? 'warn' : 'muted'}">${i.email} – ${i.expired ? `Einladung abgelaufen am ${date(i.expires_at)}` : 'eingeladen, noch nicht angenommen'}
+          ${d.me.owner ? html`· ${i.expired ? html`<button class="link" data-on="reinvite" data-email="${i.email}" data-role="${i.role}">erneut einladen</button> · ` : ''}<button class="link" data-on="withdraw" data-email="${i.email}">zurückziehen</button>` : ''}</div>`)}
         ${people.some(active) || pending.length ? '' : html`<div class="muted">niemand${d.me.owner ? html` – <button class="link" data-on="inviteRole" data-role="${r.key}">einladen</button>` : ''}</div>`}
       </li>`;
     })}</ul>
@@ -372,6 +372,13 @@ on.deleteCase = async () => {
   if (!confirm(`Vorgang „${cur.case.title}“ endgültig löschen?\n\nAlle Aufgaben, Dokumente, Nachrichten und Beträge werden entfernt. Das lässt sich nicht rückgängig machen.`)) return;
   await api(caseApi(''), { method: 'DELETE' });
   go('#/');
+};
+
+on.reinvite = async ({ email, role }) => {
+  const { sent, link } = await api(caseApi('/invitations'), { body: { email, role } });
+  if (link) prompt(sent ? 'E-Mail verschickt. Lokal zusätzlich der Link:' : 'E-Mail-Versand gerade nicht möglich. Bitte den Link selbst schicken:', link);
+  else alert(`Neue Einladung an ${email} verschickt.`);
+  reload();
 };
 
 on.withdraw = async ({ email }) => {
