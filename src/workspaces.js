@@ -1,7 +1,7 @@
 // Workspaces: create, rename and delete them, manage members (owner or member) and invitations into a workspace.
 // Owners see every case of the workspace and manage its templates; members create cases from its templates and see
 // the cases they take part in. A workspace always keeps at least one owner.
-import { DB, E, fail, now, q, row, rows, sha256, token, uid } from './core.js';
+import { DB, E, fail, now, q, row, rows, rpId, sha256, token, uid } from './core.js';
 import { requireWsOwner } from './access.js';
 import { originOf } from './auth.js';
 import { accountByEmail } from './people.js';
@@ -21,8 +21,8 @@ export async function listWorkspaces({ user }) {
     FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = ? ORDER BY w.name`, user.id);
   const owned = JSON.stringify(list.filter(w => w.role === 'owner').map(w => w.id));
   const [members, invitations] = (await DB.batch([
-    q(`SELECT m.workspace_id, m.role, u.id AS user_id, u.name, u.email, (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = u.id) AS passkeys
-       FROM workspace_members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id IN (SELECT value FROM json_each(?)) ORDER BY m.role DESC, u.name`, owned),
+    q(`SELECT m.workspace_id, m.role, u.id AS user_id, u.name, u.email, (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = u.id AND p.rp_id IS ?) AS passkeys
+       FROM workspace_members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id IN (SELECT value FROM json_each(?)) ORDER BY m.role DESC, u.name`, rpId(), owned),
     q(`SELECT workspace_id, email, role, created_at, expires_at, expires_at <= ? AS expired FROM workspace_invitations
        WHERE workspace_id IN (SELECT value FROM json_each(?)) AND accepted_at IS NULL AND revoked_at IS NULL ORDER BY created_at DESC`, now(), owned),
   ])).map(r => r.results);

@@ -30,6 +30,9 @@ try {
 
   // 1. The login link signs in once.
   await cdp('Page.navigate', { url: link });
+  await waitFor(`!!document.querySelector('[data-on="useLoginLink"]')`, 'Anmeldeseite');
+  assert.equal((await me()).user, null, 'opening the link alone does not log in (mail scanners open links)');
+  await click('[data-on="useLoginLink"]');
   await waitFor(`fetch('/api/me').then(r => r.json()).then(m => m.user?.email === '${EMAIL}')`, 'Anmeldung per Link');
   await cdp('Page.navigate', { url: `${BASE}/#/account` });
   await waitFor(`document.querySelector('main h1')?.textContent === 'Konto'`, 'Kontoseite');

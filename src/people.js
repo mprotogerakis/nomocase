@@ -1,5 +1,5 @@
 // People: invitations, participants, the admin overview of people.
-import { DB, E, ev, fail, isDate, json, now, q, row, rows, sha256, token, uid } from './core.js';
+import { DB, E, ev, fail, isDate, json, now, q, row, rows, rpId, sha256, token, uid } from './core.js';
 import { caseCtx } from './access.js';
 import { originOf, sessionCookie } from './auth.js';
 import { bulkCap, sendMail } from './notify.js';
@@ -59,7 +59,7 @@ export async function invite({ user, params, body, url }) {
 }
 
 export const accountByEmail = email =>
-  row('SELECT u.id, u.name, (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = u.id) AS passkeys FROM users u WHERE u.email = ?', email);
+  row('SELECT u.id, u.name, (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = u.id AND p.rp_id IS ?) AS passkeys FROM users u WHERE u.email = ?', rpId(), email);
 
 // The inviter could get hold of the link, so it must never open an existing account – with or without passkey.
 const needsLogin = (existing, user) => !!existing && user?.id !== existing.id;
@@ -151,7 +151,7 @@ export async function peopleOverview({ user }) {
   const roleLabel = (c, p) => `(SELECT json_extract(r.value, '$.label') FROM json_each(${c}.definition, '$.roles') r WHERE json_extract(r.value, '$.key') = ${p}.role)`;
   const [list, seats, invitations, cases, mails] = await Promise.all([
     rows(`SELECT u.id, u.name, u.email, u.created_at, u.email_reminders, u.email_progress,
-        (SELECT COUNT(*) FROM passkeys WHERE user_id = u.id) AS passkeys,
+        (SELECT COUNT(*) FROM passkeys WHERE user_id = u.id AND rp_id IS ?3) AS passkeys,
         (SELECT MAX(t) FROM (SELECT last_used_at AS t FROM passkeys WHERE user_id = u.id
           UNION ALL SELECT used_at FROM login_links WHERE user_id = u.id
           UNION ALL SELECT MAX(created_at) FROM events WHERE actor_id = u.id)) AS last_seen,
@@ -159,7 +159,7 @@ export async function peopleOverview({ user }) {
           WHERE m.user_id = u.id AND m.workspace_id ${IN_WS}) AS workspaces
       FROM users u WHERE u.id IN (SELECT user_id FROM workspace_members WHERE workspace_id ${IN_WS}
         UNION SELECT p.user_id FROM case_participants p JOIN cases c ON c.id = p.case_id WHERE c.workspace_id ${IN_WS})
-      ORDER BY u.name COLLATE NOCASE`, ws),
+      ORDER BY u.name COLLATE NOCASE`, ws, null, rpId()),
     rows(`SELECT p.user_id, c.id AS case_id, c.title, c.status, p.access, p.revoked_at, p.expires_at, ${roleLabel('c', 'p')} AS role
       FROM case_participants p JOIN cases c ON c.id = p.case_id WHERE c.workspace_id ${IN_WS} ORDER BY c.created_at DESC`, ws),
     // Expired ones too: otherwise nobody notices that someone never joined.

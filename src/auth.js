@@ -1,7 +1,7 @@
 // Sessions, passkeys, login links, dev login and the own account.
 import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthenticationResponse, verifyRegistrationResponse } from '@simplewebauthn/server';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
-import { appVersion, arr, DB, E, ev, fail, json, now, q, row, rows, sha256, token, uid } from './core.js';
+import { appVersion, arr, DB, E, ev, fail, json, now, q, row, rows, rpId, sha256, token, uid } from './core.js';
 import { caseCtx } from './access.js';
 import { sendMail } from './notify.js';
 
@@ -29,7 +29,7 @@ export async function sessionCookie(userId, url) {
 export async function me({ user }) {
   if (!user) return { user: null, dev_users: E.DEV_LOGIN ? await rows('SELECT email, name FROM users ORDER BY name') : null };
   const workspaces = await rows('SELECT w.id, w.name, m.role FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = ? ORDER BY w.name', user.id);
-  const { n } = await row('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?', user.id);
+  const { n } = await row('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ? AND rp_id IS ?', user.id, rpId());
   return { user: { id: user.id, name: user.name, email: user.email, email_reminders: !!user.email_reminders, email_progress: !!user.email_progress }, workspaces, passkeys: n, dev: !!E.DEV_LOGIN, version: appVersion() };
 }
 
@@ -109,7 +109,7 @@ const takeChallenge = async (id, userId = null) =>
   ?? fail(400, 'Anmeldeversuch abgelaufen, bitte erneut versuchen');
 
 export async function passkeyRegisterOptions({ user, url }) {
-  const existing = await rows('SELECT id, transports FROM passkeys WHERE user_id = ?', user.id);
+  const existing = await rows('SELECT id, transports FROM passkeys WHERE user_id = ? AND rp_id IS ?', user.id, rpOf(url));
   return newChallenge(await generateRegistrationOptions({
     rpName: 'NomoCase',
     rpID: rpOf(url),
@@ -127,8 +127,8 @@ export async function passkeyRegisterVerify({ user, url, body }) {
     .catch(e => fail(400, `Passkey ungültig: ${e.message}`));
   if (!verified) fail(400, 'Passkey ungültig');
   const { id, publicKey, counter, transports } = registrationInfo.credential;
-  await q('INSERT INTO passkeys (id, user_id, public_key, counter, transports, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    id, user.id, isoBase64URL.fromBuffer(publicKey), counter, JSON.stringify(transports ?? []), now()).run();
+  await q('INSERT INTO passkeys (id, user_id, public_key, counter, transports, created_at, rp_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    id, user.id, isoBase64URL.fromBuffer(publicKey), counter, JSON.stringify(transports ?? []), now(), rpOf(url)).run();
 }
 
 // No allowCredentials: discoverable credentials, so the browser offers the user's passkeys without asking for an email.
@@ -146,7 +146,8 @@ export async function passkeyLoginVerify({ url, body }) {
   return json({ ok: true }, 200, { 'set-cookie': await sessionCookie(pk.user_id, url) });
 }
 
-export const listPasskeys = ({ user }) => rows('SELECT id, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY created_at', user.id);
+export const listPasskeys = async ({ user, url }) => (await rows('SELECT id, created_at, last_used_at, rp_id FROM passkeys WHERE user_id = ? ORDER BY created_at', user.id))
+  .map(p => ({ ...p, usable: p.rp_id === rpOf(url) }));
 
 export async function deletePasskey({ user, params }) {
   const { meta } = await q('DELETE FROM passkeys WHERE id = ? AND user_id = ?', params.id, user.id).run();

@@ -4,6 +4,8 @@ export { ACCESS, DECISIONS, NEEDS_FILE, STAFF, TASK_TYPES } from '../public/shar
 // Bindings are constant per isolate; set once per request/cron run by worker.js.
 export let DB, E;
 export const init = env => { DB = env.DB; E = env; };
+// Passkeys work only for the domain they were made on (WebAuthn RP ID): the one of ORIGIN.
+export const rpId = () => (E.ORIGIN ? new URL(E.ORIGIN).hostname : null);
 export const appVersion = () => E.CF_VERSION_METADATA?.id ?? 'dev';
 
 export class HttpError extends Error {

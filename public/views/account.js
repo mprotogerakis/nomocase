@@ -57,7 +57,7 @@ export async function accountView() {
     <dl><dt>Name</dt><dd>${me.user.name}</dd><dt>E-Mail</dt><dd>${me.user.email}</dd></dl>
     <h3>Passkeys</h3>
     ${passkeys.length ? html`<ul class="list">${passkeys.map(p => html`<li>Passkey vom ${dateTime(p.created_at)}
-      <span class="muted small">· ${p.last_used_at ? `zuletzt benutzt ${dateTime(p.last_used_at)}` : 'noch nicht benutzt'}</span>
+      <span class="muted small">· ${p.usable ? (p.last_used_at ? `zuletzt benutzt ${dateTime(p.last_used_at)}` : 'noch nicht benutzt') : `gilt nur für ${p.rp_id}, hier nicht nutzbar`}</span>
       <button class="link" data-on="passkeyDelete" data-id="${p.id}">entfernen</button></li>`)}</ul>`
       : html`<p class="muted">Noch kein Passkey eingerichtet.</p>`}
     <p><button data-on="passkeyAdd">Passkey hinzufügen</button></p>
@@ -120,11 +120,18 @@ submit.linkUpload = async (fd, form) => {
     <p class="muted small">Prüfsumme (SHA-256) als Nachweis, welche Datei Sie übermittelt haben:<br><code class="hash">${fd.get('sha256')}</code></p></main>`);
 };
 
+// Mail security scanners open links – often in a real browser – to check them. A link that logged in on page load was
+// used up before the person even saw the mail, so it only works with a click.
 export async function loginLinkView(token) {
+  show(html`<main class="narrow"><h1>Anmelden</h1>
+    <p>Mit diesem Link melden Sie sich einmalig bei NomoCase an. Danach können Sie einen Passkey für dieses Gerät einrichten.</p>
+    <button class="block primary" data-on="useLoginLink" data-token="${token}">Jetzt anmelden</button></main>`);
+}
+on.useLoginLink = async ({ token }) => {
   await api('/login-link', { body: { token } });
   set({ me: await api('/me') });
   go(me.passkeys ? '#/' : '#/welcome');
-}
+};
 
 submit.requestLink = async fd => {
   const { link } = await api('/login-link/request', { body: { email: fd.get('email') } });
