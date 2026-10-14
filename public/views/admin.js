@@ -1,6 +1,7 @@
 // Workspace administration: templates and people.
 import { input, me, on, submit } from '../state.js';
 import { ACCESS_LABELS, api, count, date, dateTime, html, page, reload } from '../lib.js';
+import { fillForm } from '../shared/forms.js';
 
 // Admin overview (workspace owners): who has an account, how they log in, where they take part, open invitations –
 // with the actions an admin needs right there (login link, re-invite, withdraw, end access).
@@ -78,12 +79,15 @@ on.peopleRevoke = async ({ case: caseId, user, name, title }) => {
   reload();
 };
 
+let shownTemplates = [];
+
 export async function templatesView() {
-  const tpls = await api('/templates');
+  const tpls = shownTemplates = await api('/templates');
   const owned = me.workspaces.filter(w => w.role === 'owner');
   const usage = t => (t.cases ? `läuft in ${count(t.cases, 'Vorgang', 'Vorgängen')}${t.open_cases !== t.cases ? `, ${t.open_cases} offen` : ''}` : 'noch in keinem Vorgang');
   const card = t => html`<details class="card">
     <summary><b>${t.name}</b> <span class="muted small">${t.workspace} · v${t.version} · ${count(t.definition.phases.length, 'Phase', 'Phasen')} · ${count(t.definition.phases.flatMap(p => p.tasks).length, 'Aufgabe', 'Aufgaben')} · ${usage(t)}</span></summary>
+    ${t.definition.forms?.length ? html`<p class="small">Formulare (Vorschau): ${t.definition.forms.map((f, i) => html`${i ? ' · ' : ''}<button type="button" class="link" data-on="previewForm" data-id="${t.id}" data-key="${f.key}">${f.title}</button>`)}</p>` : ''}
     ${owned.some(w => w.id === t.workspace_id) ? html`<form data-submit="saveTemplate" data-id="${t.id}" class="stack">
       <textarea name="definition" rows="26" class="code" spellcheck="false">${JSON.stringify(t.definition, null, 2)}</textarea>
       <div class="row" style="justify-content:space-between"><button>Als Version ${t.version + 1} speichern</button>
@@ -121,6 +125,22 @@ on.deleteTemplate = async ({ id, name, cases }) => {
     : `„${name}“ endgültig löschen?`)) return;
   await api(`/templates/${id}`, { method: 'DELETE' });
   reload();
+};
+// Form preview with the placeholders' names instead of values; uses the text being edited, if it parses.
+on.previewForm = async ({ id, key }) => {
+  const t = shownTemplates.find(x => x.id === id);
+  let def = t.definition;
+  try { def = JSON.parse(document.querySelector(`form[data-id="${id}"] textarea`)?.value ?? '') ?? def; } catch { /* the saved version */ }
+  const form = def.forms?.find(f => f.key === key) ?? t.definition.forms.find(f => f.key === key);
+  const label = k => {
+    if (k === 'case.title') return '‹Titel des Vorgangs›';
+    if (k.startsWith('date')) return new Date(Date.now() + Number(k.split('+')[1] ?? 0) * 864e5).toLocaleDateString('de-DE');
+    const [kind, k2, extra] = k.split('.');
+    return `‹${(kind === 'field' ? def.fields : def.roles)?.find(x => x.key === k2)?.label ?? k}${extra ? ', E-Mail' : ''}›`;
+  };
+  const { formPdf, formFilename, saveFile } = await import('../formpdf.js');
+  const f = { ...fillForm(form, label), case_title: 'Vorschau', template: t.name, created: new Date().toLocaleDateString('de-DE') };
+  saveFile(await formPdf(f), formFilename(f));
 };
 on.restoreTemplate = async ({ id }) => { await api(`/templates/${id}/restore`, { body: {} }); reload(); };
 

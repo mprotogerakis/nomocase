@@ -162,6 +162,19 @@ assert.deepEqual([mdef.scales.note.pass, mdef.aggregates[0].from], [{ max: 4 }, 
   await done(bstudent, 'topic');
   await put(bstudent, 'expose', 'Expose.pdf');
   await done(prof, 'expose_review', { action: 'approve' });
+  // The admission form comes prefilled from the case – only what the template puts into it, only for who sees the step.
+  const formOf = async (who, key, status) => expect(who(`/tasks/${(await step(prof, key)).id}/form`), status);
+  const valueIn = (f, label) => f.items.find(it => it.label?.startsWith(label))?.value;
+  const zul = await formOf(bstudent, 'form');
+  assert.equal(zul.title, 'Antrag auf Zulassung zur Bachelor-Thesis');
+  assert.equal(valueIn(zul, 'Name, Vorname'), 'Erika Beispiel');
+  assert.equal(valueIn(zul, 'E-Mail-Adresse'), `b.erika.${run}@example.org`);
+  assert.equal(valueIn(zul, 'Erstprüfer/in'), (await expect(prof('/me'))).user.name);
+  assert.equal(zul.items.find(it => it.sign === 'Unterschrift der/des Studierenden').name, 'Erika Beispiel');
+  assert.equal(zul.items.find(it => it.check).checked, false, 'not external: no company given');
+  assert.ok((await view(bstudent, b)).definition.forms.every(f => f.title && !f.items), 'participants see form titles, not definitions');
+  await formOf(bstudent, 'result_form', 404); // a step the student does not see
+  await formOf(prof, 'topic', 404);           // a step without a form
   await put(bstudent, 'form', 'Antrag.pdf');
   await put(prof, 'sign_supervisor', 'Antrag-EP.pdf');
   await put(bsecond, 'sign_second', 'Antrag-ZP.pdf');
@@ -182,6 +195,9 @@ assert.deepEqual([mdef.scales.note.pass, mdef.aggregates[0].from], [{ max: 4 }, 
   await expect(bsecond(`/tasks/${(await step(bsecond, 'grade_2')).id}/action`, { body: { action: 'assess', score: '1,7' } }));
   await expect(prof(`/tasks/${(await step(prof, 'grade_1')).id}/action`, { body: { action: 'assess', score: '2,3' } }));
   assert.ok(!(await view(bstudent, b)).tasks.some(t => t.assess), 'single grades stay with the examiners');
+  await expect(prof(`/cases/${b}/fields`, { method: 'PATCH', body: { fields: { grade: '2,0' } } })); // taken over from the calculated grade
+  const result = await formOf(prof, 'result_form');
+  assert.deepEqual([valueIn(result, 'Note der Bachelor-Thesis'), valueIn(result, 'Ausgegeben am')], ['2,0', '01.03.2027'], 'grade and dates (German format)');
   await put(prof, 'result_form', 'Abschlussnote.pdf');
   await put(bsecond, 'result_sign', 'Abschlussnote-ZP.pdf');
   await done(prof, 'result_office');

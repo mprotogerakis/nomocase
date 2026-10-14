@@ -143,6 +143,29 @@ try {
   await waitFor(has('steht in den Angaben'), 'Modulnote übernommen');
   await evaluate(`fetch('/api/cases/${master}', { method: 'DELETE' }).then(r => r.status)`);
 
+  // Forms: a step's form is generated in the browser (pdf-lib loaded on demand), prefilled from the case, with the logo
+  const btpl = tpls.find(t => t.name === 'Bachelor-Thesis (B.Eng.)');
+  const thesis = await evaluate(`fetch('/api/cases', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: ${J(J({ template_id: btpl.id, title: `UI-BA ${run}`, fields: { student: 'Ulla Test', matrikel: '4242' } }))} }).then(r => r.json()).then(r => r.id)`);
+  await go(`#/case/${thesis}`, `!!document.querySelector('[data-on="taskForm"]')`);
+  await evaluate(`(() => { window.pdfs = []; const make = URL.createObjectURL; URL.createObjectURL = blob => { pdfs.push(blob); return make(blob); }; return true; })()`);
+  await b.click('[data-on="taskForm"]');
+  await waitFor('pdfs.length === 1', 'Formular erzeugt');
+  assert.deepEqual(await evaluate(`import('/vendor/pdf-lib.esm.min.js').then(async ({ PDFDocument, PDFName }) => {
+    const doc = await PDFDocument.load(await pdfs[0].arrayBuffer());
+    const xo = doc.getPage(0).node.Resources().lookup(PDFName.of('XObject'));
+    const image = xo.entries().some(([, ref]) => doc.context.lookup(ref).dict?.get(PDFName.of('Subtype')) === PDFName.of('Image')); // the logo
+    return [doc.getTitle(), doc.getForm().getTextField('Matrikelnummer').getText(), pdfs[0].type, image];
+  })`), ['Antrag auf Zulassung zur Bachelor-Thesis', '4242', 'application/pdf', true], 'prefilled PDF with the logo');
+  await evaluate(`fetch('/api/cases/${thesis}', { method: 'DELETE' }).then(r => r.status)`);
+  // … and previewed on the templates page, with the placeholders' names
+  await go('#/templates', `!!document.querySelector('[data-on="previewForm"][data-key="ergebnis"]')`);
+  await evaluate(`(() => { window.pdfs = []; const make = URL.createObjectURL; URL.createObjectURL = blob => { pdfs.push(blob); return make(blob); }; return true; })()`);
+  await b.click(`[data-on="previewForm"][data-id="${btpl.id}"][data-key="ergebnis"]`);
+  await waitFor('pdfs.length === 1', 'Formular-Vorschau');
+  assert.equal(await evaluate(`import('/vendor/pdf-lib.esm.min.js').then(async ({ PDFDocument }) =>
+    (await PDFDocument.load(await pdfs[0].arrayBuffer())).getForm().getTextField('Matrikelnummer').getText())`), '‹Matrikelnummer›');
+
   // Dashboard as a worklist: search narrows the cards in place, filters and the template choice reload the list
   await go('#/', `!!document.querySelector('[data-input="caseSearch"]')`);
   await evaluate(`(() => { const s = document.querySelector('[data-input="caseSearch"]'); s.value = ${J(`ui-test ${run}`)}; s.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);

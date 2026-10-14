@@ -169,7 +169,8 @@
             "after": [
               "expose_review"
             ],
-            "description": "Formular „Antrag auf Zulassung zur Bachelor-Thesis“ (Blatt 1 und Blatt 2): https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Antrag_Bachelorthesis_080926.pdf – Voraussetzung: alle nach Studienverlaufsplan vorgesehenen Modulprüfungen bis auf höchstens eine bestanden, die Praxisphase zählt nicht mit (§ 17 Abs. 1). Nachweis der bestandenen Module beilegen (§ 17 Abs. 2). Das Thema wird genau so ins Zeugnis übernommen. Formular nicht im Browser, sondern mit einem PDF-Reader wie Adobe Acrobat ausfüllen; im Studienbüro zählen nur Originale (keine Scans/Kopien). Unterschriebene PDF hochladen."
+            "description": "NomoCase erzeugt den Antrag vorausgefüllt („Formular … herunterladen“). In einem PDF-Reader wie Adobe Acrobat ergänzen, digital unterschreiben und hier hochladen; die Prüfer:innen unterschreiben danach in derselben Datei. Das offizielle Formular des Fachbereichs geht weiterhin: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Antrag_Bachelorthesis_080926.pdf – Voraussetzung: alle nach Studienverlaufsplan vorgesehenen Modulprüfungen bis auf höchstens eine bestanden, die Praxisphase zählt nicht mit (§ 17 Abs. 1). Nachweis der bestandenen Module beilegen (§ 17 Abs. 2). Das Thema wird genau so ins Zeugnis übernommen. Solange das Studienbüro Originale verlangt, das unterschriebene Formular zusätzlich ausgedruckt einreichen.",
+            "form": "zulassung"
           },
           {
             "key": "sign_supervisor",
@@ -240,7 +241,8 @@
             "visible_to": [
               "second"
             ],
-            "description": "Bearbeitungszeit 12 Wochen ab Ausgabe (§ 17 Abs. 6). Das Thema kann einmal und nur in den ersten zwei Wochen ohne Angabe von Gründen zurückgegeben werden (§ 17 Abs. 5). Verlängerung einmal um bis zu 4 Wochen auf begründeten Antrag: Formular https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Verlaengerung_Bachelorarbeit_160223.pdf ausfüllen und als Anliegen „Verlängerung“ mit dem Antrag einreichen; die/der Erstprüfer:in stimmt zu, der Prüfungsausschuss genehmigt, danach den neuen Abgabetermin unter Angaben eintragen."
+            "description": "Bearbeitungszeit 12 Wochen ab Ausgabe (§ 17 Abs. 6). Das Thema kann einmal und nur in den ersten zwei Wochen ohne Angabe von Gründen zurückgegeben werden (§ 17 Abs. 5). Verlängerung einmal um bis zu 4 Wochen auf begründeten Antrag: den vorausgefüllten Antrag herunterladen, begründen, unterschreiben und als Anliegen „Verlängerung“ einreichen (das offizielle Formular des Fachbereichs geht weiterhin: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Verlaengerung_Bachelorarbeit_160223.pdf); die/der Erstprüfer:in stimmt zu, der Prüfungsausschuss genehmigt, danach den neuen Abgabetermin unter Angaben eintragen.",
+            "form": "verlaengerung"
           }
         ]
       },
@@ -333,7 +335,8 @@
             "visible_to": [
               "second"
             ],
-            "description": "Formular „Mitteilung der Abschlussnote“: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Pru%CC%88fungsergebnis_080926.pdf – Note eintragen, unterschreiben, als PDF hochladen. Formular nicht im Browser, sondern mit einem PDF-Reader wie Adobe Acrobat ausfüllen; im Studienbüro zählen nur Originale (keine Scans/Kopien)."
+            "description": "Zuerst die Note unter Angaben übernehmen, dann die Mitteilung vorausgefüllt herunterladen, digital unterschreiben und hochladen. Das offizielle Formular des Fachbereichs geht weiterhin: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Pru%CC%88fungsergebnis_080926.pdf – Solange das Studienbüro Originale verlangt, zusätzlich ausgedruckt und unterschrieben abgeben.",
+            "form": "ergebnis"
           },
           {
             "key": "result_sign",
@@ -477,15 +480,15 @@
       "note": {
         "label": "Note",
         "range": [
-          1.0,
-          4.0
+          1,
+          4
         ],
         "step": 0.1,
         "extra": [
-          5.0
+          5
         ],
         "pass": {
-          "max": 4.0
+          "max": 4
         },
         "hint": "1,0 bis 4,0 in Schritten von 0,1, sonst 5,0 (§ 19 Abs. 3 RahmenPO EI)"
       }
@@ -501,9 +504,347 @@
         ],
         "method": "mean",
         "round": "truncate",
-        "fail_value": 5.0,
+        "fail_value": 5,
         "field": "grade",
         "note": "Mittel der Einzelnoten, nur die erste Nachkommastelle zählt (§ 19 Abs. 4 und 6 RahmenPO EI)"
+      }
+    ],
+    "forms": [
+      {
+        "key": "zulassung",
+        "title": "Antrag auf Zulassung zur Bachelor-Thesis",
+        "subtitle": "Ausgefüllt und unterschrieben im Studienbüro einreichen, zusammen mit dem Nachweis der bestandenen Module. Über die Zulassung entscheidet die/der Prüfungsausschussvorsitzende (§ 17 RahmenPO EI).",
+        "logo": "/brand/hsd-ei.png",
+        "accent": "#E60028",
+        "items": [
+          {
+            "heading": "Persönliche Angaben"
+          },
+          {
+            "label": "Name, Vorname",
+            "value": "{field.student}",
+            "half": true
+          },
+          {
+            "label": "Matrikelnummer",
+            "value": "{field.matrikel}",
+            "half": true
+          },
+          {
+            "label": "Studiengang",
+            "value": "{field.programme}",
+            "half": true
+          },
+          {
+            "label": "Prüfungsordnung",
+            "value": "{field.po}",
+            "half": true
+          },
+          {
+            "label": "E-Mail-Adresse",
+            "value": "{role.student.email}"
+          },
+          {
+            "heading": "Thema der Bachelor-Thesis"
+          },
+          {
+            "label": "Thema – wird in dieser Fassung ins Zeugnis übernommen",
+            "value": "{field.thesis_title}",
+            "lines": 3
+          },
+          {
+            "label": "Die Thesis wird extern angefertigt (in einer Firma oder an einem Institut)",
+            "check": true,
+            "value": "{field.company_name}"
+          },
+          {
+            "label": "Name und Anschrift der Firma / des Instituts",
+            "value": "{field.company_name}",
+            "lines": 2
+          },
+          {
+            "label": "Betreuer/in vor Ort (Name, Telefon, E-Mail)",
+            "lines": 2
+          },
+          {
+            "heading": "Erklärung der/des Studierenden"
+          },
+          {
+            "label": "Bisherige Versuche der Bachelor-Thesis",
+            "value": "0",
+            "half": true
+          },
+          {
+            "label": "Davon zurückgegebene Themen",
+            "value": "0",
+            "half": true
+          },
+          {
+            "text": "Ich erfülle die in der für mich gültigen Prüfungsordnung genannten Voraussetzungen zur Anmeldung der Bachelor-Thesis. Ich versichere, die Angaben vollständig und wahrheitsgemäß gemacht zu haben, und bitte um Zulassung zur Bachelor-Thesis."
+          },
+          {
+            "sign": "Unterschrift der/des Studierenden",
+            "name": "{field.student}",
+            "place": "Düsseldorf"
+          },
+          {
+            "heading": "Prüfer/innen"
+          },
+          {
+            "label": "Erstprüfer/in – Professor/in des Fachbereichs EI",
+            "value": "{role.supervisor}"
+          },
+          {
+            "text": "Mit meiner Unterschrift bestätige ich, dass ich die Bachelor-Thesis als Erstprüfer/in betreue."
+          },
+          {
+            "sign": "Unterschrift Erstprüfer/in",
+            "name": "{role.supervisor}",
+            "place": "Düsseldorf"
+          },
+          {
+            "label": "Zweitprüfer/in – mit vollständigem Titel",
+            "value": "{field.second_examiner}"
+          },
+          {
+            "text": "Mit meiner Unterschrift bestätige ich, dass ich die Bachelor-Thesis als Zweitprüfer/in betreue. Bei externer Betreuung darf ausnahmsweise die/der Erstprüfer/in im Auftrag unterschreiben und bestätigt damit zugleich, dass die/der Zweitprüfer/in die zur Bewertung erforderliche Qualifikation hat."
+          },
+          {
+            "sign": "Unterschrift Zweitprüfer/in",
+            "name": "{field.second_examiner}",
+            "place": "Düsseldorf"
+          },
+          {
+            "heading": "Zulassung",
+            "hint": "Von der Hochschule auszufüllen"
+          },
+          {
+            "label": "Die Angaben werden bestätigt.",
+            "check": true
+          },
+          {
+            "sign": "Unterschrift Studienbüro"
+          },
+          {
+            "label": "Zur Bachelor-Thesis zugelassen",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Nicht zugelassen",
+            "check": true,
+            "half": true
+          },
+          {
+            "sign": "Unterschrift Prüfungsausschussvorsitzende/r"
+          },
+          {
+            "label": "Ausgegeben am",
+            "value": "{field.issued}",
+            "half": true
+          },
+          {
+            "label": "Abzugeben bis",
+            "value": "{field.deadline}",
+            "half": true
+          },
+          {
+            "label": "Zurückgetreten am (nur in den ersten 2 Wochen)",
+            "half": true
+          },
+          {
+            "label": "Im Studienbüro abgegeben am",
+            "half": true
+          }
+        ]
+      },
+      {
+        "key": "verlaengerung",
+        "title": "Antrag auf Verlängerung der Bearbeitungszeit",
+        "subtitle": "Bachelor-Thesis · einmal um bis zu 4 Wochen auf begründeten Antrag (§ 17 Abs. 6 RahmenPO EI). Mit Zustimmung der/des Erstprüfer/in im Studienbüro einreichen.",
+        "logo": "/brand/hsd-ei.png",
+        "accent": "#E60028",
+        "items": [
+          {
+            "heading": "Persönliche Angaben"
+          },
+          {
+            "label": "Name, Vorname",
+            "value": "{field.student}",
+            "half": true
+          },
+          {
+            "label": "Matrikelnummer",
+            "value": "{field.matrikel}",
+            "half": true
+          },
+          {
+            "label": "Studiengang",
+            "value": "{field.programme}",
+            "half": true
+          },
+          {
+            "label": "Prüfungsordnung",
+            "value": "{field.po}",
+            "half": true
+          },
+          {
+            "label": "E-Mail-Adresse",
+            "value": "{role.student.email}"
+          },
+          {
+            "heading": "Antrag"
+          },
+          {
+            "label": "Thema der Bachelor-Thesis",
+            "value": "{field.thesis_title}",
+            "lines": 2
+          },
+          {
+            "label": "Bisheriger Abgabetermin",
+            "value": "{field.deadline}",
+            "half": true
+          },
+          {
+            "label": "Beantragter neuer Abgabetermin",
+            "half": true
+          },
+          {
+            "label": "Begründung",
+            "lines": 6
+          },
+          {
+            "sign": "Unterschrift der/des Studierenden",
+            "name": "{field.student}",
+            "place": "Düsseldorf"
+          },
+          {
+            "heading": "Stellungnahme Erstprüfer/in"
+          },
+          {
+            "label": "Der Verlängerung wird zugestimmt",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Der Verlängerung wird nicht zugestimmt",
+            "check": true,
+            "half": true
+          },
+          {
+            "sign": "Unterschrift Erstprüfer/in",
+            "name": "{role.supervisor}",
+            "place": "Düsseldorf"
+          },
+          {
+            "heading": "Genehmigung",
+            "hint": "Von der Hochschule auszufüllen"
+          },
+          {
+            "label": "Genehmigt",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Nicht genehmigt",
+            "check": true,
+            "half": true
+          },
+          {
+            "sign": "Unterschrift Prüfungsausschussvorsitzende/r"
+          },
+          {
+            "label": "Neuer Abgabetermin",
+            "half": true
+          },
+          {
+            "label": "Erfasst am",
+            "half": true
+          },
+          {
+            "sign": "Unterschrift Studienbüro"
+          }
+        ]
+      },
+      {
+        "key": "ergebnis",
+        "title": "Mitteilung der Note der Bachelor-Thesis",
+        "subtitle": "Von beiden Prüfer/innen unterschrieben an das Studienbüro.",
+        "logo": "/brand/hsd-ei.png",
+        "accent": "#E60028",
+        "items": [
+          {
+            "heading": "Persönliche Angaben"
+          },
+          {
+            "label": "Name, Vorname",
+            "value": "{field.student}",
+            "half": true
+          },
+          {
+            "label": "Matrikelnummer",
+            "value": "{field.matrikel}",
+            "half": true
+          },
+          {
+            "label": "Studiengang",
+            "value": "{field.programme}",
+            "half": true
+          },
+          {
+            "label": "Prüfungsordnung",
+            "value": "{field.po}",
+            "half": true
+          },
+          {
+            "heading": "Ergebnis"
+          },
+          {
+            "label": "Thema der Bachelor-Thesis",
+            "value": "{field.thesis_title}",
+            "lines": 2
+          },
+          {
+            "label": "Note der Bachelor-Thesis",
+            "value": "{field.grade}",
+            "half": true
+          },
+          {
+            "label": "Ausgegeben am",
+            "value": "{field.issued}",
+            "half": true
+          },
+          {
+            "text": "Weichen die Noten der Prüfer/innen voneinander ab, ist die Note das arithmetische Mittel; nur die erste Nachkommastelle zählt, alle weiteren werden gestrichen (§ 19 Abs. 4 und 6 RahmenPO EI)."
+          },
+          {
+            "heading": "Prüfer/innen"
+          },
+          {
+            "label": "Erstprüfer/in",
+            "value": "{role.supervisor}"
+          },
+          {
+            "text": "Mit meiner Unterschrift bestätige ich, dass ich die/den Studierende/n als Erstprüfer/in betreut und die Arbeit bewertet habe."
+          },
+          {
+            "sign": "Unterschrift Erstprüfer/in",
+            "name": "{role.supervisor}",
+            "place": "Düsseldorf"
+          },
+          {
+            "label": "Zweitprüfer/in",
+            "value": "{field.second_examiner}"
+          },
+          {
+            "text": "Mit meiner Unterschrift bestätige ich, dass ich die Arbeit als Zweitprüfer/in bewertet habe. Bei externer Betreuung darf ausnahmsweise die/der Erstprüfer/in im Auftrag unterschreiben."
+          },
+          {
+            "sign": "Unterschrift Zweitprüfer/in",
+            "name": "{field.second_examiner}",
+            "place": "Düsseldorf"
+          }
+        ]
       }
     ]
   }

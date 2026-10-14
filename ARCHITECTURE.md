@@ -44,6 +44,7 @@ Widerspruch ist, weiß nur die jeweilige Vorlage – nicht der Code.
 | `validate.js` | Inhaltsprüfung hochgeladener Dateien (aktive Inhalte in PDF/Office) |
 | `pdfsig.js` | Digitale Signaturen in PDFs lesen und prüfen (CMS/PAdES, RSA/ECDSA, Kette zu vertrauenswürdigen Ausstellern) – rein, ohne DB |
 | `signatures.js` | Signaturen speichern und deuten: bekannter Schlüssel, vertrauenswürdiger Aussteller, „andere Signatur als bisher“; Zuordnen |
+| `forms.js` | Formular eines Schritts mit den Werten des Vorgangs füllen (nur wer den Schritt sieht, nur was im Formular steht) |
 
 Abhängigkeiten zeigen nach innen: `worker` → Fachmodule → `access` → `core`. Zwischen Fachmodulen gibt es
 Aufrufe in beide Richtungen, aber nur zur Laufzeit (keine Auswertung beim Laden).
@@ -57,13 +58,17 @@ Aufrufe in beide Richtungen, aber nur zur Laufzeit (keine Auswertung beim Laden)
 | `lib.js` | Sicheres HTML (`html`/`esc`), Formatierung, Beschriftungen, API-Client, Navigation, Seitenrahmen |
 | `views/*.js` | Ansichten: `account`, `dashboard`, `admin`, `workspaces`, `case`, `tasks`, `documents`, `finance` |
 | `shared/vocab.js` | Begriffe, die Server und Oberfläche teilen (Zugriffsstufen, Aufgabentypen) |
+| `shared/forms.js` | Formulare der Vorlage: Prüfung, Platzhalter füllen (Server: echte Werte, Vorschau: Platzhalternamen) |
+| `formpdf.js` | Formular als ausfüllbare PDF mit Signaturfeldern; lädt `vendor/pdf-lib` erst bei Bedarf (nichts von Fremdservern) |
+| `brand/` | Logos, auf die Vorlagen verweisen (`"logo": "/brand/…"`) |
 
 Jede Ansicht registriert ihre Handler selbst (`on.x = …`). Ein Test verhindert doppelte Handlernamen über alle
 Module hinweg.
 
 ### Tests (`npm test`, gegen `npm run dev`)
 
-`check` (Server und Oberfläche bündeln: jeder Import hat seinen Export) · `validate` (Upload-Prüfung, ohne Server) · `smoke` (Berechtigungen, Finanzen, Regeln, Mails) ·
+`check` (Server und Oberfläche bündeln: jeder Import hat seinen Export) · `validate` (Upload-Prüfung, ohne Server) ·
+`assess`, `pdfsig`, `forms` (Bewertung, Signaturen, Formular-PDFs, ohne Server) · `smoke` (Berechtigungen, Finanzen, Regeln, Mails) ·
 `praxisprojekt` (Beispielvorlagen von Anfang bis Ende) · `ui` (alle Ansichten im echten Browser, ohne Skriptfehler) ·
 `passkey` (Anmeldung, auch gegen Produktion). `test/browser.mjs` steuert Chrome über das DevTools-Protokoll.
 
@@ -75,7 +80,10 @@ oder geändert wird), `visible_to`, `labels`, `money`, `assess`. Regeln: `trigge
 `conditions` (Fakten wie `task.key`, `document.type`, `claim.open`), `actions` (`create_task`, `complete_tasks`,
 `add_comment`, `create_subcase`). Dazu `due_base_field` (Datumsfeld, ab dem `due_days` zählen), `finance`
 (`true` oder `{ "labels": { … } }` mit eigenen Begriffen), `scales` (Skala: `range`+`step`+`extra` oder `options`,
-`pass`, `verdicts`, `hint`) und `aggregates` (`from` Schritt-Keys, `method`, `round`, `fail_value`, `field`, `note`). Neue fachliche
+`pass`, `verdicts`, `hint`) und `aggregates` (`from` Schritt-Keys, `method`, `round`, `fail_value`, `field`, `note`).
+`forms` (Formulare, die NomoCase als ausfüllbare PDF erzeugt: `title`, `subtitle`, `logo`, `accent`, `items` aus
+`heading`/`text`/`label`(+`value`, `half`, `lines`, `check`)/`sign`; Platzhalter `{field.x}`, `{role.x}`, `{role.x.email}`,
+`{case.title}`, `{date+N}`), am Schritt `form`. Neue fachliche
 Anforderungen werden als allgemeines Konzept hier ergänzt, nicht als Sonderfall im Code.
 
 ## Umbauplan
@@ -112,4 +120,7 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [ ] Produkt: Massenanlage zum Semesterstart
 - [x] Digitale Signaturen in PDFs: Schlüssel wiedererkennen (Erstkontakt + Bestätigung), vertrauenswürdige Aussteller je
       Workspace, Warnung bei anderem Schlüssel (Ereignis `signature.changed`, Regel-Auslöser); keine Rechtsprüfung, kein CRL/OCSP
+- [x] Formulare aus der Vorlage: vorausgefüllte, ausfüllbare PDFs mit Signaturfeldern, Logo und Akzentfarbe je Vorlage,
+  Vorschau auf der Vorlagenseite (Bachelor-Thesis: Zulassung, Verlängerung, Notenmitteilung)
+- [ ] Formulare auch für Praxisprojekt und Masterprojekt; Werte aus hochgeladenen Formularen zurücklesen (z. B. Note)
 - [ ] Workspace-Änderungen (Mitglieder, Name) protokollieren; das Ereignisprotokoll kennt bisher nur Vorgänge

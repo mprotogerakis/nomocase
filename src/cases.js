@@ -86,7 +86,8 @@ export async function getCase({ user, params }) {
       waiting_on: [...new Set(tasks.filter(t => t.status === 'open' && !t.blocked && t.role && t.role !== ctx.role).map(t => roleLabel(t.role)))],
     },
     // externals only need role and document type names; field values and rules stay with the team
-    definition: ctx.staff ? ctx.def : { roles: ctx.def.roles, document_types: ctx.def.document_types, scales: ctx.def.scales },
+    definition: ctx.staff ? ctx.def : { roles: ctx.def.roles, document_types: ctx.def.document_types, scales: ctx.def.scales,
+      forms: (ctx.def.forms ?? []).map(f => ({ key: f.key, title: f.title })) },
     me: { role: ctx.role, access: ctx.access, staff: ctx.staff, owner: ctx.owner, can_upload: ctx.access !== 'guest_viewer' },
     phases,
     tasks: tasks.filter(t => canSeeTask(ctx, t)),

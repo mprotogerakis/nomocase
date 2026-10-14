@@ -4,6 +4,7 @@ import { caseCtx, requireWsOwner } from './access.js';
 import { RULE_ACTIONS, RULE_OPS, RULE_TRIGGERS } from './rules.js';
 import { scaleProblem } from '../public/shared/assess.js';
 import { newInbox } from './inbox.js';
+import { formProblems } from '../public/shared/forms.js';
 
 export function checkDef(d) {
   const ok = (cond, msg) => cond || fail(400, `Vorlage ungültig: ${msg}`);
@@ -43,6 +44,7 @@ export function checkDef(d) {
       ok(t.labels === undefined || (DECISIONS.includes(t.type) && Array.isArray(t.labels) && t.labels.length === 2 && t.labels.every(l => typeof l === 'string' && l.trim())),
         `labels bei "${t.key}": zwei Beschriftungen, nur bei review/approval/decision`);
       ok(t.assess === undefined || (d.scales?.[t.assess] && DECISIONS.includes(t.type)), `assess bei "${t.key}": eine Skala aus scales, nur bei review/approval/decision`);
+      ok(t.form === undefined || d.forms?.some(f => f.key === t.form), `form bei "${t.key}": ein key aus forms`);
       ok(t.visible_to === undefined || (Array.isArray(t.visible_to) && t.visible_to.every(v => v === '*' || roles.has(v))), `visible_to bei "${t.key}": Liste von Rollen oder "*"`);
       const m = t.money;
       ok(m === undefined || (m && typeof m === 'object' && (
@@ -52,6 +54,7 @@ export function checkDef(d) {
   }
   for (const p of d.phases) for (const t of p.tasks) for (const k of t.after ?? []) ok(keys.has(k), `after: "${k}" unbekannt`);
   ok(d.due_base_field === undefined || d.fields.some(f => f.key === d.due_base_field && f.type === 'date'), 'due_base_field muss ein Datumsfeld sein');
+  for (const problem of formProblems(d)) ok(false, problem);
   // Assessments: scales the steps are assessed on, and how several assessments combine into one value.
   for (const [k, scale] of Object.entries(d.scales ?? {})) { const problem = scaleProblem(scale); ok(!problem, `Skala "${k}": ${problem}`); }
   const assessed = new Map(d.phases.flatMap(p => p.tasks).filter(t => t.assess).map(t => [t.key, t.assess]));
@@ -152,7 +155,8 @@ export function instantiate(tpl, { title, fields: input = {}, ownerId, actorId =
       caseId, tpl.workspace_id, tpl.id, tpl.version, title,
       JSON.stringify({ roles: def.roles, fields: def.fields, document_types: def.document_types, finance: def.finance ?? false, retention_days: def.retention_days ?? null,
         ...(def.due_base_field && { due_base_field: def.due_base_field }),
-        rules: def.rules ?? [], ...(def.scales && { scales: def.scales }), ...(def.aggregates?.length && { aggregates: def.aggregates }) }),
+        rules: def.rules ?? [], ...(def.scales && { scales: def.scales }), ...(def.aggregates?.length && { aggregates: def.aggregates }),
+        ...(def.forms?.length && { forms: def.forms }) }),
       JSON.stringify(fields), ts, parentId, newInbox()),
     q('INSERT INTO case_participants (case_id, user_id, access, role, created_at) VALUES (?, ?, ?, ?, ?)', caseId, ownerId, 'case_owner', ownerRole, ts),
   ];
@@ -160,12 +164,12 @@ export function instantiate(tpl, { title, fields: input = {}, ownerId, actorId =
     const phaseId = uid();
     stmts.push(q('INSERT INTO phases (id, case_id, title, position) VALUES (?, ?, ?, ?)', phaseId, caseId, p.title, i));
     p.tasks.forEach((t, j) => stmts.push(q(
-      `INSERT INTO tasks (id, case_id, phase_id, title, description, type, role, depends_on, doc_type, due_date, position, created_by, created_at, money, visible_to, labels, assess, key, due_field)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, case_id, phase_id, title, description, type, role, depends_on, doc_type, due_date, position, created_by, created_at, money, visible_to, labels, assess, key, due_field, form)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       taskIds[t.key], caseId, phaseId, t.title, t.description ?? null, t.type, t.role ?? null,
       JSON.stringify((t.after ?? []).map(k => taskIds[k])), t.doc_type ?? null,
       t.due_field ? (isDate(fields[t.due_field]) ? fields[t.due_field] : null) : due(t.due_days), j, ownerId, ts,
-      t.money ? JSON.stringify(t.money) : null, JSON.stringify(t.visible_to ?? []), t.labels ? JSON.stringify(t.labels) : null, t.assess ?? null, t.key, t.due_field ?? null)));
+      t.money ? JSON.stringify(t.money) : null, JSON.stringify(t.visible_to ?? []), t.labels ? JSON.stringify(t.labels) : null, t.assess ?? null, t.key, t.due_field ?? null, t.form ?? null)));
   });
   stmts.push(ev(caseId, actorId, 'case.created', { template: tpl.name, version: tpl.version, ...by }, ['*']));
   return { caseId, stmts };
@@ -197,7 +201,7 @@ function caseDefinition(c, def, phases, tasks) {
       after: after.length ? after : null,
       due_field: dueField || null,
       due_days: t.due_date && !dueField ? Math.round((Date.parse(t.due_date) - Date.parse(base)) / 864e5) : null,
-      visible_to: arr(t.visible_to).length ? arr(t.visible_to) : null, money, labels, assess: t.assess,
+      visible_to: arr(t.visible_to).length ? arr(t.visible_to) : null, money, labels, assess: t.assess, form: t.form,
     }).filter(([, v]) => v != null && v !== ''));
   };
   return checkDef({
@@ -207,6 +211,7 @@ function caseDefinition(c, def, phases, tasks) {
     phases: phases.map(p => ({ title: p.title, tasks: kept.filter(t => t.phase_id === p.id).map(step) })),
     rules: def.rules ?? [],
     ...(def.scales && { scales: def.scales }),
+    ...(def.forms?.length && { forms: def.forms }),
     aggregates: (def.aggregates ?? []).filter(a => a.from.every(k => [...keys.values()].includes(k))),
   });
 }

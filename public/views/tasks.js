@@ -69,6 +69,7 @@ export function taskItem(t, d, withActions = true) {
       <b>${t.title}</b>${outcome ? html` <span class="tag ${t.outcome}">${outcome}</span>` : ''}
       <div class="small muted">${t.assess ? 'Bewertung' : TYPES[t.type]}${assignee(t, d)}${t.status === 'open' ? due(t.due_date) : doneBy}${d.me.staff ? sharedWith(t, d) : ''}</div>
       ${t.description && t.status === 'open' ? html`<div class="small">${linkify(t.description)}</div>` : ''}
+      ${t.form && t.status === 'open' ? formButton(t, d) : ''}
       ${t.blocked && waitsFor.length ? html`<div class="small muted">wartet auf: ${waitsFor.join(', ')}</div>` : ''}
       ${taskResult(t, d)}
       ${d.me.staff ? (d.upload_links ?? []).filter(l => l.task_id === t.id).map(l => html`<div class="small muted">Upload-Link für ${l.label}, gültig bis ${date(l.expires_at)}
@@ -79,6 +80,17 @@ export function taskItem(t, d, withActions = true) {
     ${withActions && d.me.staff ? taskTools(t, d) : ''}
   </li>`;
 }
+
+// A form the template brings for this step, generated as a PDF with what the case already knows.
+function formButton(t, d) {
+  const f = d.definition.forms?.find(x => x.key === t.form);
+  return f ? html`<div><button class="link" data-on="taskForm" data-id="${t.id}">Formular „${f.title}“ vorausgefüllt herunterladen</button></div>` : '';
+}
+
+on.taskForm = async ({ id }) => {
+  const [{ formPdf, formFilename, saveFile }, f] = await Promise.all([import('../formpdf.js'), api(`/tasks/${id}/form`)]);
+  saveFile(await formPdf(f), formFilename(f));
+};
 
 // Per step: besides the role doing it, other roles can follow it (status, outcome, result if the document is shared).
 const shareableRoles = (t, d) => guestRoles(d).filter(r => r.key !== t.role);

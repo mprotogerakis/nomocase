@@ -12,6 +12,7 @@ import { acceptInvitation, declineInvitation, getInvitation, invite, peopleOverv
 import { DAILY_CRON, sendDigests, sendProgress, testMail } from './notify.js';
 import { addSigningKey, addTrustedIssuer, assignSignature, claimSignature, mySigningKeys, removeSigningKey, removeTrustedIssuer } from './signatures.js';
 import { receiveMail } from './inbox.js';
+import { taskForm } from './forms.js';
 import { createWorkspace, deleteWorkspace, inviteToWorkspace, listWorkspaces, removeMember, renameWorkspace, setMemberRole, withdrawWorkspaceInvitation } from './workspaces.js';
 
 // Without consent to the current text only this works: reading it, agreeing or withdrawing, the own status, logging out.
@@ -81,6 +82,7 @@ const ROUTES = [
   ['PATCH', '/api/tasks/:id', updateTask],
   ['DELETE', '/api/tasks/:id', deleteTask],
   ['POST', '/api/tasks/:id/action', taskAction],
+  ['GET', '/api/tasks/:id/form', taskForm],
   ['POST', '/api/tasks/:id/money', taskMoney],
   ['POST', '/api/tasks/:id/upload-links', createUploadLink],
   ['DELETE', '/api/tasks/:id/upload-links', revokeUploadLinks],

@@ -57,7 +57,10 @@ veröffentlicht mit `npm run templates`, Produktion: `npm run templates -- --rem
 
 - **Vorlagen** sind versioniertes JSON (`roles`, `fields`, `document_types`, `phases[].tasks[]` mit `after`, `due_days` oder
   `due_field` (Frist aus einem Datumsfeld), `visible_to`, `money`, `labels` (eigene Entscheidungs-Buttons, z. B.
-  „Bestanden“/„Nicht bestanden“; solche Entscheidungen halten ein Ergebnis fest und blockieren nicht), `rules`).
+  „Bestanden“/„Nicht bestanden“; solche Entscheidungen halten ein Ergebnis fest und blockieren nicht), `form`, `rules`).
+- **Formulare** (`forms`) beschreibt die Vorlage als Daten; am Schritt erscheint „Formular … vorausgefüllt herunterladen“.
+  Der Server setzt die Werte des Vorgangs ein (wer den Schritt sieht, bekommt genau die Werte im Formular), der Browser
+  erzeugt eine ausfüllbare PDF mit echten Signaturfeldern – digital unterschrieben erkennt die Signaturprüfung die Personen.
   Beispiel nach dem Prozessplan des FB EI: „Praxisprojekt (B.Eng.)“ in `seed.sql`, durchgespielt in `test/praxisprojekt.mjs`.
   Ein Vorgang kopiert die Definition; Phasen und Aufgaben werden zu eigenen Zeilen und sind danach frei änderbar.
 - **Rollen** sind Plätze im Vorgang (z. B. „Studierende:r“). Personen werden in eine Rolle eingeladen; Aufgaben und
