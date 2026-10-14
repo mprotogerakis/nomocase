@@ -56,11 +56,6 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
   const { n } = await row('SELECT COALESCE(MAX(version), 0) + 1 AS n FROM document_versions WHERE document_id = ?', doc.id);
   const versionId = uid();
   const key = `${c.workspace_id}/${c.id}/${doc.id}/${versionId}`;
-  // file first, so the DB never points at a missing object
-  await E.FILES.put(key, f.bytes, { httpMetadata: { contentType: f.contentType }, sha256: f.sha256 }).catch(e => {
-    if (/sha-?256|checksum|digest/i.test(e.message)) fail(400, 'Die Datei kam unvollständig an (Prüfsumme stimmt nicht). Bitte erneut hochladen.');
-    throw e;
-  });
   const completes = task && task.status === 'open' && !task.blocked && !DECISIONS.includes(task.type);
   // Digital signatures inside PDFs: stored with the version; a signer who used another key before is logged.
   const sigs = f.contentType === 'application/pdf' ? await readSignatures(f.bytes) : [];
@@ -73,6 +68,11 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
   const form = current ? await readUploadedForm(def, f.pdf ?? f.bytes).catch(e => { console.error('form read', e.message); return null; }) : null;
   const check = form && compareForm(def, JSON.parse(current.fields), form);
   const taken = byTeam && check && Object.keys(check.missing).length ? fieldStmts(current, def, check.missing, actorId, { from: doc.title }) : { changed: [], stmts: [] };
+  // the file goes to storage after everything that reads it, and before the DB points at it
+  await E.FILES.put(key, f.bytes, { httpMetadata: { contentType: f.contentType }, sha256: f.sha256 }).catch(e => {
+    if (/sha-?256|checksum|digest/i.test(e.message)) fail(400, 'Die Datei kam unvollständig an (Prüfsumme stimmt nicht). Bitte erneut hochladen.');
+    throw e;
+  });
   stmts.push(
     q('INSERT INTO document_versions (id, document_id, version, filename, content_type, size, r2_key, uploaded_by, created_at, task_id, uploader_label, sha256, form_values) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       versionId, doc.id, n, f.filename, f.contentType, f.size, key, uploadedBy, now(), task?.id ?? null, label, f.sha256, form ? JSON.stringify(form) : null),
@@ -159,7 +159,7 @@ export async function createUploadLink({ user, params, body, url }) {
     'Guten Tag,',
     `${user.name} bittet Sie, für „${t.title}“ eine Datei bereitzustellen. Eine Anmeldung ist nicht nötig:\n${link}`,
     `Der Link ist ${days} Tage gültig${body.single_use === false ? '' : ' und funktioniert für eine Datei'}. Erlaubt sind PDF, Bilder (PNG, JPG), Word, Excel, OpenDocument und Text bis 20 MB.`,
-  ], { replyTo: user.email }) : false;
+  ], { replyTo: user.email, sender: user.id }) : false;
   return sent && !E.DEV_LOGIN ? { sent } : { sent, link };
 }
 

@@ -55,7 +55,7 @@ export async function pdfDictionaries(bytes, strict = false) {
     const region = latin1(bytes.subarray(pos, i));
     const dict = region.slice(region.lastIndexOf('obj'));
     const start = i + 6 + eol;
-    const length = Number(dict.match(/\/Length\s+(\d+)(?![\d\s]*R)/)?.[1]);
+    const length = Number(dict.match(/\/Length\s+(\d{1,12})(?![\d\s]*R)/)?.[1]); // bounded: long digit runs cost no time
     let end = Number.isInteger(length) && /^\s*endstream/.test(latin1(bytes.subarray(start + length, start + length + 16))) ? start + length : -1;
     if (end === -1) {
       end = find(bytes, ENDSTREAM, start);
@@ -102,9 +102,17 @@ async function checkPdf(bytes, strict, keep) {
 // Official fill-in forms (e.g. the faculty's "Antrag auf Praxisprojekt") format their date and number fields with
 // Acrobat's built-in AF* functions. Such action dictionaries are removed before the check when every call in them is
 // one of these functions with literal arguments; any other script still rejects the file.
-const FORM_JS = /^(?:\s*AF(?:Date|Time|Number|Percent|Special)_(?:Format|Keystroke)(?:Ex)?\((?:\s*(?:"[^"\\]*"|'[^'\\]*'|-?[\d.]+|true|false)\s*,?)*\)\s*;?|\s*AFRange_Validate\((?:\s*(?:-?[\d.]+|true|false)\s*,?)*\)\s*;?)+\s*$/;
+// Arguments are separated by commas and every alternative starts differently, so the expression cannot backtrack
+// exponentially; longer scripts are never treated as formatting (they stay and reject the file).
+const ARG = `\\s*(?:"[^"\\\\]*"|'[^'\\\\]*'|-?\\d+(?:\\.\\d+)?|-?\\.\\d+|true|false)\\s*`;
+const CALL = `AF(?:Date|Time|Number|Percent|Special)_(?:Format|Keystroke)(?:Ex)?\\((?:${ARG}(?:,${ARG})*)?\\)|AFRange_Validate\\((?:${ARG}(?:,${ARG})*)?\\)`;
+const FORM_JS = new RegExp(`^\\s*(?:${CALL})(?:\\s*;\\s*(?:${CALL}))*\\s*;?\\s*$`);
+const MAX_FORM_JS = 400;
 const JS_ACTION = /<<\s*(?:\/S\s*\/JavaScript\s*\/JS\s*\(((?:\\.|[^\\)])*)\)|\/JS\s*\(((?:\\.|[^\\)])*)\)\s*\/S\s*\/JavaScript)\s*>>/g;
-const withoutFormatting = s => s.replace(JS_ACTION, (all, a, b) => (FORM_JS.test((a ?? b).replace(/\\([()\\])/g, '$1')) ? '' : all));
+const withoutFormatting = s => s.replace(JS_ACTION, (all, a, b) => {
+  const js = (a ?? b).replace(/\\([()\\])/g, '$1');
+  return js.length <= MAX_FORM_JS && FORM_JS.test(js) ? '' : all;
+});
 
 // "/J#61vaScript" is a legal spelling of "/JavaScript".
 const unescapeNames = s => s.replace(/\/[^\s()<>[\]{}/%#]*#[0-9a-fA-F]{2}[^\s()<>[\]{}/%]*/g,
@@ -143,8 +151,11 @@ async function checkZip(bytes) {
   }
   // External relationships other than hyperlinks load remote content when opened (e.g. remote templates).
   // Part names are case-insensitive (OPC), and attribute values may be written as character references.
+  let budget = 4 << 20; // all relationship parts together (entries may point at the same compressed data)
   for (const e of entries.filter(x => x.name.toLowerCase().endsWith('.rels'))) {
-    const xml = (await zipText(bytes, e)).replace(/&#(x?)([0-9a-f]+);/gi, (_, hex, n) => String.fromCharCode(parseInt(n, hex ? 16 : 10)));
+    const text = await zipText(bytes, e, Math.min(1 << 20, budget));
+    budget -= text.length;
+    const xml = text.replace(/&#(x?)([0-9a-f]+);/gi, (_, hex, n) => String.fromCharCode(parseInt(n, hex ? 16 : 10)));
     for (const rel of xml.match(/<Relationship\b[^>]*>/gi) ?? []) {
       const mode = rel.match(/TargetMode\s*=\s*["']([^"']*)["']/i)?.[1];
       if (mode && mode !== 'Internal' && !/Type\s*=\s*["'][^"']*\/hyperlink["']/i.test(rel)) {
@@ -178,13 +189,13 @@ function zipEntries(b) {
   return entries;
 }
 
-async function zipText(b, e) {
+async function zipText(b, e, limit) {
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
   if (v.getUint32(e.local, true) !== 0x04034b50) throw new Error('bad local header');
   const start = e.local + 30 + v.getUint16(e.local + 26, true) + v.getUint16(e.local + 28, true);
   const data = b.subarray(start, start + e.size);
-  if (e.method === 0) return latin1(data);
-  if (e.method === 8) return inflate(data, 'deflate-raw', 1 << 20);
+  if (e.method === 0) return latin1(data.subarray(0, limit));
+  if (e.method === 8) return inflate(data, 'deflate-raw', limit);
   throw new Error(`unsupported zip method ${e.method}`);
 }
 

@@ -11,7 +11,11 @@ export const originOf = url => E.ORIGIN || url.origin;
 
 const rpOf = url => new URL(originOf(url)).hostname;
 
-const sidOf = req => req.headers.get('cookie')?.match(/(?:^|;\s*)sid=([0-9a-f]+)/)?.[1];
+// Over https the session cookie is "__Host-sid": the prefix makes browsers refuse it unless it is Secure, for this
+// host only and for the whole site, so a sibling subdomain cannot plant a session. Plain "sid" locally (http) and for
+// sessions from before.
+const sidOf = req => req.headers.get('cookie')?.match(/(?:^|;\s*)(?:__Host-)?sid=([0-9a-f]+)/)?.[1];
+const CLEAR = [['set-cookie', '__Host-sid=; Path=/; Max-Age=0; Secure'], ['set-cookie', 'sid=; Path=/; Max-Age=0']];
 
 export async function loadUser(req) {
   const sid = sidOf(req);
@@ -25,7 +29,8 @@ export async function sessionCookie(userId, url) {
   const t = token();
   await q('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)',
     await sha256(t), userId, new Date(Date.now() + 30 * 864e5).toISOString()).run();
-  return `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 86400}${originOf(url).startsWith('https:') ? '; Secure' : ''}`;
+  const secure = originOf(url).startsWith('https:');
+  return `${secure ? '__Host-' : ''}sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 86400}${secure ? '; Secure' : ''}`;
 }
 
 export async function me({ user }) {
@@ -43,12 +48,17 @@ export async function updateMe({ user, body }) {
   await q(`UPDATE users SET ${keys.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, ...keys.map(k => (body[k] ? 1 : 0)), user.id).run();
 }
 
-// One-time login link by mail: requested on the login page, or sent by a case owner to a participant.
-// At most one unused link per person every 10 minutes, so nobody can flood an inbox.
-const LOGIN_REQUEST_CAP = 20; // self-service login link mails per day, so strangers cannot use up the mail quota
+// One-time login link by mail: requested on the login page, or sent by a case owner to a participant (`sender`).
+// At most one unused link per person every 10 minutes and five a day, so nobody can flood an inbox; self-service
+// requests (from anyone, no login) have a daily total so strangers cannot use up the mail quota.
+// ponytail: the total can still be used up by someone who knows many addresses; add per-IP limits (Workers Rate
+// Limiting) or a challenge if that happens.
+const LOGIN_REQUEST_CAP = 60;
+const LINKS_PER_PERSON = 5;
 
-async function mailLoginLink(u, url, kind = null) {
+async function mailLoginLink(u, url, kind = null, sender = null) {
   if (await row('SELECT 1 FROM login_links WHERE user_id = ? AND used_at IS NULL AND expires_at > ?', u.id, new Date(Date.now() + 864e5 - 10 * 60e3).toISOString())) return { throttled: true };
+  if ((await row('SELECT COUNT(*) AS n FROM login_links WHERE user_id = ? AND expires_at > ?', u.id, now())).n >= LINKS_PER_PERSON) return { throttled: true };
   if (kind && (await row('SELECT COUNT(*) AS n FROM mail_log WHERE kind = ? AND ok = 1 AND sent_at >= ?', kind, now().slice(0, 10))).n >= LOGIN_REQUEST_CAP) {
     console.error('login link requests: daily cap reached');
     return { throttled: true };
@@ -61,7 +71,7 @@ async function mailLoginLink(u, url, kind = null) {
     `mit diesem Link melden Sie sich bei NomoCase an:\n${link}`,
     'Der Link ist 24 Stunden gültig und funktioniert nur einmal. Richten Sie danach am besten einen Passkey ein, dann brauchen Sie keinen Link mehr.',
     'Falls Sie keinen Anmeldelink angefordert haben, ignorieren Sie diese E-Mail einfach.',
-  ], { kind });
+  ], { kind, sender });
   return { sent, link };
 }
 
@@ -83,8 +93,8 @@ export async function sendParticipantLink({ user, params, url }) {
   const p = (await row(`SELECT u.id, u.email, u.name FROM case_participants p JOIN users u ON u.id = p.user_id
     WHERE p.case_id = ? AND p.user_id = ? AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?)`, ctx.c.id, params.userId, now()))
     ?? fail(404, 'Nicht (mehr) beteiligt');
-  const r = await mailLoginLink(p, url);
-  if (r.throttled) fail(429, 'Es wurde gerade erst ein Anmeldelink verschickt. Bitte in ein paar Minuten erneut versuchen.');
+  const r = await mailLoginLink(p, url, null, user.id);
+  if (r.throttled) fail(429, 'Es wurde gerade erst (oder heute schon mehrmals) ein Anmeldelink verschickt. Bitte später erneut versuchen.');
   if (!r.sent) fail(502, 'Die E-Mail konnte nicht verschickt werden.');
   await ev(ctx.c.id, user.id, 'participant.link_sent', { name: p.name }, []).run();
   return E.DEV_LOGIN ? { sent: true, link: r.link } : { sent: true };
@@ -188,11 +198,11 @@ export async function withdrawConsent({ user }) {
     ...cases.map(c => ev(c.case_id, user.id, 'consent.withdrawn', {}, [])),
     q('DELETE FROM sessions WHERE user_id = ?', user.id),
   ]);
-  return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; Max-Age=0' });
+  return json({ ok: true }, 200, CLEAR);
 }
 
 export async function logout({ req }) {
   const sid = sidOf(req);
   if (sid) await q('DELETE FROM sessions WHERE token_hash = ?', await sha256(sid)).run();
-  return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; Max-Age=0' });
+  return json({ ok: true }, 200, CLEAR);
 }

@@ -3,7 +3,11 @@ export { ACCESS, DECISIONS, NEEDS_FILE, STAFF, TASK_TYPES } from '../public/shar
 
 // Bindings are constant per isolate; set once per request/cron run by worker.js.
 export let DB, E;
-export const init = env => { DB = env.DB; E = env; };
+// DEV_LOGIN only counts for a local origin, so a wrongly deployed variable cannot open a login without passkey.
+export const init = env => {
+  DB = env.DB;
+  E = env.DEV_LOGIN && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(env.ORIGIN ?? '') ? { ...env, DEV_LOGIN: undefined } : env;
+};
 // Passkeys work only for the domain they were made on (WebAuthn RP ID): the one of ORIGIN.
 export const rpId = () => (E.ORIGIN ? new URL(E.ORIGIN).hostname : null);
 export const appVersion = () => E.CF_VERSION_METADATA?.id ?? 'dev';

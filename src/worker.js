@@ -1,6 +1,6 @@
 // NomoCase: JSON API on Cloudflare Workers, data in D1, files in R2. The UI is static (public/) and only talks to /api/*.
 // This file: routes, request handling (origin check, session, errors) and the cron entry.
-import { appVersion, fail, HttpError, init, json, q } from './core.js';
+import { appVersion, DB, fail, HttpError, init, json, now, q } from './core.js';
 import { deletePasskey, devLogin, giveConsent, legalInfo, listPasskeys, loadUser, logout, me, originOf, passkeyLoginOptions, passkeyLoginVerify, passkeyRegisterOptions, passkeyRegisterVerify, requestLoginLink, sendParticipantLink, updateMe, useLoginLink, withdrawConsent } from './auth.js';
 import { addTemplateVersion, createTemplate, deleteTemplate, listTemplates, restoreTemplate, saveAsTemplate } from './templates.js';
 import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard, deleteCase, getCase, getChanges, updateCase, updateFields } from './cases.js';
@@ -108,10 +108,11 @@ export default {
     if (!route) return json({ error: 'Nicht gefunden' }, 404);
     const [, re, handler, isPublic] = route;
     try {
-      // Writes only from our own pages: browsers send Origin on every POST/PATCH/DELETE. (Compared with the request's
-      // own origin too, because wrangler dev rewrites both URL and Origin to the production route.)
+      // Writes only from our own pages: browsers send Origin on every POST/PATCH/PUT/DELETE, so a write without one is
+      // refused too. (Compared with the request's own origin as well, because wrangler dev rewrites both URL and Origin
+      // to the production route.)
       const origin = req.headers.get('origin');
-      if (req.method !== 'GET' && origin && origin !== url.origin && origin !== originOf(url)) fail(403, 'Anfrage von fremder Seite');
+      if (req.method !== 'GET' && origin !== url.origin && origin !== originOf(url)) fail(403, 'Anfrage von fremder Seite');
       const user = await loadUser(req);
       if (!user && !isPublic) fail(401, 'Nicht angemeldet');
       if (user && !isPublic && !user.consented && !CONSENT_FREE.has(handler)) fail(403, 'Bitte stimmen Sie zuerst der Nutzung zu.');
@@ -143,7 +144,14 @@ export default {
     if (controller.cron === DAILY_CRON) {
       await applyRetention();
       await sendDigests();
-      await q('DELETE FROM mail_log WHERE sent_at < ?', new Date(Date.now() - 3 * 864e5).toISOString()).run();
+      // housekeeping: old mail log, expired sessions, login links and passkey challenges
+      const t = now();
+      await DB.batch([
+        q('DELETE FROM mail_log WHERE sent_at < ?', new Date(Date.now() - 3 * 864e5).toISOString()),
+        q('DELETE FROM sessions WHERE expires_at < ?', t),
+        q('DELETE FROM login_links WHERE expires_at < ?', t),
+        q('DELETE FROM challenges WHERE expires_at < ?', t),
+      ]);
     } else {
       await sendProgress();
     }

@@ -18,7 +18,7 @@ export function client() {
   return async (path, { method, body, form } = {}) => {
     const res = await fetchOnce(`${BASE}/api${path}`, {
       method: method ?? (body || form ? 'POST' : 'GET'),
-      headers: { cookie, ...(body ? { 'content-type': 'application/json' } : {}) },
+      headers: { cookie, origin: BASE, ...(body ? { 'content-type': 'application/json' } : {}) },
       body: form ?? (body && JSON.stringify(body)),
     });
     const setCookie = res.headers.get('set-cookie');
@@ -43,4 +43,7 @@ export const file = (name, content, extra = {}) => {
 export const tokenOf = link => link.split('/invite/')[1];
 
 // Direct look into the local D1 (only for checks the API deliberately doesn't expose).
+// Local runs start with a fresh daily mail quota per sender (tests run many times a day).
+export const freshMailQuota = () => new URL(BASE).hostname === 'localhost' && sql('DELETE FROM mail_log WHERE sender_id IS NOT NULL');
+
 export const sql = query => JSON.parse(execFileSync('npx', ['wrangler', 'd1', 'execute', 'nomocase', '--local', '--json', '--command', query], { encoding: 'utf8' }))[0].results;

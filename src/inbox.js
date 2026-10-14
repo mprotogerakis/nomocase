@@ -12,11 +12,14 @@ export const newInbox = () => hex(crypto.getRandomValues(new Uint8Array(5)));
 
 // "=?utf-8?B?…?=" / "=?iso-8859-1?Q?…?=" (RFC 2047) in headers like Subject and From.
 const decoder = charset => { try { return new TextDecoder(charset); } catch { return new TextDecoder('utf-8'); } };
-export const decodeHeader = s => String(s ?? '').replace(/\?=\s+=\?/g, '?==?').replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (_, charset, enc, text) => {
-  const bytes = enc.toUpperCase() === 'B'
-    ? Uint8Array.from(atob(text), c => c.charCodeAt(0))
-    : Uint8Array.from(text.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (__, h) => String.fromCharCode(parseInt(h, 16))), c => c.charCodeAt(0));
-  return decoder(charset.toLowerCase()).decode(bytes);
+// A damaged encoded word (e.g. broken base64) stays as it is instead of rejecting the whole mail.
+export const decodeHeader = s => String(s ?? '').replace(/\?=\s+=\?/g, '?==?').replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (word, charset, enc, text) => {
+  try {
+    const bytes = enc.toUpperCase() === 'B'
+      ? Uint8Array.from(atob(text), c => c.charCodeAt(0))
+      : Uint8Array.from(text.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (__, h) => String.fromCharCode(parseInt(h, 16))), c => c.charCodeAt(0));
+    return decoder(charset.toLowerCase()).decode(bytes);
+  } catch { return word; }
 }).replace(/\s+/g, ' ').trim();
 
 // File names of attachments, from the part headers (filename="…", RFC 2231 filename*=utf-8''…, or name="…").

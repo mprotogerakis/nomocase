@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
-import { BASE, run, PDF, fetchOnce, client, expect, file, tokenOf, sql } from './lib.mjs';
+import { BASE, run, PDF, fetchOnce, client, expect, file, freshMailQuota, tokenOf, sql } from './lib.mjs';
 import { checkDef } from '../src/templates.js';
 
 // Client handlers live in plain objects: a second `submit.x = …` silently replaces the first (broke template saving once).
@@ -17,6 +17,7 @@ assert.deepEqual(handlers.filter((h, i) => handlers.indexOf(h) !== i), [], 'dupl
 // Daily mail caps (bulk 80, self-service login links 20) would trip on reruns: locally each run starts with an empty mail log.
 if (new URL(BASE).hostname === 'localhost') sql('DELETE FROM mail_log');
 
+freshMailQuota();
 const prof = client(), student = client(), office = client();
 await expect(prof('/dev-login', { body: { email: 'prof@example.org' } }));
 
@@ -155,6 +156,9 @@ if (new URL(BASE).hostname === 'localhost') {
   const signer = client();
   const { link: sigInvite } = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `sig.${run}@example.org`, role: 'student' } }));
   await expect(signer('/invitations/accept', { body: { consent: true, token: tokenOf(sigInvite), name: 'Max Beispiel' } }));
+  // the signer's account carries the certificate's address (freed from earlier runs first)
+  sql(`UPDATE users SET email = 'freed-' || id || '@example.org' WHERE email = 'max@example.org'`);
+  sql(`UPDATE users SET email = 'max@example.org' WHERE email = 'sig.${run}@example.org'`);
   const signedUpload = async (who, name) => (await expect(who(`/cases/${caseId}/documents`, { form: file(name, fixture(name), { title: `Signiert ${run}` }) }))).document_id;
   const sigsOf = async (who, docId) => (await expect(who(`/cases/${caseId}`))).documents.find(x => x.id === docId).versions.at(-1).signatures;
   const signedDoc = await signedUpload(signer, 'one.pdf');
@@ -165,9 +169,14 @@ if (new URL(BASE).hostname === 'localhost') {
   [sig] = await sigsOf(prof, signedDoc);
   assert.deepEqual([sig.state, sig.trusted_issuer, sig.signer], ['trusted', 'Test-CA', 'Max Beispiel']);
   await expect(prof(`/workspaces/ws_hs/issuers/${(await expect(prof('/workspaces'))).find(w => w.id === 'ws_hs').issuers.find(i => i.name === 'Test-CA').fingerprint}`, { method: 'DELETE' }));
-  // only the person the certificate names may claim it (others who can see the document get a refusal)
+  // only the person whose e-mail address the certificate carries may claim it – a display name is no proof
   const versionId = (await expect(prof(`/cases/${caseId}`))).documents.find(x => x.id === signedDoc).versions.at(-1).id;
   await expect(prof('/signatures/claim', { body: { version_id: versionId, position: 0 } }), 403);
+  const impostor = client();
+  const { link: impInvite } = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `imp.${run}@example.org`, role: 'student' } }));
+  await expect(impostor('/invitations/accept', { body: { consent: true, token: tokenOf(impInvite), name: 'Max Beispiel' } }));
+  await expect(prof(`/documents/${signedDoc}`, { method: 'PATCH', body: { visible_to: ['student'] } })); // the impostor sees it
+  await expect(impostor('/signatures/claim', { body: { version_id: versionId, position: 0 } }), 403);
   await expect(signer('/signatures/claim', { body: { version_id: versionId, position: 0 } }));
   [sig] = await sigsOf(prof, signedDoc);
   assert.deepEqual([sig.state, sig.signer], ['known', 'Max Beispiel']);
@@ -483,6 +492,7 @@ await expect(prof(`/tasks/${bescheid}/action`, { body: { action: 'skip' } }));
 await expect(anon(`/upload-links/${multiUse}`), 404, 'task no longer open');
 // Writes only from our own pages (CSRF from sibling subdomains).
 assert.equal((await fetchOnce(`${BASE}/api/logout`, { method: 'POST', headers: { origin: 'https://evil.example' } })).status, 403);
+assert.equal((await fetchOnce(`${BASE}/api/logout`, { method: 'POST' })).status, 403, 'a write without Origin is refused too');
 
 // Subcases: "Beanstanden" on the cut review creates the objection as a subcase (rule), closing it reports to the parent.
 await expect(prof(`/tasks/${kt('Kürzung prüfen: Beihilfe')}/action`, { body: { action: 'reject', note: 'Widerspruch einlegen' } }));
@@ -606,7 +616,7 @@ if (new URL(BASE).hostname === 'localhost') {
 
   // Self-service login links stop at a daily cap, so strangers cannot use up the mail quota.
   const capDay = `${new Date().toISOString().slice(0, 10)}T00:00:01.000Z`;
-  sql(`INSERT INTO mail_log (bulk, kind, sent_at) WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20) SELECT 0, 'login_request', '${capDay}' FROM n`);
+  sql(`INSERT INTO mail_log (bulk, kind, sent_at) WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 60) SELECT 0, 'login_request', '${capDay}' FROM n`);
   assert.deepEqual(await expect(client()('/login-link/request', { body: { email: `pa.${run}@example.org` } })), { ok: true }, 'capped: no mail, same answer');
   assert.ok((await expect(client()('/login-link/request', { body: { email: `pa.${run}@example.org` } }))).link === undefined);
   sql(`DELETE FROM mail_log WHERE sent_at = '${capDay}'`);

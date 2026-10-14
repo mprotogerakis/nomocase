@@ -40,7 +40,7 @@ function signatureLine(s, d, last) {
   const open = ['unknown', 'changed'].includes(s.state);
   const people = d.participants.filter(p => !p.revoked_at);
   return html`<div class="sig ${s.state}">${SIG_ICON[s.state]} ${text}${changedAfter}
-    ${open && s.candidate_id === me.user.id ? html`<button class="link" data-on="claimSig" data-version="${s.version_id}" data-position="${s.position}">Das ist meine Signatur</button>` : ''}
+    ${open && s.candidate_id === me.user.id && s.subject_email?.toLowerCase() === me.user.email.toLowerCase() ? html`<button class="link" data-on="claimSig" data-version="${s.version_id}" data-position="${s.position}">Das ist meine Signatur</button>` : ''}
     ${open && d.me.owner && people.length ? html`<select data-change="assignSig" data-version="${s.version_id}" data-position="${s.position}" aria-label="Signatur zuordnen">
       <option value="">zuordnen …</option>${people.map(p => html`<option value="${p.user_id}">${p.name}</option>`)}</select>` : ''}</div>`;
 }

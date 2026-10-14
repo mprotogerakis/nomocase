@@ -4,9 +4,10 @@ import assert from 'node:assert/strict';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BASE, run, PDF } from './lib.mjs';
+import { BASE, run, PDF, freshMailQuota } from './lib.mjs';
 import { openBrowser, sleep } from './browser.mjs';
 
+freshMailQuota();
 const J = JSON.stringify;
 const pdf = join(mkdtempSync(join(tmpdir(), 'nomocase-ui-')), 'UI-Test.pdf');
 writeFileSync(pdf, `${PDF}% UI ${run}\n`);

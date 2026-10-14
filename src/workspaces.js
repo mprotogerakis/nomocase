@@ -4,7 +4,6 @@
 import { DB, E, fail, now, q, row, rows, rpId, sha256, token, uid } from './core.js';
 import { requireWsOwner } from './access.js';
 import { originOf } from './auth.js';
-import { accountByEmail } from './people.js';
 import { sendMail } from './notify.js';
 import { trustedIssuersOf } from './signatures.js';
 
@@ -135,12 +134,11 @@ export async function inviteToWorkspace({ user, params, body, url }) {
     `Einladung annehmen:\n${link}`,
     'Der Link ist 14 Tage gültig und funktioniert nur einmal. Danach richten Sie einen Passkey ein, mit dem Sie sich künftig anmelden.',
     'Falls Sie diese Einladung nicht erwartet haben, ignorieren Sie diese E-Mail einfach.',
-  ], { replyTo: user.email });
-  // As with case invitations: the link goes back to the inviter only as a fallback, never for an existing account.
+  ], { replyTo: user.email, sender: user.id });
+  // As with case invitations: only the invitee may hold the link (locally it comes back for testing).
   if (E.DEV_LOGIN) return { sent, link };
-  if (sent) return { sent };
-  if (await accountByEmail(email)) fail(502, 'Die Einladung konnte nicht per E-Mail verschickt werden. Bitte später erneut versuchen.');
-  return { sent, link };
+  if (!sent) fail(502, 'Die Einladung konnte nicht per E-Mail verschickt werden. Bitte später erneut versuchen.');
+  return { sent };
 }
 
 export async function withdrawWorkspaceInvitation({ user, params }) {

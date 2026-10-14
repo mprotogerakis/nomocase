@@ -12,8 +12,8 @@ const anchors = async wsId => (await rows('SELECT certificate FROM trusted_issue
 // Does the certificate name this person? The same e-mail, or the same name without academic titles.
 const plain = s => String(s ?? '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
   .replace(/\b(prof|dr|dipl|ing|rer|nat|habil)\b\.?/g, ' ').replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
-const namesPerson = (s, u) => (!!s.subject_email && s.subject_email.toLowerCase() === u.email.toLowerCase())
-  || (!!s.subject_name && !!plain(s.subject_name) && plain(s.subject_name) === plain(u.name));
+const sameEmail = (s, u) => !!s.subject_email && s.subject_email.toLowerCase() === u.email.toLowerCase();
+const namesPerson = (s, u) => sameEmail(s, u) || (!!s.subject_name && !!plain(s.subject_name) && plain(s.subject_name) === plain(u.name));
 
 // A parsed signature (pdfsig.js) as stored.
 const asRow = s => ({
@@ -47,8 +47,8 @@ export async function explainSignatures(c, sigs) {
     if (s.status !== 'valid') return { ...base, state: s.status };
     const known = keys.find(k => k.key_fingerprint === s.key_fingerprint);
     if (known) return { ...base, state: 'known', signer: known.name, signer_id: known.user_id, since: known.confirmed_at, vouched_by: known.vouched_name };
-    const person = people.find(p => namesPerson(s, p));
-    const issuer = await trustedIssuer(JSON.parse(s.certs ?? '[]'), trusted);
+    const person = people.find(p => sameEmail(s, p)) ?? people.find(p => namesPerson(s, p)); // the address beats a mere name
+    const issuer = await trustedIssuer(JSON.parse(s.certs ?? '[]'), trusted, s.signed_at);
     if (issuer) return { ...base, state: 'trusted', trusted_issuer: issuer, signer: person?.name ?? s.subject_name, signer_id: person?.id ?? null };
     const before = person && keys.some(k => k.user_id === person.id);
     return { ...base, state: before ? 'changed' : 'unknown', candidate: person?.name ?? null, candidate_id: person?.id ?? null };
@@ -84,10 +84,11 @@ async function bind(sig, userId, vouchedBy, extra = []) {
   ]);
 }
 
-// "Das ist meine Signatur": only when the certificate names the person; anything else goes through the team.
+// "Das ist meine Signatur": only when the certificate carries the account's e-mail address (a display name anyone can
+// choose for themselves); anything else goes through the team.
 export async function claimSignature({ user, body }) {
   const { ctx, sig, doc } = await loadSignature(user, body.version_id, body.position);
-  if (!namesPerson(sig, user)) fail(403, 'Die Signatur nennt eine andere Person. Die Verantwortlichen des Vorgangs können sie zuordnen.');
+  if (!sameEmail(sig, user)) fail(403, 'Das Zertifikat nennt nicht Ihre E-Mail-Adresse. Die Verantwortlichen des Vorgangs können die Signatur zuordnen.');
   await bind(sig, user.id, null, [ev(ctx.c.id, user.id, 'signature.assigned', { document: doc.title, signer: user.name, self: true }, [])]);
 }
 
@@ -109,9 +110,9 @@ export async function addSigningKey({ user, req }) {
   const form = await req.formData();
   const f = await readUpload(form.get('file'), true);
   if (f.problem) fail(422, f.problem);
-  const mine = (await readSignatures(f.bytes)).map(asRow).filter(s => s.status === 'valid' && namesPerson(s, user));
-  if (!mine.length) fail(400, 'In dieser PDF ist keine gültige Signatur mit Ihrem Namen oder Ihrer E-Mail-Adresse.');
-  if (new Set(mine.map(s => s.key_fingerprint)).size > 1) fail(409, 'Die PDF enthält mehrere Schlüssel mit Ihrem Namen. Bitte eine PDF mit nur Ihrer Signatur verwenden.');
+  const mine = (await readSignatures(f.bytes)).map(asRow).filter(s => s.status === 'valid' && sameEmail(s, user));
+  if (!mine.length) fail(400, 'In dieser PDF ist keine gültige Signatur, deren Zertifikat Ihre E-Mail-Adresse nennt. Die Verantwortlichen eines Vorgangs können Ihre Signatur dort zuordnen.');
+  if (new Set(mine.map(s => s.key_fingerprint)).size > 1) fail(409, 'Die PDF enthält mehrere Schlüssel mit Ihrer E-Mail-Adresse. Bitte eine PDF mit nur Ihrer Signatur verwenden.');
   await bind(mine[0], user.id, null);
   return { subject_name: mine[0].subject_name, issuer_name: mine[0].issuer_name };
 }

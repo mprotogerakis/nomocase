@@ -7,16 +7,22 @@ const latin1 = b => new TextDecoder('latin1').decode(b);
 const hex = buf => [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
 
 // --- DER (with BER indefinite lengths, which some signing tools write) ---------------------------------------------
+// Every length is checked against the end of the data, so damaged or crafted input ends in an error, never in a loop.
 function node(b, pos) {
+  if (pos + 2 > b.length) throw new Error('DER: Ende erreicht');
   const tag = b[pos];
   let len = b[pos + 1], header = 2;
   if (len === 0x80) { // indefinite: children until the end-of-contents marker 00 00
     let p = pos + 2;
-    while (!(b[p] === 0 && b[p + 1] === 0)) p = node(b, p).end;
+    while (!(b[p] === 0 && b[p + 1] === 0)) {
+      if (p + 2 > b.length) throw new Error('DER: Ende-Markierung fehlt');
+      p = node(b, p).end;
+    }
     return { b, tag, start: pos, header: 2, end: p + 2, bodyEnd: p };
   }
   if (len & 0x80) {
     const n = len & 0x7f;
+    if (n > 4 || pos + 2 + n > b.length) throw new Error('DER: Länge ungültig');
     len = 0;
     for (let i = 0; i < n; i++) len = len * 256 + b[pos + 2 + i];
     header = 2 + n;
@@ -54,14 +60,30 @@ function name(n) {
   return out;
 }
 
+// May this certificate issue others? basicConstraints cA and, if key usage is given, keyCertSign.
+function issuesCertificates(fields) {
+  const ext = fields.find(x => x.tag === 0xa3);
+  if (!ext) return false; // v1 certificates carry no CA marker
+  let ca = false, keyCertSign = true;
+  for (const e of kids(kids(ext)[0])) {
+    const [id, ...rest] = kids(e);
+    const value = body(rest.at(-1));
+    if (oid(id) === '2.5.29.19') ca = kids(node(value, 0)).some(x => x.tag === 0x01 && body(x)[0] !== 0); // cA BOOLEAN TRUE
+    if (oid(id) === '2.5.29.15') { const bits = body(node(value, 0)); keyCertSign = !!(bits[1] & 0x04); } // bit 5
+  }
+  return ca && keyCertSign;
+}
+
 function certificate(n) {
   const tbs = kids(kids(n)[0]);
   const f = tbs[0].tag === 0xa0 ? tbs.slice(1) : tbs; // optional [0] version
   const [serial, , issuer, validity, subject, spki] = f;
+  let ca = false;
+  try { ca = issuesCertificates(f.slice(6)); } catch { /* unreadable extensions: not a CA */ }
   const [from, to] = kids(validity);
   const [tbsNode, sigAlg, sigValue] = kids(n);
   return { node: n, serial: hex(body(serial)), issuerRaw: hex(raw(issuer)), subjectRaw: hex(raw(subject)), issuer: name(issuer), subject: name(subject),
-    selfSigned: hex(raw(issuer)) === hex(raw(subject)), notBefore: time(from), notAfter: time(to), spki: raw(spki),
+    selfSigned: hex(raw(issuer)) === hex(raw(subject)), notBefore: time(from), notAfter: time(to), spki: raw(spki), ca,
     tbs: raw(tbsNode), sigAlg, signature: body(sigValue).subarray(1) }; // BIT STRING: first byte counts unused bits
 }
 
@@ -71,16 +93,21 @@ export const parseCertificate = der => certificate(node(der, 0));
 const signedBy = (cert, issuer) => verifySignature(issuer, cert.sigAlg, 'SHA-256', cert.tbs, cert.signature).catch(() => false);
 
 // Walks from the signer certificate up to one of the trusted issuers, through certificates that came with the
-// signature (intermediates). Returns the trusted issuer or null.
-async function chainTo(cert, pool, trusted) {
+// signature (intermediates). Every certificate on the way must be valid at the signing time (`at`, else now), and
+// every issuer must be a CA: an ordinary user certificate of a trusted CA must not vouch for another name.
+// Returns the trusted issuer or null.
+async function chainTo(cert, pool, trusted, at) {
+  const when = Date.parse(at ?? '') || Date.now();
+  const valid = c => Date.parse(c.notBefore) <= when && when <= Date.parse(c.notAfter);
   let cur = cert;
   for (let depth = 0; depth < 5; depth++) {
+    if (!valid(cur)) return null;
     const anchor = trusted.find(t => hex(t.spki) === hex(cur.spki));
     if (anchor) return anchor; // the trusted certificate itself
     const byTrusted = trusted.find(t => t.subjectRaw === cur.issuerRaw);
-    if (byTrusted) return (await signedBy(cur, byTrusted)) ? byTrusted : null;
+    if (byTrusted) return byTrusted.ca && valid(byTrusted) && (await signedBy(cur, byTrusted)) ? byTrusted : null;
     const next = pool.find(c => c.subjectRaw === cur.issuerRaw && c !== cur);
-    if (!next || cur.selfSigned || !(await signedBy(cur, next))) return null;
+    if (!next || !next.ca || cur.selfSigned || !(await signedBy(cur, next))) return null;
     cur = next;
   }
   return null;
@@ -154,7 +181,7 @@ async function checkCms(cms, signed, trusted) {
   } else {
     ok = await verifySignature(cert, sigAlg, hash, signed, body(sigValue));
   }
-  const anchor = ok && trusted.length ? await chainTo(cert, certs, trusted) : null;
+  const anchor = ok && trusted.length ? await chainTo(cert, certs, trusted, signingTime) : null;
   const b64 = c => btoa(String.fromCharCode(...raw(c.node)));
   return {
     certs: [cert, ...certs.filter(c => c !== cert)].map(b64), // signer first; lets trust be checked again later
@@ -165,11 +192,11 @@ async function checkCms(cms, signed, trusted) {
   };
 }
 
-// Trusted issuer for a stored signature (certificates as base64 DER, signer first), or null.
-export async function trustedIssuer(certs, trusted) {
+// Trusted issuer for a stored signature (certificates as base64 DER, signer first; `at`: signing time), or null.
+export async function trustedIssuer(certs, trusted, at) {
   if (!certs?.length || !trusted.length) return null;
   const parsed = certs.map(c => parseCertificate(Uint8Array.from(atob(c), x => x.charCodeAt(0))));
-  const anchor = await chainTo(parsed[0], parsed.slice(1), trusted.map(parseCertificate));
+  const anchor = await chainTo(parsed[0], parsed.slice(1), trusted.map(parseCertificate), at);
   return anchor ? anchor.subject.cn ?? anchor.subject.o ?? 'Aussteller' : null;
 }
 
@@ -181,12 +208,15 @@ function pdfDate(s) {
   return new Date(`${y}-${mo}-${d}T${h}:${mi}:${se}${!sign || sign === 'Z' ? 'Z' : `${sign}${oh}:${om}`}`).toISOString();
 }
 
+const MAX_SIGNATURES = 20;
+
 // All signatures of a PDF, in file order. A signature "covers all" when nothing was appended after it.
 // `trusted`: DER certificates of issuers the workspace trusts.
 export async function readSignatures(bytes, trusted = []) {
   const anchors = trusted.map(parseCertificate);
   const s = latin1(bytes), out = [];
-  for (const m of s.matchAll(/\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/g)) {
+  for (const m of s.matchAll(/\/ByteRange\s*\[\s*(\d{1,12})\s+(\d{1,12})\s+(\d{1,12})\s+(\d{1,12})\s*\]/g)) {
+    if (out.length >= MAX_SIGNATURES) break; // each one hashes up to the whole file
     const [a0, a1, b0, b1] = m.slice(1).map(Number);
     const dict = s.slice(Math.max(0, s.lastIndexOf(' obj', m.index)), s.indexOf('endobj', m.index));
     const sub = dict.match(/\/SubFilter\s*\/([\w.]+)/)?.[1] ?? null;

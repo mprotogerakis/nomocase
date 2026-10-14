@@ -10,7 +10,7 @@ const EMAIL = process.env.EMAIL ?? 'prof@example.org';
 const REMOTE = BASE.startsWith('https:');
 const api = (path, { cookie = '', body, method } = {}) => fetch(`${BASE}/api${path}`, {
   method: method ?? (body ? 'POST' : 'GET'),
-  headers: { cookie, ...(body ? { 'content-type': 'application/json' } : {}) },
+  headers: { cookie, origin: BASE, ...(body ? { 'content-type': 'application/json' } : {}) },
   body: body && JSON.stringify(body),
 });
 

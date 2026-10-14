@@ -6,16 +6,22 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
 
 - **Passkeys** (WebAuthn) sind der einzige Login im Betrieb. Die Prüfung macht `@simplewebauthn/server`.
 - **Gäste** bekommen ihren Einladungslink per E-Mail (14 Tage gültig, einmalig) und richten danach einen Passkey ein.
-  Nur wenn der Versand scheitert, sieht die einladende Person den Link. Hat die eingeladene E-Mail schon ein Konto
+  Die einladende Person sieht den Link nie (sonst könnte sie das neue Konto für sich einrichten); scheitert der Versand,
+  gibt es eine Fehlermeldung. Hat die eingeladene E-Mail schon ein Konto
   mit Passkey, muss man sich trotzdem erst damit anmelden.
-- **Anmeldelink per E-Mail** (24 h, einmalig, höchstens alle 10 Minuten): selbst auf der Login-Seite anfordern, oder der
+- **Anmeldelink per E-Mail** (24 h, einmalig, höchstens alle 10 Minuten und fünf am Tag): selbst auf der Login-Seite anfordern, oder der
   Verantwortliche schickt ihn unter „Beteiligte“. Nach Einladung oder Link ohne Passkey folgt die Seite „Passkey einrichten“.
 - **Owner/Recovery per CLI:** `npm run login-link -- <email> [--remote]`.
 - **Einladungen öffnen nie ein bestehendes Konto**: Wer schon ein Konto hat (mit oder ohne Passkey), meldet sich erst an
   (Passkey oder Anmeldelink an die eigene Adresse) und nimmt dann an. Höchstens 5 Einladungen pro Adresse und Tag.
-- **Schreibende Anfragen** nur von der eigenen Seite (Origin-Prüfung). Selbst angeforderte Anmeldelinks: höchstens 20 Mails pro Tag,
-  Antwort und Antwortzeit verraten nicht, ob es ein Konto gibt.
-- **Lokal** gibt es zusätzlich den Dev-Login (`DEV_LOGIN` in `.dev.vars`, wird nie deployt).
+- **Schreibende Anfragen** nur von der eigenen Seite (Origin-Prüfung; ohne Origin-Header abgelehnt). Selbst angeforderte
+  Anmeldelinks: höchstens 60 Mails pro Tag insgesamt, Antwort und Antwortzeit verraten nicht, ob es ein Konto gibt. Über ein
+  Konto gehen höchstens 30 Mails am Tag hinaus (Einladungen, Upload-Links, Anmeldelinks), damit niemand das Kontingent
+  aller verbraucht.
+- **Sitzung** im Cookie `__Host-sid` (HttpOnly, Secure, SameSite=Lax, nur für diesen Host). Die Oberfläche kommt mit
+  Content-Security-Policy, ohne Einbettung in fremde Seiten (`public/_headers`).
+- **Lokal** gibt es zusätzlich den Dev-Login (`DEV_LOGIN` in `.dev.vars`, wird nie deployt; wirkt nur bei einer
+  `ORIGIN` auf localhost).
 
 ## Modell und Funktionen
 
@@ -87,7 +93,7 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
   Einrichtung: Cloudflare Email Routing für die Domain aus `INBOX_DOMAIN`, Catch-all → Worker `nomocase`.
 - **Digitale Signaturen in PDFs**: Beim Upload liest NomoCase eingebettete Signaturen (Acrobat/PAdES) aus und prüft, ob die
   signierten Bytes unverändert sind. Ein Schlüssel wird einer Person zugeordnet – durch sie selbst („Das ist meine Signatur“,
-  nur wenn das Zertifikat sie nennt), per Probe-PDF im Konto oder durch die Vorgangsverantwortlichen. Danach heißt es
+  nur wenn das Zertifikat ihre E-Mail-Adresse nennt), per Probe-PDF im Konto (ebenso) oder durch die Vorgangsverantwortlichen. Danach heißt es
   „signiert von … (Schlüssel bekannt seit …)“; ein anderer Schlüssel unter bekanntem Namen wird gewarnt und protokolliert
   (`signature.changed`). Workspaces können Aussteller als vertrauenswürdig hinterlegen (z. B. die eigene CA). Kein Ersatz
   für eine QES-Prüfung, keine Sperrlisten.

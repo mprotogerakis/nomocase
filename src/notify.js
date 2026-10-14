@@ -14,12 +14,23 @@ export const bulkCap = () => Number(E.MAIL_DAILY_CAP ?? 80);
 const mailsToday = async bulk => (await row('SELECT COUNT(*) AS n FROM mail_log WHERE ok = 1 AND sent_at >= ? AND (? = 0 OR bulk = 1)', now().slice(0, 10), bulk ? 1 : 0)).n;
 
 // Returns true when the provider accepted the mail. Every attempt is logged (mail_log: ok, HTTP status, error text).
-export async function sendMail(to, subject, paragraphs, { replyTo, bulk = false, kind = null } = {}) {
-  return (await deliver(to, subject, paragraphs, { replyTo, bulk, kind })).ok;
+// `sender`: the user whose action causes the mail. Per day one person can cause at most PER_SENDER mails (workspace
+// owners, who run the workspace, PER_OWNER: e.g. inviting a whole semester), so nobody can use up the provider's daily
+// quota for everyone else (and with it everyone's invitations and login links).
+const PER_SENDER = 30, PER_OWNER = 150;
+
+export async function sendMail(to, subject, paragraphs, { replyTo, bulk = false, kind = null, sender = null } = {}) {
+  return (await deliver(to, subject, paragraphs, { replyTo, bulk, kind, sender })).ok;
 }
 
 // Same, with the provider's answer (for the test mail on the account page).
-export async function deliver(to, subject, paragraphs, { replyTo, bulk = false, kind = null } = {}) {
+export async function deliver(to, subject, paragraphs, { replyTo, bulk = false, kind = null, sender = null } = {}) {
+  if (sender) {
+    const { n, owner } = await row(`SELECT (SELECT COUNT(*) FROM mail_log WHERE sender_id = ?1 AND sent_at >= ?2) AS n,
+      EXISTS (SELECT 1 FROM workspace_members WHERE user_id = ?1 AND role = 'owner') AS owner`, sender, now().slice(0, 10));
+    const cap = owner ? PER_OWNER : PER_SENDER;
+    if (n >= cap) fail(429, `Über Ihr Konto gingen heute schon ${cap} E-Mails hinaus. Morgen geht es weiter.`);
+  }
   if (bulk && (await mailsToday(true)) >= bulkCap()) {
     console.error('sendMail skipped: daily cap for digest/progress mails reached');
     return { ok: false, error: 'Tageskontingent für Sammelmails erreicht' };
@@ -44,8 +55,8 @@ export async function deliver(to, subject, paragraphs, { replyTo, bulk = false, 
     }
     if (!r.ok) console.error('sendMail failed', r.status, r.error);
   }
-  await q('INSERT INTO mail_log (bulk, kind, sent_at, ok, status, error) VALUES (?, ?, ?, ?, ?, ?)',
-    bulk ? 1 : 0, kind, now(), r.ok ? 1 : 0, r.status ?? null, r.error ?? null).run();
+  await q('INSERT INTO mail_log (bulk, kind, sent_at, ok, status, error, sender_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    bulk ? 1 : 0, kind, now(), r.ok ? 1 : 0, r.status ?? null, r.error ?? null, sender).run();
   return r;
 }
 

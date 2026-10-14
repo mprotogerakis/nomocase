@@ -81,7 +81,7 @@ async function ruleStmts(c, def, rule, f) {
         );
       }
     } else if (a.type === 'add_comment') {
-      stmts.push(ev(c.id, null, 'comment', { body: fill(a.text), ...by }, a.visible_to ?? ['*']));
+      stmts.push(ev(c.id, null, 'comment', { body: fill(a.text), ...by }, a.visible_to ?? [])); // team only unless the template shares it
     } else if (a.type === 'create_subcase') {
       const tpl = await row(`SELECT t.id, t.workspace_id, t.name, v.version, v.definition FROM templates t JOIN template_versions v ON v.template_id = t.id
         WHERE t.workspace_id = ? AND t.name = ? ORDER BY v.version DESC LIMIT 1`, c.workspace_id, a.template);

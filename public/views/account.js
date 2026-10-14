@@ -65,7 +65,8 @@ export async function accountView() {
     <p class="muted small">Ein Passkey pro Gerät, z. B. Laptop und Handy. Er ersetzt das Passwort und lässt sich nicht abfischen.</p>
     <h3>Meine digitalen Signaturen</h3>
     <p class="muted small">Signieren Sie PDFs digital (z. B. mit einer Acrobat-ID oder dem Zertifikat Ihrer Einrichtung), erkennt NomoCase
-      Ihre Signatur wieder und warnt, wenn unter Ihrem Namen plötzlich ein anderer Schlüssel auftaucht.</p>
+      Ihre Signatur wieder und warnt, wenn unter Ihrem Namen plötzlich ein anderer Schlüssel auftaucht. Selbst hinterlegen
+      lässt sich ein Zertifikat, das Ihre E-Mail-Adresse nennt; andere ordnen die Verantwortlichen eines Vorgangs zu.</p>
     ${keys.length ? html`<ul class="list small">${keys.map(k => html`<li>${k.subject_name ?? 'Signatur'} <span class="muted">· ${k.issuer_name ? `Zertifikat von ${k.issuer_name}` : ''}
       · seit ${date(k.confirmed_at)}${k.vouched_by ? ` · bestätigt von ${k.vouched_by}` : ''}</span>
       <button class="link" data-on="removeSigningKey" data-fp="${k.key_fingerprint}">entfernen</button></li>`)}</ul>` : ''}

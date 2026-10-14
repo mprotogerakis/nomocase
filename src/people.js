@@ -50,13 +50,12 @@ export async function invite({ user, params, body, url }) {
     `Einladung annehmen:\n${link}`,
     'Der Link ist 14 Tage gültig und funktioniert nur einmal. Danach richten Sie einen Passkey ein, mit dem Sie sich künftig anmelden.',
     'Falls Sie diese Einladung nicht erwartet haben, ignorieren Sie diese E-Mail einfach.',
-  ], { replyTo: user.email }); // replies go to the inviter, the sender address has no mailbox
-  // Only the invitee should hold the link. The inviter gets it as a fallback when mail fails – but never for an
-  // existing account (locally always, for testing).
+  ], { replyTo: user.email, sender: user.id }); // replies go to the inviter, the sender address has no mailbox
+  // Only the invitee may ever hold the link: whoever accepts it chooses name and passkey of the new account.
+  // (Locally it comes back for testing.)
   if (E.DEV_LOGIN) return { sent, role: role.key, link };
-  if (sent) return { sent, role: role.key };
-  if (await accountByEmail(email)) fail(502, 'Die Einladung konnte nicht per E-Mail verschickt werden. Bitte später erneut versuchen.');
-  return { sent, role: role.key, link };
+  if (!sent) fail(502, 'Die Einladung konnte nicht per E-Mail verschickt werden. Bitte später erneut versuchen.');
+  return { sent, role: role.key };
 }
 
 export const accountByEmail = email =>
@@ -188,7 +187,8 @@ export async function peopleOverview({ user }) {
       WHERE c.workspace_id ${IN_WS} AND i.accepted_at IS NULL ORDER BY expired, i.created_at DESC`, ws, now()),
     row(`SELECT SUM(status = 'open') AS open, SUM(status = 'closed') AS closed FROM cases WHERE workspace_id ${IN_WS}`, ws),
     row(`SELECT SUM(ok) AS total, COALESCE(SUM(bulk * ok), 0) AS bulk, SUM(1 - ok) AS failed,
-      (SELECT COALESCE(status || ': ', '') || error FROM mail_log WHERE ok = 0 ORDER BY id DESC LIMIT 1) AS last_error,
+      -- the provider's error text can name recipients of other workspaces: only the status here (details: test mail)
+      (SELECT COALESCE('Status ' || status, 'ohne Antwort') FROM mail_log WHERE ok = 0 ORDER BY id DESC LIMIT 1) AS last_error,
       (SELECT sent_at FROM mail_log WHERE ok = 0 ORDER BY id DESC LIMIT 1) AS last_error_at
       FROM mail_log WHERE sent_at >= ?`, now().slice(0, 10)),
   ]);

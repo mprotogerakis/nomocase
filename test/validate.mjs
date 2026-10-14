@@ -95,4 +95,14 @@ await ok('UTF-8 text', 'txt', enc('Grüße aus Düsseldorf'));
 await bad('invalid UTF-8', 'txt', Uint8Array.of(0x66, 0xff, 0x66), /nicht geprüft/);
 await bad('NUL bytes', 'txt', enc('a\u0000b'), /Binärdaten/);
 
+// Crafted input must not make the checks slow (exponential or quadratic regular expressions).
+const quick = async (label, bytes, pattern) => {
+  const t = Date.now();
+  const r = await checkContent('pdf', bytes);
+  assert.ok(Date.now() - t < 300, `${label}: ${Date.now() - t} ms`);
+  if (pattern) assert.match(r ?? 'accepted', pattern, label);
+};
+await quick('long number in a formatting call', enc(`%PDF-1.4\n1 0 obj\n<< /AA << /F << /S /JavaScript /JS (AFNumber_Format(${'1'.repeat(400)}x) >> >> >>\nendobj\n`), /aktive Inhalte/);
+await quick('long digit run after /Length', enc(`%PDF-1.4\n1 0 obj\n<< /Length ${'1'.repeat(60000)} R >>\nstream\nabc\nendstream\nendobj\n`));
+
 console.log('ok – validate test passed');
