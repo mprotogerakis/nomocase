@@ -103,7 +103,8 @@ export async function templatesView() {
   page(html`<main class="narrow"><h1>Prozessvorlagen</h1>
     <p class="muted">Speichern erzeugt eine neue Version. Laufende Vorgänge behalten ihre Kopie der Version, aus der sie entstanden sind.
       Vorlagen, die schon in Vorgängen laufen, werden archiviert statt gelöscht.</p>
-    ${tpls.filter(t => !t.archived_at).map(card)}
+    ${Object.entries(Object.groupBy(tpls.filter(t => !t.archived_at), t => t.workspace)).map(([ws, list]) => html`
+      <h2 class="ws-heading">${ws} <span class="muted small">· ${count(list.length, 'Vorlage', 'Vorlagen')}</span></h2>${list.map(card)}`)}
     ${archived.length ? html`<h2>Archiv</h2><p class="muted small">Nicht mehr für neue Vorgänge; laufende Vorgänge sind nicht betroffen.</p>${archived.map(card)}` : ''}
     ${owned.length ? html`<h2>Neue Vorlage</h2>
       <form data-submit="newTemplate" class="row">

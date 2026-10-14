@@ -140,6 +140,8 @@ try {
   const copies = (await api('/templates')).filter(t => t.workspace_id === 'ws_hs' && ['Arztrechnung', 'Freier Vorgang (Kopie)'].includes(t.name));
   assert.equal(copies.length, 2);
   assert.deepEqual(copies.find(t => t.name === 'Arztrechnung').definition.phases, arzt.definition.phases, 'same definition');
+  assert.ok((await api('/templates')).some(t => t.id === arzt.id && t.workspace_id === 'ws_priv'), 'the original stays where it was');
+  assert.ok(await evaluate(`[...document.querySelectorAll('h2.ws-heading')].some(h => h.textContent.startsWith('Privat'))`), 'templates grouped by workspace');
   for (const c of copies) await evaluate(`fetch('/api/templates/${c.id}', { method: 'DELETE' }).then(r => r.status)`);
 
   // Assessment: two examiners give grades on the template's scale, the combined value can be taken over into a field
