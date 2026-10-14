@@ -126,4 +126,8 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Hochgeladene Formulare zurücklesen: an den Feldnamen erkannt, Abweichungen von den Angaben als Warnung (Ereignis
   `form.mismatch`, auch Regel-Auslöser), leere Angaben aus Team-Uploads direkt übernommen, von außen per Knopf
 - [ ] Formulare auch für Praxisprojekt und Masterprojekt
+- [x] Sicherheitsprüfung vor der Veröffentlichung: Signaturketten nur über echte CAs, Parser gegen präparierte Dateien,
+  keine Einladungslinks an Einladende, Mail-Limit je Person, CSP und Header, Origin-Pflicht, `__Host-`-Cookie
+- [ ] Tokens aus URL-Pfaden in den Request-Body (Einladung, Upload-Link): Pfade landen in den Worker-Logs
+- [ ] Anmeldelink-Anfragen zusätzlich pro IP begrenzen (Workers Rate Limiting), falls das Tageskontingent missbraucht wird
 - [ ] Workspace-Änderungen (Mitglieder, Name) protokollieren; das Ereignisprotokoll kennt bisher nur Vorgänge
