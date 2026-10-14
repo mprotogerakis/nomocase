@@ -99,6 +99,12 @@ veröffentlicht mit `npm run templates`, Produktion: `npm run templates -- --rem
   Änderungsstand (letzte Event-ID; in der Übersicht zusätzlich die Zahl der Vorgänge) und laden bei Änderung neu, Scrollposition
   bleibt. Wird gerade getippt oder ist ein Menü offen, erscheint nur „Es gibt Neuigkeiten · Aktualisieren“. Upgrade-Pfad bei
   vielen gleichzeitigen Nutzern: Durable Object mit WebSockets.
+- **Digitale Signaturen in PDFs**: Beim Upload liest NomoCase eingebettete Signaturen (Acrobat/PAdES) aus und prüft, ob die
+  signierten Bytes unverändert sind. Ein Schlüssel wird einer Person zugeordnet – durch sie selbst („Das ist meine Signatur“,
+  nur wenn das Zertifikat sie nennt), per Probe-PDF im Konto oder durch die Vorgangsverantwortlichen. Danach heißt es
+  „signiert von … (Schlüssel bekannt seit …)“; ein anderer Schlüssel unter bekanntem Namen wird gewarnt und protokolliert
+  (`signature.changed`). Workspaces können Aussteller als vertrauenswürdig hinterlegen (z. B. die eigene CA). Kein Ersatz
+  für eine QES-Prüfung, keine Sperrlisten.
 - **Workspaces** (Menü): Owner legen Workspaces an, benennen sie um, laden Kolleg:innen als Owner oder Mitglied ein
   (gleicher Link-Ablauf wie bei Vorgängen) und löschen leere Workspaces. Owner sehen alle Vorgänge und pflegen Vorlagen,
   Mitglieder legen aus den Vorlagen Vorgänge an und sehen ihre eigenen. Externe werden weiter pro Vorgang eingeladen.

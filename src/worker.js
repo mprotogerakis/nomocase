@@ -10,6 +10,7 @@ import { processRules, toggleRule } from './rules.js';
 import { createUploadLink, deleteVersion, download, getUploadLink, revokeUploadLinks, updateDocument, upload, useUploadLink } from './documents.js';
 import { acceptInvitation, getInvitation, invite, peopleOverview, revoke, withdrawInvitation } from './people.js';
 import { DAILY_CRON, sendDigests, sendProgress } from './notify.js';
+import { addSigningKey, addTrustedIssuer, assignSignature, claimSignature, mySigningKeys, removeSigningKey, removeTrustedIssuer } from './signatures.js';
 import { createWorkspace, deleteWorkspace, inviteToWorkspace, listWorkspaces, removeMember, renameWorkspace, setMemberRole, withdrawWorkspaceInvitation } from './workspaces.js';
 
 const ROUTES = [
@@ -17,6 +18,13 @@ const ROUTES = [
   ['PATCH', '/api/me', updateMe],
   ['GET', '/api/people', peopleOverview],
   ['GET', '/api/workspaces', listWorkspaces],
+  ['POST', '/api/workspaces/:id/issuers', addTrustedIssuer],
+  ['DELETE', '/api/workspaces/:id/issuers/:fp', removeTrustedIssuer],
+  ['POST', '/api/signatures/claim', claimSignature],
+  ['POST', '/api/signatures/assign', assignSignature],
+  ['GET', '/api/me/signing-keys', mySigningKeys],
+  ['POST', '/api/me/signing-keys', addSigningKey],
+  ['DELETE', '/api/me/signing-keys/:fp', removeSigningKey],
   ['POST', '/api/workspaces', createWorkspace],
   ['PATCH', '/api/workspaces/:id', renameWorkspace],
   ['DELETE', '/api/workspaces/:id', deleteWorkspace],

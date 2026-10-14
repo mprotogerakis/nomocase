@@ -83,6 +83,12 @@ try {
   const t2 = await taskId('UI-Upload');
   await upload(`form[data-submit="upload"]:has(input[name="task_id"][value="${t2}"])`, pdf);
   await waitFor(`!!document.querySelector('button.hash')`, 'Fassung mit SHA-256');
+  // a digitally signed PDF shows its signatures at the version
+  await submit('addTask', { title: 'UI-Signiert', type: 'upload', role: 'supervisor' });
+  await waitFor(has('UI-Signiert'), 'Aufgabe für signierte PDF');
+  const signedTask = await taskId('UI-Signiert');
+  await upload(`form[data-submit="upload"]:has(input[name="task_id"][value="${signedTask}"])`, new URL('./fixtures/signed/two.pdf', import.meta.url).pathname);
+  await waitFor(`document.querySelectorAll('.sigs .sig').length === 2`, 'zwei Signaturzeilen');
   await submit('addTask', { title: 'UI-Extern', type: 'upload', role: 'supervisor' });
   await waitFor(has('UI-Extern'), 'zweite Upload-Aufgabe');
   await submit('uploadLink', { label: 'Externe Stelle', days: '7' }, await taskId('UI-Extern'));

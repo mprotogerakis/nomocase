@@ -1,6 +1,6 @@
 // Documents in a case: versions, sharing, upload, SHA-256 check.
-import { change, cur, on, submit } from '../state.js';
-import { api, dateTime, html, reload, sha256, shortHash } from '../lib.js';
+import { change, cur, me, on, submit } from '../state.js';
+import { api, date, dateTime, html, reload, sha256, shortHash } from '../lib.js';
 import { caseApi, docTypeLabel, guestRoles, holders } from './case.js';
 import { openTaskFor, taskTitle } from './tasks.js';
 import { amountOf } from './finance.js';
@@ -22,6 +22,37 @@ export const verifyFile = () => html`<details class="verify small"><summary clas
   <p class="muted">Prüft per SHA-256, ob eine Datei auf Ihrem Gerät genau einer gespeicherten Fassung entspricht. Die Datei wird nicht hochgeladen.</p>
   <input type="file" data-change="verifyFile"> <output></output></details>`;
 
+// Digital signatures in a version: who signed, and whether it is the key that person used before.
+// Recognition, not legal validity: a known key means "same signer as before".
+const SIG_ICON = { known: '✓', trusted: '✓', changed: '⚠', unknown: '?', invalid: '✗', unsupported: '·', timestamp: '·' };
+function signatureLine(s, d, last) {
+  const when = s.signed_at ? ` · ${dateTime(s.signed_at)}` : '';
+  const text = {
+    known: `digital signiert von ${s.signer}${when} · Schlüssel bekannt seit ${date(s.since)}${s.vouched_by ? `, bestätigt von ${s.vouched_by}` : ''}`,
+    trusted: `digital signiert von ${s.signer}${when} · Zertifikat von ${s.trusted_issuer} (vertrauenswürdig)`,
+    changed: `andere Signatur als bisher: ${s.candidate} signiert mit einem neuen Schlüssel${when}`,
+    unknown: `digital signiert: ${s.subject_name ?? '?'}${s.subject_email ? ` (${s.subject_email})` : ''}${when} · ${s.self_signed ? 'selbst ausgestelltes Zertifikat' : `Zertifikat von ${s.issuer_name}`} · noch niemandem zugeordnet`,
+    invalid: `Signatur ungültig: ${s.detail}`,
+    unsupported: `Signatur nicht prüfbar (${s.detail})`,
+    timestamp: 'Zeitstempel',
+  }[s.state];
+  const changedAfter = s.status === 'valid' && !s.covers_all && last ? ' · ⚠ danach wurde die Datei verändert' : '';
+  const open = ['unknown', 'changed'].includes(s.state);
+  const people = d.participants.filter(p => !p.revoked_at);
+  return html`<div class="sig ${s.state}">${SIG_ICON[s.state]} ${text}${changedAfter}
+    ${open && s.candidate_id === me.user.id ? html`<button class="link" data-on="claimSig" data-version="${s.version_id}" data-position="${s.position}">Das ist meine Signatur</button>` : ''}
+    ${open && d.me.owner && people.length ? html`<select data-change="assignSig" data-version="${s.version_id}" data-position="${s.position}" aria-label="Signatur zuordnen">
+      <option value="">zuordnen …</option>${people.map(p => html`<option value="${p.user_id}">${p.name}</option>`)}</select>` : ''}</div>`;
+}
+const signatures = (v, d) => (v.signatures?.length ? html`<div class="sigs">${v.signatures.map((s, i, all) => signatureLine(s, d, i === all.length - 1))}</div>` : '');
+
+on.claimSig = async ({ version, position }) => { await api('/signatures/claim', { body: { version_id: version, position: Number(position) } }); reload(); };
+change.assignSig = async el => {
+  if (!el.value) return;
+  await api('/signatures/assign', { body: { version_id: el.dataset.version, position: Number(el.dataset.position), user_id: el.value } });
+  reload();
+};
+
 export const fileLink = (v, label) => html`<a href="/api/files/${v.id}" target="_blank">${label}</a>`;
 
 export const documents = d => html`${d.documents.length ? '' : html`<p class="muted small">Noch keine Dokumente.</p>`}
@@ -31,6 +62,7 @@ export const documents = d => html`${d.documents.length ? '' : html`<p class="mu
       ${fileLink(v, v.filename)} <span class="muted small">${v.uploader} · ${dateTime(v.created_at)}${taskTitle(v.task_id, d) ? ` · zu „${taskTitle(v.task_id, d)}“` : ''}</span>
       ${v.sha256 ? html`<button class="link small hash" data-on="copyHash" data-hash="${v.sha256}" title="SHA-256: ${v.sha256} – klicken zum Kopieren">SHA-256 ${shortHash(v.sha256)}</button>` : ''}
       ${d.me.staff || (v.mine && i === all.length - 1 && !doc.final) ? html` <button class="link small" data-on="deleteVersion" data-id="${v.id}" data-name="${v.filename}">löschen</button>` : ''}
+      ${signatures(v, d)}
     </li>`)}</ol>
     ${d.me.staff ? html`<div class="row small">
       ${guestRoles(d).length ? html`Freigegeben für:

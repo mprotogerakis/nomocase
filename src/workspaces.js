@@ -6,6 +6,7 @@ import { requireWsOwner } from './access.js';
 import { originOf } from './auth.js';
 import { accountByEmail } from './people.js';
 import { sendMail } from './notify.js';
+import { trustedIssuersOf } from './signatures.js';
 
 export const WORKSPACE_ROLES = { owner: 'Owner', member: 'Mitglied' };
 const checkRole = r => (['owner', 'member'].includes(r) ? r : fail(400, 'Rolle muss owner oder member sein'));
@@ -25,9 +26,11 @@ export async function listWorkspaces({ user }) {
     q(`SELECT workspace_id, email, role, created_at, expires_at, expires_at <= ? AS expired FROM workspace_invitations
        WHERE workspace_id IN (SELECT value FROM json_each(?)) AND accepted_at IS NULL AND revoked_at IS NULL ORDER BY created_at DESC`, now(), owned),
   ])).map(r => r.results);
+  const issuers = await trustedIssuersOf(JSON.parse(owned));
   return list.map(w => ({ ...w, ...(w.role === 'owner' && {
     members: members.filter(m => m.workspace_id === w.id),
     invitations: invitations.filter(i => i.workspace_id === w.id),
+    issuers: issuers.filter(i => i.workspace_id === w.id),
   }) }));
 }
 
@@ -55,6 +58,7 @@ export async function deleteWorkspace({ user, params }) {
     q('DELETE FROM template_versions WHERE template_id IN (SELECT id FROM templates WHERE workspace_id = ?)', params.id),
     q('DELETE FROM templates WHERE workspace_id = ?', params.id),
     q('DELETE FROM workspace_invitations WHERE workspace_id = ?', params.id),
+    q('DELETE FROM trusted_issuers WHERE workspace_id = ?', params.id),
     q('DELETE FROM workspace_members WHERE workspace_id = ?', params.id),
     q('DELETE FROM workspaces WHERE id = ?', params.id),
   ]);

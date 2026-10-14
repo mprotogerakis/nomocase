@@ -30,6 +30,13 @@ function workspaceCard(w) {
       <form data-submit="wsInvite" data-id="${w.id}" class="row small">
         <input name="email" type="email" placeholder="E-Mail" required aria-label="E-Mail">${roleSelect('role', 'member', 'aria-label="Rolle"')}<button>Einladen</button>
       </form>
+      <h3>Vertrauenswürdige Aussteller</h3>
+      <p class="muted small">Signaturen mit Zertifikaten dieser Aussteller (z. B. der CA Ihres Lehrstuhls) gelten als identifiziert,
+        ohne dass jemand sie erst zuordnen muss.</p>
+      ${w.issuers.length ? html`<ul class="list small">${w.issuers.map(i => html`<li>${i.name} <span class="muted">· seit ${date(i.added_at)}</span>
+        <button class="link" data-on="wsIssuerRemove" data-id="${w.id}" data-fp="${i.fingerprint}" data-name="${i.name}">entfernen</button></li>`)}</ul>` : ''}
+      <form data-submit="wsIssuer" data-id="${w.id}" class="row small"><input type="file" name="cert" accept=".cer,.crt,.pem,.der" required aria-label="Zertifikat des Ausstellers">
+        <button>Aussteller hinzufügen</button></form>
       ${w.cases ? '' : html`<p class="small"><button class="link danger" data-on="wsDelete" data-id="${w.id}" data-name="${w.name}">Workspace löschen</button>
         <span class="muted">– geht nur ohne Vorgänge; ${w.templates ? 'die Vorlagen werden mitgelöscht' : 'er ist leer'}</span></p>`}`
     : html`<p class="muted small">Sie können aus den Vorlagen dieses Workspaces Vorgänge anlegen und sehen die, an denen Sie beteiligt sind.</p>`}
@@ -76,6 +83,20 @@ on.wsRemove = async ({ id, user, name }) => {
   await api(`/workspaces/${id}/members/${user}`, { method: 'DELETE' });
   self ? go('#/') : reload();
 };
+// The issuer's certificate as PEM text or DER bytes (sent base64).
+submit.wsIssuer = async (fd, form) => {
+  const file = fd.get('cert'), text = await file.text();
+  const certificate = text.includes('BEGIN CERTIFICATE') ? text : btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())));
+  const { name } = await api(`/workspaces/${form.dataset.id}/issuers`, { body: { certificate } });
+  alert(`„${name}“ ist jetzt ein vertrauenswürdiger Aussteller.`);
+  reload();
+};
+on.wsIssuerRemove = async ({ id, fp, name }) => {
+  if (!confirm(`„${name}“ nicht mehr als vertrauenswürdig behandeln?`)) return;
+  await api(`/workspaces/${id}/issuers/${fp}`, { method: 'DELETE' });
+  reload();
+};
+
 on.wsDelete = async ({ id, name }) => {
   if (!confirm(`Workspace „${name}“ endgültig löschen?`)) return;
   await api(`/workspaces/${id}`, { method: 'DELETE' });

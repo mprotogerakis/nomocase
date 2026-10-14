@@ -1,5 +1,7 @@
 // Documents: upload checks, versions in R2, upload links, downloads.
 import { checkContent } from './validate.js';
+import { readSignatures } from './pdfsig.js';
+import { signatureEvents, signatureStmts } from './signatures.js';
 import { arr, DB, DECISIONS, E, ev, fail, hex, NEEDS_FILE, now, q, roleList, row, rows, sha256, token, uid } from './core.js';
 import { canSee, canWork, caseCtx, taskAudience } from './access.js';
 import { originOf } from './auth.js';
@@ -28,7 +30,7 @@ const INLINE = ['application/pdf', 'image/png', 'image/jpeg'];
 // Checks a file before anything is stored: type, size, magic bytes and content (strict outside the team).
 // `given`: SHA-256 as the browser read the file (app.js sends it). R2 checks it on put, so the stored bytes provably
 // match what left the uploader's disk. Without one the Worker computes it (ponytail: Worker CPU, ~1 ms per MB).
-async function readUpload(file, strict, given) {
+export async function readUpload(file, strict, given) {
   if (!(file instanceof File) || !file.size) fail(400, 'Keine Datei');
   if (file.size > MAX_UPLOAD) fail(413, 'Datei zu groß (max. 20 MB)');
   const ext = file.name.split('.').pop().toLowerCase();
@@ -55,6 +57,8 @@ async function storeVersion({ c, actorId, uploadedBy, label = null, f, task, doc
     throw e;
   });
   const completes = task && task.status === 'open' && !task.blocked && !DECISIONS.includes(task.type);
+  // Digital signatures inside PDFs: stored with the version; a signer who used another key before is logged.
+  const sigs = f.contentType === 'application/pdf' ? await readSignatures(f.bytes) : [];
   stmts.push(
     q('INSERT INTO document_versions (id, document_id, version, filename, content_type, size, r2_key, uploaded_by, created_at, task_id, uploader_label, sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       versionId, doc.id, n, f.filename, f.contentType, f.size, key, uploadedBy, now(), task?.id ?? null, label, f.sha256),
@@ -62,6 +66,8 @@ async function storeVersion({ c, actorId, uploadedBy, label = null, f, task, doc
       { document: doc.title, version: n, filename: f.filename, version_id: versionId, sha256: f.sha256, ...(label && { via: label }),
         ...(task && { task: task.title, task_id: task.id, completed: completes }) },
       [...new Set([...arr(doc.visible_to), ...(task ? taskAudience(task) : [])])]),
+    ...signatureStmts(versionId, sigs),
+    ...await signatureEvents(c, versionId, doc, sigs, actorId),
   );
   if (completes) stmts.push(q("UPDATE tasks SET status = 'done', completed_at = ?, completed_by = ? WHERE id = ?", now(), actorId, task.id));
   await DB.batch(stmts);
@@ -198,6 +204,7 @@ export async function deleteVersion({ user, params }) {
   if (!ctx.staff && (v.uploaded_by !== user.id || latest.id !== v.id || v.final)) fail(403, 'Nur eigene, aktuelle Fassungen');
   const { n } = await row('SELECT COUNT(*) AS n FROM document_versions WHERE document_id = ?', v.document_id);
   await DB.batch([
+    q('DELETE FROM document_signatures WHERE version_id = ?', v.id),
     q('DELETE FROM document_versions WHERE id = ?', v.id),
     ...(n === 1 ? [q('DELETE FROM documents WHERE id = ?', v.document_id)] : []),
     ev(ctx.c.id, user.id, 'document.version_deleted', { document: v.title, version: v.version }, arr(v.visible_to)),

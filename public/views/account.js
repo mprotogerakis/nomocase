@@ -1,7 +1,7 @@
 // Login, own account, invitations, welcome page, login links, upload links for people without an account.
 import { STAFF } from '../shared/vocab.js';
 import { change, me, on, set, submit } from '../state.js';
-import { api, dateTime, go, html, page, reload, show } from '../lib.js';
+import { api, date, dateTime, go, html, page, reload, show } from '../lib.js';
 
 // Passkeys use the browser's native WebAuthn JSON helpers; the server does the verification.
 async function passkeyLogin() {
@@ -52,7 +52,7 @@ on.passkeyDelete = async ({ id }) => {
 };
 
 export async function accountView() {
-  const passkeys = await api('/passkeys');
+  const [passkeys, keys] = await Promise.all([api('/passkeys'), api('/me/signing-keys')]);
   page(html`<main class="narrow"><h1>Konto</h1>
     <dl><dt>Name</dt><dd>${me.user.name}</dd><dt>E-Mail</dt><dd>${me.user.email}</dd></dl>
     <h3>Passkeys</h3>
@@ -62,6 +62,14 @@ export async function accountView() {
       : html`<p class="muted">Noch kein Passkey eingerichtet.</p>`}
     <p><button data-on="passkeyAdd">Passkey hinzufügen</button></p>
     <p class="muted small">Ein Passkey pro Gerät, z. B. Laptop und Handy. Er ersetzt das Passwort und lässt sich nicht abfischen.</p>
+    <h3>Meine digitalen Signaturen</h3>
+    <p class="muted small">Signieren Sie PDFs digital (z. B. mit einer Acrobat-ID oder dem Zertifikat Ihrer Einrichtung), erkennt NomoCase
+      Ihre Signatur wieder und warnt, wenn unter Ihrem Namen plötzlich ein anderer Schlüssel auftaucht.</p>
+    ${keys.length ? html`<ul class="list small">${keys.map(k => html`<li>${k.subject_name ?? 'Signatur'} <span class="muted">· ${k.issuer_name ? `Zertifikat von ${k.issuer_name}` : ''}
+      · seit ${date(k.confirmed_at)}${k.vouched_by ? ` · bestätigt von ${k.vouched_by}` : ''}</span>
+      <button class="link" data-on="removeSigningKey" data-fp="${k.key_fingerprint}">entfernen</button></li>`)}</ul>` : ''}
+    <form data-submit="addSigningKey" class="row small"><input type="file" name="file" accept=".pdf,application/pdf" required aria-label="Signierte PDF">
+      <button>Signierte Probe-PDF hinterlegen</button></form>
     <h3>Benachrichtigungen per E-Mail</h3>
     <label class="row"><input type="checkbox" data-change="mailSetting" data-key="email_progress" ${me.user.email_progress ? 'checked' : ''}>
       Neuigkeiten aus meinen Vorgängen: Nachrichten, Uploads, Entscheidungen (gebündelt, höchstens 3 Mails pro Stunde)</label>
@@ -69,6 +77,17 @@ export async function accountView() {
       Morgens eine Übersicht mit neuen Aufgaben und nahenden Fristen</label>
   </main>`);
 }
+
+submit.addSigningKey = async fd => {
+  const { subject_name, issuer_name } = await api('/me/signing-keys', { body: fd });
+  alert(`Signatur „${subject_name}“${issuer_name ? ` (Zertifikat von ${issuer_name})` : ''} ist jetzt Ihnen zugeordnet.`);
+  reload();
+};
+on.removeSigningKey = async ({ fp }) => {
+  if (!confirm('Diese Signatur nicht mehr Ihnen zuordnen?')) return;
+  await api(`/me/signing-keys/${fp}`, { method: 'DELETE' });
+  reload();
+};
 
 change.mailSetting = async el => { await api('/me', { method: 'PATCH', body: { [el.dataset.key]: el.checked } }); reload(); };
 

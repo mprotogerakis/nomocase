@@ -10,7 +10,7 @@ import { deDate } from './notify.js';
 // Safety: the (event, rule) key in automation_runs makes each rule run once per event; events caused by a rule
 // carry payload.rule and never trigger rules themselves, so rules cannot loop.
 
-export const RULE_TRIGGERS = ['document.uploaded', 'task.complete', 'task.approve', 'task.reject', 'task.question', 'request.created',
+export const RULE_TRIGGERS = ['signature.changed', 'document.uploaded', 'task.complete', 'task.approve', 'task.reject', 'task.question', 'request.created',
   'comment', 'claim.added', 'decision.added', 'transaction.booked', 'case.closed', 'participant.joined', 'subcase.closed'];
 
 export const RULE_OPS = {

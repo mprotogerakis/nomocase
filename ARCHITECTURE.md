@@ -41,6 +41,8 @@ Widerspruch ist, weiß nur die jeweilige Vorlage – nicht der Code.
 | `workspaces.js` | Workspaces anlegen/umbenennen/löschen, Mitglieder (Owner/Mitglied), Workspace-Einladungen |
 | `notify.js` | Mail über Resend, Tageskontingente, Tagesübersicht, gebündelte Fortschrittsmails |
 | `validate.js` | Inhaltsprüfung hochgeladener Dateien (aktive Inhalte in PDF/Office) |
+| `pdfsig.js` | Digitale Signaturen in PDFs lesen und prüfen (CMS/PAdES, RSA/ECDSA, Kette zu vertrauenswürdigen Ausstellern) – rein, ohne DB |
+| `signatures.js` | Signaturen speichern und deuten: bekannter Schlüssel, vertrauenswürdiger Aussteller, „andere Signatur als bisher“; Zuordnen |
 
 Abhängigkeiten zeigen nach innen: `worker` → Fachmodule → `access` → `core`. Zwischen Fachmodulen gibt es
 Aufrufe in beide Richtungen, aber nur zur Laufzeit (keine Auswertung beim Laden).
@@ -100,4 +102,6 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Workspaces verwalten: anlegen, umbenennen, löschen (nur ohne Vorgänge), Mitglieder mit Rolle, Einladungen
       (gleiche Annahme-Seite und gleicher Kontoschutz wie bei Vorgängen); der letzte Owner bleibt
 - [ ] Produkt: Vorlagen-Archiv („läuft in N Vorgängen“), Massenanlage zum Semesterstart
+- [x] Digitale Signaturen in PDFs: Schlüssel wiedererkennen (Erstkontakt + Bestätigung), vertrauenswürdige Aussteller je
+      Workspace, Warnung bei anderem Schlüssel (Ereignis `signature.changed`, Regel-Auslöser); keine Rechtsprüfung, kein CRL/OCSP
 - [ ] Workspace-Änderungen (Mitglieder, Name) protokollieren; das Ereignisprotokoll kennt bisher nur Vorgänge

@@ -111,6 +111,58 @@ assert.deepEqual((await expect(colleague('/me'))).workspaces, []);
 await expect(prof(`/workspaces/${wsId}`, { method: 'DELETE' }));
 assert.ok(!(await expect(prof('/templates'))).some(t => t.id === wsTpl), 'templates go with the workspace');
 
+// Digital signatures in PDFs (synthetic fixtures): recognised per person, a new key under a known name is flagged,
+// a trusted issuer identifies, the team can assign. Local only: fixture keys are global, so each run starts fresh.
+if (new URL(BASE).hostname === 'localhost') {
+  const fixture = name => readFileSync(new URL(`./fixtures/signed/${name}`, import.meta.url));
+  sql("DELETE FROM signing_keys WHERE subject_name IN ('Max Beispiel', 'Dr. Muster')");
+  sql("DELETE FROM trusted_issuers WHERE name = 'Test-CA'");
+  const signer = client();
+  const { link: sigInvite } = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `sig.${run}@example.org`, role: 'student' } }));
+  await expect(signer('/invitations/accept', { body: { token: tokenOf(sigInvite), name: 'Max Beispiel' } }));
+  const signedUpload = async (who, name) => (await expect(who(`/cases/${caseId}/documents`, { form: file(name, fixture(name), { title: `Signiert ${run}` }) }))).document_id;
+  const sigsOf = async (who, docId) => (await expect(who(`/cases/${caseId}`))).documents.find(x => x.id === docId).versions.at(-1).signatures;
+  const signedDoc = await signedUpload(signer, 'one.pdf');
+  let [sig] = await sigsOf(prof, signedDoc);
+  assert.deepEqual([sig.state, sig.subject_name, sig.candidate], ['unknown', 'Max Beispiel', 'Max Beispiel']);
+  // a trusted issuer identifies without any assignment (and applies to earlier uploads)
+  await expect(prof('/workspaces/ws_hs/issuers', { body: { certificate: fixture('test-ca.der').toString('base64') } }));
+  [sig] = await sigsOf(prof, signedDoc);
+  assert.deepEqual([sig.state, sig.trusted_issuer, sig.signer], ['trusted', 'Test-CA', 'Max Beispiel']);
+  await expect(prof(`/workspaces/ws_hs/issuers/${(await expect(prof('/workspaces'))).find(w => w.id === 'ws_hs').issuers.find(i => i.name === 'Test-CA').fingerprint}`, { method: 'DELETE' }));
+  // only the person the certificate names may claim it (others who can see the document get a refusal)
+  const versionId = (await expect(prof(`/cases/${caseId}`))).documents.find(x => x.id === signedDoc).versions.at(-1).id;
+  await expect(prof('/signatures/claim', { body: { version_id: versionId, position: 0 } }), 403);
+  await expect(signer('/signatures/claim', { body: { version_id: versionId, position: 0 } }));
+  [sig] = await sigsOf(prof, signedDoc);
+  assert.deepEqual([sig.state, sig.signer], ['known', 'Max Beispiel']);
+  // the same name with another key: flagged and logged
+  await expect(signer(`/cases/${caseId}/documents`, { form: file('other-key.pdf', fixture('other-key.pdf'), { document_id: signedDoc }) }));
+  [sig] = await sigsOf(prof, signedDoc);
+  assert.equal(sig.state, 'changed');
+  assert.ok((await expect(prof(`/cases/${caseId}`))).events.some(e => e.type === 'signature.changed' && e.payload.signers.includes('Max Beispiel')));
+  // two signatures; the team assigns the unknown second one (and thereby vouches for it)
+  const twoDoc = await signedUpload(signer, 'two.pdf');
+  const twoVersion = (await expect(prof(`/cases/${caseId}`))).documents.find(x => x.id === twoDoc).versions.at(-1).id;
+  let two = await sigsOf(prof, twoDoc);
+  assert.deepEqual(two.map(x => [x.state, x.subject_name, x.covers_all]), [['known', 'Max Beispiel', false], ['unknown', 'Dr. Muster', true]]);
+  const studentId = (await expect(student('/me'))).user.id;
+  await expect(signer('/signatures/assign', { body: { version_id: twoVersion, position: 1, user_id: studentId } }), 403);
+  await expect(prof('/signatures/assign', { body: { version_id: twoVersion, position: 1, user_id: studentId } }));
+  two = await sigsOf(prof, twoDoc);
+  assert.deepEqual([two[1].state, two[1].signer, two[1].vouched_by], ['known', 'Max Müller', 'Prof. Demo']);
+  // a broken signature
+  const tamperedDoc = await signedUpload(signer, 'tampered.pdf');
+  assert.equal((await sigsOf(prof, tamperedDoc))[0].state, 'invalid');
+  // account page: the own key from a sample PDF
+  const myKeys = await expect(signer('/me/signing-keys'));
+  assert.equal(myKeys.length, 1);
+  await expect(signer(`/me/signing-keys/${myKeys[0].key_fingerprint}`, { method: 'DELETE' }));
+  await expect(signer('/me/signing-keys', { form: file('one.pdf', fixture('one.pdf')) }));
+  await expect(signer('/me/signing-keys', { form: file('two.pdf', fixture('tampered.pdf')) }), 400);
+  assert.equal((await expect(signer('/me/signing-keys'))).length, 1);
+}
+
 // Live updates: the change stamp in the payload matches the cheap poll and moves when someone else acts.
 const stampNow = (who, c) => expect(who(`/changes${c ? `?case=${c}` : ''}`)).then(r => r.stamp);
 const before = await expect(student(`/cases/${caseId}`));

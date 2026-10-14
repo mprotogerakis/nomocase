@@ -34,6 +34,8 @@ const EVENTS = {
   'subcase.closed': p => `hat den Teilvorgang „${p.title}“ abgeschlossen`,
   'case.saved_as_template': p => `hat den Ablauf als Vorlage „${p.template}“ (Version ${p.version}) gespeichert`,
   'rule.toggled': p => `hat die Regel „${p.rule}“ ${p.enabled ? 'eingeschaltet' : 'ausgeschaltet'}`,
+  'signature.changed': p => `Achtung: In „${p.document}“ signiert ${p.signers.join(', ')} mit einem anderen Schlüssel als bisher`,
+  'signature.assigned': p => (p.self ? `hat die eigene Signatur in „${p.document}“ bestätigt` : `hat die Signatur in „${p.document}“ ${p.signer} zugeordnet`),
   'participant.invited': p => `hat ${p.email} als ${p.role} ${p.again ? 'erneut ' : ''}eingeladen`,
   'participant.joined': p => `ist als ${p.role} beigetreten`,
   'participant.revoked': p => `hat den Zugang von ${p.name} beendet`,
@@ -275,7 +277,7 @@ const RULE_TRIGGER = {
   'document.uploaded': 'ein Dokument hochgeladen wird', 'task.complete': 'eine Aufgabe erledigt wird',
   'task.approve': 'eine Prüfung oder Entscheidung positiv ausfällt', 'task.reject': 'eine Prüfung oder Entscheidung negativ ausfällt',
   'task.question': 'eine Rückfrage gestellt wird', 'request.created': 'ein Anliegen eingereicht wird', comment: 'eine Nachricht geschrieben wird',
-  'claim.added': 'eine Forderung erfasst wird', 'decision.added': 'eine Entscheidung erfasst wird', 'transaction.booked': 'eine Zahlung gebucht wird',
+  'signature.changed': 'jemand mit einem anderen Schlüssel als bisher signiert', 'claim.added': 'eine Forderung erfasst wird', 'decision.added': 'eine Entscheidung erfasst wird', 'transaction.booked': 'eine Zahlung gebucht wird',
   'case.closed': 'der Vorgang abgeschlossen wird', 'participant.joined': 'jemand dem Vorgang beitritt', 'subcase.closed': 'ein Teilvorgang abgeschlossen wird',
 };
 

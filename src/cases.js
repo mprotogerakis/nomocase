@@ -5,6 +5,7 @@ import { instantiate, latestTemplate } from './templates.js';
 import { markBlocked } from './tasks.js';
 import { financeSummary, loadFinance, sum } from './finance.js';
 import { deDate, sendMail } from './notify.js';
+import { explainSignatures } from './signatures.js';
 
 export async function createCase({ user, body }) {
   const tpl = (await latestTemplate(body.template_id)) ?? fail(404, 'Vorlage nicht gefunden');
@@ -66,6 +67,10 @@ export async function getCase({ user, params }) {
   const roleLabel = key => ctx.def.roles.find(r => r.key === key)?.label ?? key;
   // Guests may add versions only through a task, or on top of their own latest, non-final version:
   // otherwise a guest file could silently replace a signed or approved one.
+  const visibleDocs = docs.filter(d => canSee(ctx, d));
+  const visibleVersions = versions.filter(v => visibleDocs.some(d => d.id === v.document_id)).map(v => v.id);
+  const signatures = visibleVersions.length ? await explainSignatures(ctx.c, await rows(
+    'SELECT * FROM document_signatures WHERE version_id IN (SELECT value FROM json_each(?)) ORDER BY version_id, position', JSON.stringify(visibleVersions))) : [];
   const canVersion = (d, vs) => ctx.staff || (ctx.access !== 'guest_viewer' && !d.final && vs.at(-1)?.uploaded_by === user.id);
   return {
     stamp: String(events.at(-1)?.id ?? 0), // same value as caseStamp(), read in the same batch as the data
@@ -82,9 +87,10 @@ export async function getCase({ user, params }) {
     me: { role: ctx.role, access: ctx.access, staff: ctx.staff, owner: ctx.owner, can_upload: ctx.access !== 'guest_viewer' },
     phases,
     tasks: tasks.filter(t => canSeeTask(ctx, t)),
-    documents: docs.filter(d => canSee(ctx, d)).map(d => {
+    documents: visibleDocs.map(d => {
       const vs = versions.filter(v => v.document_id === d.id);
-      return { ...d, visible_to: arr(d.visible_to), can_version: canVersion(d, vs), versions: vs.map(({ uploaded_by, ...v }) => ({ ...v, mine: uploaded_by === user.id })) };
+      return { ...d, visible_to: arr(d.visible_to), can_version: canVersion(d, vs),
+        versions: vs.map(({ uploaded_by, ...v }) => ({ ...v, mine: uploaded_by === user.id, signatures: signatures.filter(s => s.version_id === v.id) })) };
     }),
     events: events.filter(e => canSee(ctx, e)).map(e => ({ ...e, payload: JSON.parse(e.payload), visible_to: arr(e.visible_to) })),
     participants: ctx.staff ? parts : parts.filter(p => !p.revoked_at).map(({ name, role }) => ({ name, role })),
@@ -163,6 +169,7 @@ async function purgeCase(c, actorId, reason) {
     q('INSERT INTO case_deletions (case_id, workspace_id, template_name, reason, deleted_by, deleted_at) VALUES (?, ?, ?, ?, ?, ?)',
       c.id, c.workspace_id, c.template_name ?? null, reason, actorId, now()),
     q('DELETE FROM notifications WHERE task_id = ? OR task_id IN (SELECT id FROM tasks WHERE case_id = ?)', c.id, c.id),
+    q('DELETE FROM document_signatures WHERE version_id IN (SELECT v.id FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.case_id = ?)', c.id),
     q('DELETE FROM document_versions WHERE document_id IN (SELECT id FROM documents WHERE case_id = ?)', c.id),
     q('DELETE FROM documents WHERE case_id = ?', c.id),
     q(`DELETE FROM financial_transactions WHERE claim_id ${ofClaims}`, c.id),
@@ -182,8 +189,9 @@ async function purgeCase(c, actorId, reason) {
   const orphans = await rows(`SELECT id FROM users WHERE id IN (SELECT value FROM json_each(?))
     AND NOT EXISTS (SELECT 1 FROM case_participants WHERE user_id = users.id) AND NOT EXISTS (SELECT 1 FROM workspace_members WHERE user_id = users.id)`, JSON.stringify(people));
   for (const { id } of orphans) {
-    await DB.batch(['sessions', 'passkeys', 'login_links', 'challenges', 'notifications'].map(t => q(`DELETE FROM ${t} WHERE user_id = ?`, id))
-      .concat(q('DELETE FROM users WHERE id = ?', id))).catch(e => console.error('user purge failed', id, e.message));
+    await DB.batch(['sessions', 'passkeys', 'login_links', 'challenges', 'notifications', 'signing_keys'].map(t => q(`DELETE FROM ${t} WHERE user_id = ?`, id))
+      .concat(q('UPDATE signing_keys SET vouched_by = NULL WHERE vouched_by = ?', id), q('DELETE FROM users WHERE id = ?', id)))
+      .catch(e => console.error('user purge failed', id, e.message));
   }
 }
 
