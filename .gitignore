@@ -3,3 +3,6 @@ node_modules/
 .dev.vars
 *.credential
 .claude/scheduled_tasks.lock
+# instance configuration (domain, addresses, database id) and notes stay local
+wrangler.jsonc
+docs/BETRIEB.md

@@ -1,6 +1,7 @@
 // One-time login link (valid 24 h) for an existing user: first login of the owner, or recovery after losing all passkeys.
-// Usage: npm run login-link -- <email> [--remote] [--base URL]   (base defaults to localhost / the production origin)
+// Usage: npm run login-link -- <email> [--remote] [--base URL]   (base defaults to localhost / ORIGIN from wrangler.jsonc)
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs } from 'node:util';
 
@@ -23,4 +24,6 @@ if (!out[0].results.length) {
   console.error(`Kein Benutzer mit der E-Mail ${email}`);
   process.exit(1);
 }
-console.log(`${values.base ?? (values.remote ? 'https://nomocase.example.org' : 'http://localhost:8787')}/#/login/${token}`);
+// the deployed origin from the local configuration (wrangler.jsonc may contain // comments)
+const origin = () => readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8').match(/"ORIGIN"\s*:\s*"([^"]+)"/)?.[1];
+console.log(`${values.base ?? (values.remote ? origin() : 'http://localhost:8787')}/#/login/${token}`);

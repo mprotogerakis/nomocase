@@ -58,7 +58,7 @@ export async function accountView() {
     <dl><dt>Name</dt><dd>${me.user.name}</dd><dt>E-Mail</dt><dd>${me.user.email}</dd></dl>
     <h3>Passkeys</h3>
     ${passkeys.length ? html`<ul class="list">${passkeys.map(p => html`<li>Passkey vom ${dateTime(p.created_at)}
-      <span class="muted small">· ${p.usable ? (p.last_used_at ? `zuletzt benutzt ${dateTime(p.last_used_at)}` : 'noch nicht benutzt') : `gilt nur für ${p.rp_id}, hier nicht nutzbar`}</span>
+      <span class="muted small">· ${p.usable ? (p.last_used_at ? `zuletzt benutzt ${dateTime(p.last_used_at)}` : 'noch nicht benutzt') : `gilt nur für ${p.rp_id ?? 'eine frühere Domain'}, hier nicht nutzbar`}</span>
       <button class="link" data-on="passkeyDelete" data-id="${p.id}">entfernen</button></li>`)}</ul>`
       : html`<p class="muted">Noch kein Passkey eingerichtet.</p>`}
     <p><button data-on="passkeyAdd">Passkey hinzufügen</button></p>

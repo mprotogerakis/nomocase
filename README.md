@@ -79,6 +79,7 @@ Voraussetzungen: Node.js 20+ und für die Browser-Tests Google Chrome.
 
 ```sh
 npm install
+cp wrangler.example.jsonc wrangler.jsonc
 printf 'DEV_LOGIN=1\nORIGIN=http://localhost:8787\nREDIRECT_HOSTS=\n' > .dev.vars
 npm run db:init     # Schema, Demo-Konto, Workspaces und Beispielvorlagen
 npm run dev         # http://localhost:8787 – Anmeldung lokal über den Dev-Login
@@ -107,8 +108,9 @@ Deployt wird nur nach grüner Suite.
 1. Cloudflare-Ressourcen anlegen:
    - `wrangler d1 create nomocase --jurisdiction eu`
    - `wrangler r2 bucket create nomocase-files --jurisdiction eu`
-   - IDs und Domain in `wrangler.jsonc` eintragen.
-2. Konfigurieren, siehe `vars` in `wrangler.jsonc`:
+   - `wrangler.example.jsonc` nach `wrangler.jsonc` kopieren und dort Domain, Absender und Datenbank-ID eintragen.
+     `wrangler.jsonc` bleibt außerhalb von Git.
+2. Konfigurieren über `vars` in `wrangler.jsonc`:
 
    | Variable | Bedeutung |
    |---|---|
@@ -125,8 +127,7 @@ Deployt wird nur nach grüner Suite.
    - Beispielvorlagen mit `npm run templates -- --remote`.
 5. Ersten Zugang einrichten: `npm run login-link -- <email> --remote` erzeugt einen Anmeldelink, danach einen Passkey einrichten.
 
-Notizen zur laufenden Instanz: [docs/BETRIEB.md](docs/BETRIEB.md). Den Einwilligungstext sollte vor dem Einsatz die
-zuständige Datenschutzstelle prüfen.
+Den Einwilligungstext sollte vor dem Einsatz die zuständige Datenschutzstelle prüfen.
 
 ## Projektstruktur
 
@@ -137,7 +138,7 @@ migrations/   Datenbankschema (D1)
 templates/    Beispielvorlagen (JSON)
 test/         Tests und synthetische Testdaten
 scripts/      Vorlagen veröffentlichen, Anmeldelink per CLI
-docs/         Referenz und Betriebsnotizen
+docs/         Referenz
 ```
 
 ## Lizenz

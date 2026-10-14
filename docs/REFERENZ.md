@@ -81,10 +81,10 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
   dem Hochladen, bestehende Konten nach der Anmeldung – vorher lässt der Server nichts zu. Text und Version in
   `public/shared/consent.js` (neue Version = alle werden erneut gefragt), Betreiber und Kontakt als `OPERATOR`/`PRIVACY_CONTACT`.
   Widerruf im Konto: abgemeldet, die Teams der Vorgänge werden informiert. Nachweis je Person auf „Personen“.
-- **E-Mails an Vorgänge**: Jeder Vorgang hat eine nicht erratbare Adresse `v-…@example.org` (Details, nur Team). Mails an
+- **E-Mails an Vorgänge**: Jeder Vorgang hat eine nicht erratbare Adresse `v-…@<INBOX_DOMAIN>` (Details, nur Team). Mails an
   diese Adresse (auch in CC) landen als `.eml`-Dokument im Vorgang – Titel = Betreff, Absender als Hochlader, Anhänge im Verlauf,
   nur für das Team sichtbar, je Message-ID einmal; unbekannte Adressen werden abgewiesen, höchstens 100 Mails pro Vorgang und Tag.
-  Einrichtung: Cloudflare Email Routing für `example.org`, Catch-all → Worker `nomocase`; Domain per `INBOX_DOMAIN`.
+  Einrichtung: Cloudflare Email Routing für die Domain aus `INBOX_DOMAIN`, Catch-all → Worker `nomocase`.
 - **Digitale Signaturen in PDFs**: Beim Upload liest NomoCase eingebettete Signaturen (Acrobat/PAdES) aus und prüft, ob die
   signierten Bytes unverändert sind. Ein Schlüssel wird einer Person zugeordnet – durch sie selbst („Das ist meine Signatur“,
   nur wenn das Zertifikat sie nennt), per Probe-PDF im Konto oder durch die Vorgangsverantwortlichen. Danach heißt es
