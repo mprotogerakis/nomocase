@@ -95,4 +95,5 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [ ] Kosten: Änderungsstand per Trigger, Übersicht in SQL verdichten, Aufräumen alter Benachrichtigungen
 - [x] Übersicht als Arbeitsliste: Suche ohne Neuaufbau, Filter, Sortierung nach Dringlichkeit, „wartet auf … seit“,
       überfällig bei anderen, „+ Neuer Vorgang“ oben
-- [ ] Produkt: Einladungen/Personen verwalten, Vorlagen-Archiv, Massenanlage
+- [x] Einladungen/Personen: abgelaufene Einladungen sichtbar, erneutes Einladen ersetzt, Suche/Filter/Aktionen auf „Personen“
+- [ ] Produkt: Vorlagen-Archiv („läuft in N Vorgängen“), Massenanlage zum Semesterstart
