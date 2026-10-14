@@ -12,8 +12,6 @@ Aus einer **Vorlage** entsteht ein **Vorgang**. Er hat:
 Jeder Vorgang lässt sich danach frei anpassen. Prozessspezifisches steht ausschließlich in den Vorlagen, nicht im Code.
 Dieselbe Software trägt deshalb eine Bachelor-Thesis genauso wie eine Arztrechnung.
 
-> Status: Prototyp im Einsatz am Fachbereich Elektro- & Informationstechnik der Hochschule Düsseldorf.
-
 ## Funktionen
 
 **Vorlagen und Vorgänge**
