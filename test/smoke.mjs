@@ -470,7 +470,7 @@ const invoiceTask = lc.tasks.find(t => t.title === 'Rechnung erfassen').id;
 await expect(student(`/tasks/${invoiceTask}/upload-links`, { body: { label: 'x' } }), 404);
 const upToken = (await expect(prof(`/tasks/${invoiceTask}/upload-links`, { body: { label: 'Praxis Dr. Link', days: 7 } }))).link.split('/#/upload/')[1];
 const anon = client();
-assert.deepEqual(Object.keys(await expect(anon(`/upload-links/${upToken}`))).sort(), ['document', 'expires_at', 'label', 'requester', 'task'], 'nothing about the case');
+assert.deepEqual(Object.keys(await expect(anon(`/upload-links/${upToken}`))).sort(), ['document', 'expires_at', 'files', 'label', 'requester', 'task'], 'nothing about the case');
 await expect(anon(`/upload-links/${upToken}`, { form: file('Rechnung-Link.pdf', PDF) }), 400); // without consent: nothing stored
 await expect(anon(`/upload-links/${upToken}`, { form: file('evil.pdf', '<html>', { consent: 'yes' }) }), 422); // rejected, link stays usable
 await expect(anon(`/upload-links/${upToken}`, { form: file('Rechnung-Link.pdf', PDF, { consent: 'yes' }) }));
@@ -533,6 +533,35 @@ assert.ok(movedParent.events.some(e => e.type === 'case.moved' && e.payload.to =
 const { id: toMove } = await expect(prof(`/cases`, { body: { template_id: med.id, title: "Rechnung zum Verschieben" } }));
 assert.deepEqual((await expect(prof(`/cases/${toMove}/move`, { body: { workspace_id: 'ws_hs' } }))).missing_templates, ['Widerspruch'], 'sub-case template missing there');
 await expect(prof(`/cases/${toMove}`, { method: 'DELETE' }));
+
+// Uploads configured per step: kinds of files and several files – checked by the server, also through upload links.
+const filesDef = { roles: [{ key: 'owner', label: 'Team', access: 'case_owner' }], fields: [],
+  document_types: [{ key: 'att', label: 'Anlagen', visible_to: [] }],
+  phases: [{ title: 'Abgabe', tasks: [
+    { key: 'many', title: 'Anlagen hochladen', type: 'upload', doc_type: 'att', files: { multiple: true, accept: ['pdf', 'image'] } },
+    { key: 'pdf', title: 'Bericht als PDF', type: 'upload', files: { accept: ['pdf'] } }] }] };
+await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`,
+  definition: { ...filesDef, phases: [{ title: 'x', tasks: [{ key: 'a', title: 'A', type: 'upload', files: { accept: ['exe'] } }] }] } } }), 400);
+const { id: filesTpl } = await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`, definition: filesDef } }));
+const { id: filesCase } = await expect(prof('/cases', { body: { template_id: filesTpl, title: `Uploads ${run}` } }));
+let fc = await expect(prof(`/cases/${filesCase}`));
+const stepOf = key => fc.tasks.find(t => t.key === key);
+const sendTo = (key, name, extra = {}) => prof(`/cases/${filesCase}/documents`, { form: file(name, name.endsWith('.txt') ? 'hallo' : PDF, { task_id: stepOf(key).id, ...extra }) });
+assert.match((await expect(sendTo('pdf', 'notiz.txt'), 415)).error, /nur PDF/);
+await expect(sendTo('many', 'a.pdf', { more: '1' }));
+fc = await expect(prof(`/cases/${filesCase}`));
+assert.equal(stepOf('many').status, 'open', 'more files to come');
+await expect(sendTo('many', 'b.pdf'));
+fc = await expect(prof(`/cases/${filesCase}`));
+assert.equal(stepOf('many').status, 'done', 'the last file completes the step');
+assert.deepEqual(fc.documents.filter(d => d.doc_type === 'att').map(d => d.title).sort(), ['a.pdf', 'b.pdf'], 'each file a document of its own');
+const { link: pdfLink } = await expect(prof(`/tasks/${stepOf('pdf').id}/upload-links`, { body: { label: 'Extern' } }));
+const pdfToken = pdfLink.split('/').pop();
+assert.deepEqual((await expect(anon(`/upload-links/${pdfToken}`))).files, { accept: ['pdf'] }, 'the link page names the allowed kinds');
+await expect(anon(`/upload-links/${pdfToken}`, { form: file('x.txt', 'hallo', { consent: 'yes' }) }), 415);
+await expect(anon(`/upload-links/${pdfToken}`, { form: file('x.pdf', PDF, { consent: 'yes' }) }), 200, 'a wrong kind did not use up the link');
+await expect(prof(`/cases/${filesCase}`, { method: 'DELETE' }));
+await expect(prof(`/templates/${filesTpl}`, { method: 'DELETE' }));
 await expect(prof(`/cases/${parentToGo}`, { method: 'DELETE' }));
 await expect(prof(`/cases/${childToGo}`), 404, 'subcases go with their parent');
 

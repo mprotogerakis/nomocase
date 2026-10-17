@@ -15,6 +15,7 @@ export function markBlocked(tasks) {
     t.visible_to = arr(t.visible_to);
     t.money = typeof t.money === 'string' ? JSON.parse(t.money) : t.money ?? null;
     t.labels = typeof t.labels === 'string' ? JSON.parse(t.labels) : t.labels ?? null;
+    t.files = typeof t.files === 'string' ? JSON.parse(t.files) : t.files ?? null;
     t.blocked = t.depends_on.some(d => ids.has(d) && !ok.has(d));
   }
   return tasks;

@@ -91,7 +91,9 @@ export async function templatesView() {
       <select name="workspace_id" aria-label="Ziel-Workspace">${owned.filter(w => w.id !== t.workspace_id).map(w => html`<option value="${w.id}">${w.name}</option>`)}</select>
       <button>Kopieren</button></form>` : ''}
     ${t.definition.forms?.length ? html`<p class="small">Formulare (Vorschau): ${t.definition.forms.map((f, i) => html`${i ? ' · ' : ''}<button type="button" class="link" data-on="previewForm" data-id="${t.id}" data-key="${f.key}">${f.title}</button>`)}</p>` : ''}
-    ${owned.some(w => w.id === t.workspace_id) ? html`<form data-submit="saveTemplate" data-id="${t.id}" class="stack">
+    ${owned.some(w => w.id === t.workspace_id) ? html`<p><a class="btn" href="#/templates/${t.id}">Ablauf bearbeiten</a>
+      <span class="muted small">· oder direkt als JSON (auch Regeln, Formulare, Bewertung):</span></p>
+    <form data-submit="saveTemplate" data-id="${t.id}" class="stack">
       <textarea name="definition" rows="26" class="code" spellcheck="false">${JSON.stringify(t.definition, null, 2)}</textarea>
       <div class="row" style="justify-content:space-between"><button>Als Version ${t.version + 1} speichern</button>
         ${t.archived_at ? html`<button type="button" class="link" data-on="restoreTemplate" data-id="${t.id}">wiederherstellen</button>`

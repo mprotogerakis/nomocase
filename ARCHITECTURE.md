@@ -57,7 +57,7 @@ Aufrufe in beide Richtungen, aber nur zur Laufzeit (keine Auswertung beim Laden)
 | `app.js` | Einstieg: Hash-Router, Live-Aktualisierung, Event-Delegation (`data-on`, `data-submit`, `data-change`) |
 | `state.js` | Gemeinsamer Zustand (`me`, `cur`, `stamp`, `templates`) mit `set()`, Handler-Register |
 | `lib.js` | Sicheres HTML (`html`/`esc`), Formatierung, Beschriftungen, API-Client, Navigation, Seitenrahmen |
-| `views/*.js` | Ansichten: `account`, `dashboard`, `admin`, `workspaces`, `case`, `tasks`, `documents`, `finance` |
+| `views/*.js` | Ansichten: `account`, `dashboard`, `admin`, `workspaces`, `case`, `tasks`, `documents`, `finance`, `template-editor` (Vorlage als Formular statt JSON) |
 | `shared/vocab.js` | Begriffe, die Server und Oberfläche teilen (Zugriffsstufen, Aufgabentypen) |
 | `shared/forms.js` | Formulare der Vorlage: Prüfung, Platzhalter füllen (Server: echte Werte, Vorschau: Platzhalternamen) |
 | `formpdf.js` | Formular als ausfüllbare PDF mit Signaturfeldern; lädt `vendor/pdf-lib` erst bei Bedarf (nichts von Fremdservern) |
@@ -76,7 +76,8 @@ Module hinweg.
 
 `roles`, `fields`, `document_types`, `phases[].tasks[]`, `rules`, `finance`, `retention_days`; je Schritt u. a.
 `key`, `type`, `role`, `after`, `due_days`/`due_field` (die Frist folgt dem Datumsfeld, auch wenn es erst später gesetzt
-oder geändert wird), `visible_to`, `labels`, `money`, `assess`. Regeln: `trigger`,
+oder geändert wird), `visible_to`, `labels`, `money`, `assess`, `form`, `files` (`{ "multiple": true, "accept": ["pdf", "image", "word", "excel", "text"] }`:
+mehrere Dateien bzw. erlaubte Dateiarten, vom Server geprüft – auch über Upload-Links). Regeln: `trigger`,
 `conditions` (Fakten wie `task.key`, `document.type`, `claim.open`), `actions` (`create_task`, `complete_tasks`,
 `add_comment`, `create_subcase`). Dazu `due_base_field` (Datumsfeld, ab dem `due_days` zählen), `finance`
 (`true` oder `{ "labels": { … } }` mit eigenen Begriffen), `scales` (Skala: `range`+`step`+`extra` oder `options`,
@@ -130,4 +131,7 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   keine Einladungslinks an Einladende, Mail-Limit je Person, CSP und Header, Origin-Pflicht, `__Host-`-Cookie
 - [ ] Tokens aus URL-Pfaden in den Request-Body (Einladung, Upload-Link): Pfade landen in den Worker-Logs
 - [ ] Anmeldelink-Anfragen zusätzlich pro IP begrenzen (Workers Rate Limiting), falls das Tageskontingent missbraucht wird
+- [x] Vorlagen-Editor, Stufe 1: Rollen, Angaben, Dokumenttypen, Phasen und Schritte (Typ, Rolle, Reihenfolge, Frist,
+  Dokument, Upload-Einstellungen, Beschreibung) als Formular; Regeln, Formulare, Bewertung, Geld weiter als JSON
+- [ ] Vorlagen-Editor, Stufe 2: Regeln und Formulare als Formular
 - [ ] Workspace-Änderungen (Mitglieder, Name) protokollieren; das Ereignisprotokoll kennt bisher nur Vorgänge

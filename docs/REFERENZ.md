@@ -74,6 +74,13 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
   der Skala ein (z. B. Note 1,0–4,0 in 0,1-Schritten oder 5,0); unter `pass` liegt „bestanden“. `aggregates` verrechnen mehrere
   Bewertungen (Mittel, Minimum, Maximum, Summe; abschneiden oder runden) und können das Ergebnis in ein Feld übernehmen.
   Einzelwerte sehen nur, die den Schritt sehen dürfen. Beispiele: Masterprojekt, Bachelor- und Master-Thesis.
+- **Vorlagen-Editor** (Vorlagen → „Ablauf bearbeiten“, für Owner): Rollen, Angaben, Dokumenttypen, Phasen und Schritte als
+  Formular – Titel, Typ, zuständige Rolle, „startet nach“, Frist (Tage ab Start oder aus einem Datumsfeld), Dokumenttyp,
+  Upload-Einstellungen, Beschreibung; Reihenfolge per ↑/↓. Speichern legt die nächste Version an. Regeln, Formulare,
+  Bewertung und Geldschritte bleiben unverändert und lassen sich in der JSON-Ansicht bearbeiten.
+- **Uploads pro Schritt** (`"files"`): eine Datei oder mehrere (`"multiple": true`, jede Datei wird ein eigenes Dokument,
+  der Schritt ist mit der letzten erledigt) und erlaubte Dateiarten (`"accept": ["pdf", "image", "word", "excel", "text"]`).
+  Der Dateidialog filtert danach, der Server prüft es – auch bei Upload-Links, die bei einer falschen Datei nutzbar bleiben.
 - **Vorlage in einen anderen Workspace kopieren** (Vorlagenseite, für Owner beider Workspaces): legt dort eine eigene
   Vorlage an (Version 1, bei gleichem Namen „(Kopie)“); Änderungen wirken nur auf ihrer Seite. Starten ihre Regeln
   Teilvorgänge aus anderen Vorlagen, weist NomoCase darauf hin, diese ebenfalls zu kopieren.

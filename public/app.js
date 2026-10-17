@@ -5,6 +5,7 @@ import { accountView, consentView, inviteView, loginLinkView, loginView, uploadL
 import { dashboardView } from './views/dashboard.js';
 import { peopleView, templatesView } from './views/admin.js';
 import { workspacesView } from './views/workspaces.js';
+import { templateEditorView } from './views/template-editor.js';
 import { caseView } from './views/case.js';
 
 async function route() {
@@ -19,7 +20,7 @@ async function route() {
     if (!me.user) return loginView();
     if (!me.consent.accepted) return consentView();
     if (view === 'case') return await caseView(id);
-    if (view === 'templates') return await templatesView();
+    if (view === 'templates') return id ? await templateEditorView(id) : await templatesView();
     if (view === 'account') return await accountView();
     if (view === 'people') return await peopleView();
     if (view === 'workspaces') return await workspacesView();

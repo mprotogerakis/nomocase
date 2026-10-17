@@ -72,6 +72,13 @@
   .timeline { list-style: none; padding: 0; margin: 0 0 10px; }
   .ev { padding: 7px 0; border-bottom: 1px solid var(--line); }
   .ev p { margin: 4px 0 0; white-space: pre-wrap; }
+  main.template-editor { max-width: 920px; }
+  .template-editor .step { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 6px 0; background: var(--card); display: flex; flex-direction: column; gap: 6px; }
+  .template-editor fieldset.phase { border: 1px solid var(--line); border-radius: 10px; margin: 10px 0; padding: 4px 10px 10px; }
+  .template-editor .grow { flex: 1; min-width: 12em; }
+  .template-editor .tools button { padding: 0 4px; }
+  .template-editor .editor-save { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; border-top: 1px solid var(--line); margin-top: 14px; }
+  a.btn { display: inline-block; padding: 4px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); text-decoration: none; }
   .ev p.clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
   .ev p.clamp.open { display: block; }
   .ev.comment p { background: #f1f5ff; padding: 6px 9px; border-radius: 6px; }

@@ -60,7 +60,7 @@ export async function openBrowser({ width = 1400, height = 1000, args = [] } = {
     async setFile(selector, path) {
       const { root } = await cdp('DOM.getDocument');
       const { nodeId } = await cdp('DOM.querySelector', { nodeId: root.nodeId, selector });
-      await cdp('DOM.setFileInputFiles', { nodeId, files: [path] });
+      await cdp('DOM.setFileInputFiles', { nodeId, files: [path].flat() }); // one path or several
     },
     async close() {
       ws.close();

@@ -144,6 +144,42 @@ try {
   assert.ok(await evaluate(`[...document.querySelectorAll('h2.ws-heading')].some(h => h.textContent.startsWith('Privat'))`), 'templates grouped by workspace');
   for (const c of copies) await evaluate(`fetch('/api/templates/${c.id}', { method: 'DELETE' }).then(r => r.status)`);
 
+  // Template editor: rename a step as you type, add one that takes several PDFs, save as the next version
+  const post = (path, body) => evaluate(`fetch('/api${path}', { method: 'POST', headers: { 'content-type': 'application/json' }, body: ${J(J(body))} }).then(r => r.json())`);
+  const { id: edId } = await post('/templates', { workspace_id: 'ws_hs', name: `UI-Editor ${run}`, definition: {
+    roles: [{ key: 'owner', label: 'Team', access: 'case_owner' }], fields: [], document_types: [{ key: 'att', label: 'Anlagen', visible_to: [] }],
+    phases: [{ title: 'Ablauf', tasks: [{ key: 'start', title: 'Start', type: 'task' }] }] } });
+  await go(`#/templates/${edId}`, `!!document.querySelector('.template-editor .step')`);
+  const typeInto = (path, value) => evaluate(`(() => { const i = document.querySelector('[data-path="${path}"]'); i.value = ${J(value)};
+    i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  await typeInto('phases.0.tasks.0.title', 'Beginn');
+  await b.click('[data-on="tplAdd"][data-path="phases.0.tasks"]');
+  await waitFor(`!!document.querySelector('[data-path="phases.0.tasks.1.title"]')`, 'neuer Schritt');
+  await typeInto('phases.0.tasks.1.title', 'Anlagen hochladen');
+  await change('[data-path="phases.0.tasks.1.type"]', 'upload');
+  await waitFor(`!!document.querySelector('[data-change="tplMultiple"][data-path="phases.0.tasks.1"]')`, 'Datei-Einstellungen');
+  await change('[data-change="tplMultiple"][data-path="phases.0.tasks.1"]', 'many');
+  await evaluate(`(() => { const c = document.querySelector('[data-change="tplAccept"][data-path="phases.0.tasks.1"][value="pdf"]');
+    c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await change('[data-path="phases.0.tasks.1.doc_type"]', 'att');
+  const shown = dialogs.length;
+  await b.click('[data-on="tplSave"]');
+  await until(() => dialogs.length > shown && dialogs.at(-1).startsWith('Gespeichert als Version 2'), 'im Editor gespeichert');
+  const saved = (await api('/templates')).find(t => t.id === edId);
+  assert.deepEqual(saved.definition.phases[0].tasks.map(t => [t.key, t.title, t.type, t.files ?? null, t.doc_type ?? null]),
+    [['start', 'Beginn', 'task', null, null], ['anlagen-hochladen', 'Anlagen hochladen', 'upload', { multiple: true, accept: ['pdf'] }, 'att']]);
+  // … and in a case from it: the step takes several PDFs at once, each one a document, the step done after the last
+  const { id: edCase } = await post('/cases', { template_id: edId, title: `UI-Anlagen ${run}` });
+  await go(`#/case/${edCase}`, `!!document.querySelector('form[data-submit="upload"] input[multiple]')`);
+  assert.equal(await evaluate(`document.querySelector('form[data-submit="upload"] input[type=file]').accept`), '.pdf');
+  const second = pdf.replace('UI-Test.pdf', 'Zweite.pdf');
+  writeFileSync(second, `${PDF}% zwei ${run}\n`);
+  await b.setFile('form[data-submit="upload"] input[type=file]', [pdf, second]);
+  await evaluate(`document.querySelector('form[data-submit="upload"]').requestSubmit() ?? true`);
+  await waitFor(`fetch('/api/cases/${edCase}').then(r => r.json()).then(c => c.documents.length === 2 && c.tasks.find(t => t.title === 'Anlagen hochladen').status === 'done')`, 'zwei Dateien hochgeladen');
+  await evaluate(`fetch('/api/cases/${edCase}', { method: 'DELETE' }).then(r => r.status)`);
+  await evaluate(`fetch('/api/templates/${edId}', { method: 'DELETE' }).then(r => r.status)`);
+
   // Assessment: two examiners give grades on the template's scale, the combined value can be taken over into a field
   const mtpl = tpls.find(t => t.name === 'Masterprojekt (M.Sc.)');
   const master = await evaluate(`fetch('/api/cases', { method: 'POST', headers: { 'content-type': 'application/json' },

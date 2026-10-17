@@ -1,5 +1,5 @@
 // Templates: definition check, versions, instantiating a case, turning a case back into a template.
-import { ACCESS, arr, DB, DECISIONS, ev, fail, isDate, now, q, row, rows, TASK_TYPES, uid } from './core.js';
+import { ACCESS, arr, DB, DECISIONS, ev, fail, FILE_KINDS, isDate, now, q, row, rows, TASK_TYPES, uid } from './core.js';
 import { caseCtx, requireWsOwner } from './access.js';
 import { RULE_ACTIONS, RULE_OPS, RULE_TRIGGERS } from './rules.js';
 import { scaleProblem } from '../public/shared/assess.js';
@@ -45,6 +45,9 @@ export function checkDef(d) {
         `labels bei "${t.key}": zwei Beschriftungen, nur bei review/approval/decision`);
       ok(t.assess === undefined || (d.scales?.[t.assess] && DECISIONS.includes(t.type)), `assess bei "${t.key}": eine Skala aus scales, nur bei review/approval/decision`);
       ok(t.form === undefined || d.forms?.some(f => f.key === t.form), `form bei "${t.key}": ein key aus forms`);
+      ok(t.files === undefined || (t.files && typeof t.files === 'object' && (t.files.multiple === undefined || typeof t.files.multiple === 'boolean')
+        && (t.files.accept === undefined || (Array.isArray(t.files.accept) && t.files.accept.every(k => FILE_KINDS[k])))),
+        `files bei "${t.key}": { "multiple": true/false, "accept": [${Object.keys(FILE_KINDS).map(k => `"${k}"`).join(', ')}] }`);
       ok(t.visible_to === undefined || (Array.isArray(t.visible_to) && t.visible_to.every(v => v === '*' || roles.has(v))), `visible_to bei "${t.key}": Liste von Rollen oder "*"`);
       const m = t.money;
       ok(m === undefined || (m && typeof m === 'object' && (
@@ -164,12 +167,12 @@ export function instantiate(tpl, { title, fields: input = {}, ownerId, actorId =
     const phaseId = uid();
     stmts.push(q('INSERT INTO phases (id, case_id, title, position) VALUES (?, ?, ?, ?)', phaseId, caseId, p.title, i));
     p.tasks.forEach((t, j) => stmts.push(q(
-      `INSERT INTO tasks (id, case_id, phase_id, title, description, type, role, depends_on, doc_type, due_date, position, created_by, created_at, money, visible_to, labels, assess, key, due_field, form)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, case_id, phase_id, title, description, type, role, depends_on, doc_type, due_date, position, created_by, created_at, money, visible_to, labels, assess, key, due_field, form, files)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       taskIds[t.key], caseId, phaseId, t.title, t.description ?? null, t.type, t.role ?? null,
       JSON.stringify((t.after ?? []).map(k => taskIds[k])), t.doc_type ?? null,
       t.due_field ? (isDate(fields[t.due_field]) ? fields[t.due_field] : null) : due(t.due_days), j, ownerId, ts,
-      t.money ? JSON.stringify(t.money) : null, JSON.stringify(t.visible_to ?? []), t.labels ? JSON.stringify(t.labels) : null, t.assess ?? null, t.key, t.due_field ?? null, t.form ?? null)));
+      t.money ? JSON.stringify(t.money) : null, JSON.stringify(t.visible_to ?? []), t.labels ? JSON.stringify(t.labels) : null, t.assess ?? null, t.key, t.due_field ?? null, t.form ?? null, t.files ? JSON.stringify(t.files) : null)));
   });
   stmts.push(ev(caseId, actorId, 'case.created', { template: tpl.name, version: tpl.version, ...by }, ['*']));
   return { caseId, stmts };
@@ -202,6 +205,7 @@ function caseDefinition(c, def, phases, tasks) {
       due_field: dueField || null,
       due_days: t.due_date && !dueField ? Math.round((Date.parse(t.due_date) - Date.parse(base)) / 864e5) : null,
       visible_to: arr(t.visible_to).length ? arr(t.visible_to) : null, money, labels, assess: t.assess, form: t.form,
+      files: typeof t.files === 'string' ? JSON.parse(t.files) : t.files,
     }).filter(([, v]) => v != null && v !== ''));
   };
   return checkDef({

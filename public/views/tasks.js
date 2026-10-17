@@ -1,9 +1,9 @@
 // Tasks in a case: list items, actions, menu, money steps and assessments.
-import { DECISIONS, NEEDS_FILE } from '../shared/vocab.js';
+import { acceptAttr, DECISIONS, filesHint, NEEDS_FILE } from '../shared/vocab.js';
 import { change, on, submit } from '../state.js';
 import { api, date, DECISION_LABELS, due, eur, html, linkify, OUTCOME, plainEur, reload, TYPES } from '../lib.js';
 import { caseApi, guestRoles, holders, roleLabel } from './case.js';
-import { fileLink, formCheck, formNotice } from './documents.js';
+import { fileLink, formCheck, uploadFiles } from './documents.js';
 import { amountOf } from './finance.js';
 import { aggregate, formatScore } from '../shared/assess.js';
 
@@ -139,14 +139,20 @@ function moneyStatus(t, d) {
     : `„${c.title}“: ${c.direction === 'payable' ? 'bezahlt' : 'erhalten'} ${eur(c.settled_cents)} · offen ${eur(Math.max(c.open_cents, 0))}`}</div>`;
 }
 
+// File input of a step: the kinds it takes (template "files.accept"), several files if allowed.
+const fileInput = (t, required) => html`<input type="file" name="file" ${required ? 'required' : html`title="Datei (optional)"`}
+  accept="${acceptAttr(t.files)}" ${t.files?.multiple ? 'multiple' : ''}>`;
+
 // The task type decides the actions. Upload and signature tasks are done by uploading; decisions by their
 // buttons (a file is only attached); everything else by "Erledigt", optionally with a file and an amount.
 export function taskActions(t, d) {
   const money = moneyField(t, d);
   if (NEEDS_FILE.includes(t.type)) {
+    const several = t.files?.multiple;
     return html`<div class="actions"><form data-submit="upload" class="row">
-      <input type="hidden" name="task_id" value="${t.id}"><input type="file" name="file" required>${money}
-      <button>${resultsOf(t, d).length ? 'Korrigierte Fassung hochladen' : 'Hochladen'}</button>
+      <input type="hidden" name="task_id" value="${t.id}">${fileInput(t, true)}${money}
+      <button>${several ? 'Dateien hochladen' : resultsOf(t, d).length ? 'Korrigierte Fassung hochladen' : 'Hochladen'}</button>
+      ${filesHint(t.files) ? html`<span class="small muted">${filesHint(t.files)}</span>` : ''}
     </form></div>`;
   }
   if (DECISIONS.includes(t.type)) {
@@ -155,7 +161,7 @@ export function taskActions(t, d) {
     const [yes, no] = t.labels ?? DECISION_LABELS[t.type];
     return html`<div class="actions">
       ${t.doc_type ? html`<form data-submit="upload" class="row">
-        <input type="hidden" name="task_id" value="${t.id}"><input type="file" name="file" required><button>Datei anhängen</button>
+        <input type="hidden" name="task_id" value="${t.id}">${fileInput(t, true)}<button>Datei anhängen</button>
       </form>` : ''}
       ${t.assess ? scoreForm(t, d) : html`<button data-on="taskAct" data-act="approve" data-id="${t.id}">${yes}</button>
       <details class="inline"><summary class="btn">${no}</summary>
@@ -170,7 +176,7 @@ export function taskActions(t, d) {
     </div>`;
   }
   return html`<div class="actions"><form data-submit="complete" data-id="${t.id}" class="row">
-    ${t.doc_type ? html`<input type="file" name="file" title="Datei (optional)">` : ''}${money}<button>Erledigt</button>
+    ${t.doc_type ? fileInput(t, false) : ''}${money}<button>Erledigt</button>
   </form></div>`;
 }
 
@@ -288,13 +294,12 @@ change.due = async el => { await api(`/tasks/${el.dataset.id}`, { method: 'PATCH
 submit.complete = async (fd, form) => {
   const amount_cents = fd.get('amount') ? amountOf(fd) : undefined;
   if (amount_cents === null) return;
-  const file = fd.get('file');
-  if (file?.size) {
+  if (fd.getAll('file').some(f => f.size)) {
     const up = new FormData();
-    up.append('file', file);
+    for (const f of fd.getAll('file')) up.append('file', f);
     up.append('task_id', form.dataset.id);
     if (amount_cents != null) up.append('amount_cents', amount_cents);
-    formNotice(await api(caseApi('/documents'), { body: up }));
+    await uploadFiles(up);
   } else {
     await api(`/tasks/${form.dataset.id}/action`, { body: { action: 'complete', amount_cents } });
   }

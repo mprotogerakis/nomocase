@@ -129,6 +129,19 @@ change.share = async el => {
   reload();
 };
 
+// The chosen files one request each (each within the Worker's CPU budget); a multi-file step completes with the last
+// one ("more" on the others), and an amount goes with the last one only.
+export async function uploadFiles(fd) {
+  const files = fd.getAll('file').filter(f => f.size);
+  for (const [i, file] of files.entries()) {
+    const one = new FormData();
+    for (const [k, v] of fd) if (k !== 'file' && (k !== 'amount_cents' || i === files.length - 1)) one.append(k, v);
+    one.append('file', file);
+    if (i < files.length - 1) one.append('more', '1');
+    formNotice(await api(caseApi('/documents'), { body: one }));
+  }
+}
+
 submit.upload = async fd => {
   if (fd.get('amount')) {
     const cents = amountOf(fd);
@@ -136,6 +149,6 @@ submit.upload = async fd => {
     fd.set('amount_cents', cents);
   }
   fd.delete('amount');
-  formNotice(await api(caseApi('/documents'), { body: fd }));
+  await uploadFiles(fd);
   reload();
 };

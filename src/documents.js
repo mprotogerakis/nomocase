@@ -2,7 +2,7 @@
 import { checkContent } from './validate.js';
 import { readSignatures } from './pdfsig.js';
 import { signatureEvents, signatureStmts } from './signatures.js';
-import { arr, DB, DECISIONS, E, ev, fail, hex, NEEDS_FILE, now, q, roleList, row, rows, sha256, token, uid } from './core.js';
+import { acceptedExtensions, arr, DB, DECISIONS, E, ev, fail, FILE_KIND_LABELS, hex, NEEDS_FILE, now, q, roleList, row, rows, sha256, token, uid } from './core.js';
 import { canSee, canWork, caseCtx, taskAudience } from './access.js';
 import { originOf } from './auth.js';
 import { loadTask, markBlocked } from './tasks.js';
@@ -48,7 +48,8 @@ export async function readUpload(file, strict, given) {
 // Stores a checked file as the next version of `doc` (a row, or a new document to create) and completes the task
 // it belongs to (decisions only get it attached). `actorId` is null and `label` set for uploads through a link or
 // mails into the case (`channel: 'mail'`, `extra`: subject and attachment names for the log). `byTeam`: uploaded by the team.
-export async function storeVersion({ c, actorId, uploadedBy, label = null, channel = null, extra = {}, f, task, doc, stmts = [], byTeam = false }) {
+// `complete: false` keeps the task open (more files of a multi-file step follow).
+export async function storeVersion({ c, actorId, uploadedBy, label = null, channel = null, extra = {}, f, task, doc, stmts = [], byTeam = false, complete = true }) {
   if (doc.isNew) {
     stmts.unshift(q('INSERT INTO documents (id, case_id, title, doc_type, visible_to, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       doc.id, c.id, doc.title, doc.doc_type, JSON.stringify(doc.visible_to), uploadedBy, now()));
@@ -56,7 +57,7 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
   const { n } = await row('SELECT COALESCE(MAX(version), 0) + 1 AS n FROM document_versions WHERE document_id = ?', doc.id);
   const versionId = uid();
   const key = `${c.workspace_id}/${c.id}/${doc.id}/${versionId}`;
-  const completes = task && task.status === 'open' && !task.blocked && !DECISIONS.includes(task.type);
+  const completes = complete && task && task.status === 'open' && !task.blocked && !DECISIONS.includes(task.type);
   // Digital signatures inside PDFs: stored with the version; a signer who used another key before is logged.
   const sigs = f.contentType === 'application/pdf' ? await readSignatures(f.bytes) : [];
   // One of the case's forms, filled in: remembered with the version and compared with the case's fields. Values for
@@ -90,6 +91,14 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
   return { document_id: doc.id, version: n, ...(form && { form: { title: form.title, differs: check.differs, taken: taken.changed.map(x => x.label) } }) };
 }
 
+// A step may take only certain kinds of files (template "files": { "accept": [...] }).
+function checkKind(task, filename) {
+  const exts = acceptedExtensions(task?.files);
+  if (exts && !exts.includes(filename.split('.').pop().toLowerCase())) {
+    fail(415, `Für „${task.title}“ bitte nur ${task.files.accept.map(k => FILE_KIND_LABELS[k]).join(' oder ')} hochladen.`);
+  }
+}
+
 // Target document for an upload through a task: the existing one of the task's type (if the uploader may see it) or a new one.
 async function taskDocument(ctx, task, title, filename) {
   const existing = task.doc_type && (await rows('SELECT * FROM documents WHERE case_id = ? AND doc_type = ? ORDER BY created_at', ctx.c.id, task.doc_type)).find(d => canSee(ctx, d));
@@ -113,7 +122,10 @@ export async function upload({ req, user, params }) {
     ({ t: task } = await loadTask(user, form.get('task_id')));
     if (task.case_id !== ctx.c.id) fail(400, 'Aufgabe gehört zu einem anderen Vorgang');
     if (!canWork(ctx, task) || task.status !== 'open' || task.blocked) fail(409, 'Aufgabe kann gerade nicht bearbeitet werden');
+    checkKind(task, f.filename);
   }
+  // A step that takes several files: each file is a document of its own; the last one ("more" not set) completes it.
+  const several = !!task?.files?.multiple;
 
   // Target document: explicit new version > existing document of the task's type > new document.
   let doc;
@@ -122,6 +134,9 @@ export async function upload({ req, user, params }) {
     if (!doc || !canSee(ctx, doc)) fail(404, 'Dokument nicht gefunden');
     const last = await row('SELECT uploaded_by FROM document_versions WHERE document_id = ? ORDER BY version DESC LIMIT 1', doc.id);
     if (!ctx.staff && (task || doc.final || last?.uploaded_by !== user.id)) fail(403, 'Neue Fassungen dieses Dokuments bitte über die passende Aufgabe hochladen.');
+  } else if (task && several) {
+    const dt = ctx.def.document_types.find(t => t.key === task.doc_type);
+    doc = { isNew: true, id: uid(), title: f.filename.slice(0, 200), doc_type: task.doc_type ?? null, visible_to: dt?.visible_to ?? [] };
   } else if (task) {
     doc = await taskDocument(ctx, task, form.get('title'), f.filename);
   } else {
@@ -133,7 +148,8 @@ export async function upload({ req, user, params }) {
     doc = { isNew: true, id: uid(), title: String(form.get('title') || dt?.label || f.filename).slice(0, 200), doc_type: docType, visible_to: dt?.visible_to ?? [] };
   }
   const stmts = task ? await moneyStmts(ctx, user, task, form.get('amount_cents')) : [];
-  return storeVersion({ c: ctx.c, actorId: user.id, uploadedBy: user.id, f, task, doc, stmts, byTeam: ctx.staff });
+  return storeVersion({ c: ctx.c, actorId: user.id, uploadedBy: user.id, f, task, doc, stmts, byTeam: ctx.staff,
+    complete: !(several && form.get('more') === '1') });
 }
 
 // Spec 4.2 variant B: someone without an account (a practice, a workshop) uploads a file for exactly one task.
@@ -164,7 +180,7 @@ export async function createUploadLink({ user, params, body, url }) {
 }
 
 async function loadUploadLink(secret) {
-  return (await row(`SELECT l.*, t.title AS task_title, t.doc_type, t.type AS task_type, t.status AS task_status, u.name AS requester, c.definition, c.workspace_id
+  return (await row(`SELECT l.*, t.title AS task_title, t.doc_type, t.type AS task_type, t.status AS task_status, t.files AS task_files, u.name AS requester, c.definition, c.workspace_id
     FROM upload_links l JOIN tasks t ON t.id = l.task_id JOIN users u ON u.id = l.created_by JOIN cases c ON c.id = l.case_id
     WHERE l.token_hash = ? AND l.revoked_at IS NULL AND l.expires_at > ? AND (l.single_use = 0 OR l.used_at IS NULL)
       AND t.status = 'open' AND c.status = 'open'`, await sha256(String(secret ?? '')), now()))
@@ -175,7 +191,8 @@ async function loadUploadLink(secret) {
 export async function getUploadLink({ params }) {
   const l = await loadUploadLink(params.token);
   const dt = JSON.parse(l.definition).document_types.find(t => t.key === l.doc_type);
-  return { requester: l.requester, label: l.label, task: l.task_title, document: dt?.label ?? null, expires_at: l.expires_at };
+  return { requester: l.requester, label: l.label, task: l.task_title, document: dt?.label ?? null, expires_at: l.expires_at,
+    files: l.task_files ? JSON.parse(l.task_files) : null };
 }
 
 export async function useUploadLink({ req, params }) {
@@ -187,13 +204,14 @@ export async function useUploadLink({ req, params }) {
     await ev(l.case_id, null, 'upload.rejected', { filename: f.filename, note: f.problem, via: l.label }, []).run();
     fail(422, f.problem);
   }
+  const tasks = markBlocked(await rows('SELECT * FROM tasks WHERE case_id = ?', l.case_id));
+  const task = tasks.find(t => t.id === l.task_id);
+  checkKind(task, f.filename); // before the link is used up: a wrong kind of file leaves it usable
   if (l.single_use && !(await row('UPDATE upload_links SET used_at = ? WHERE token_hash = ? AND used_at IS NULL RETURNING token_hash', now(), l.token_hash))) {
     fail(404, 'Dieser Upload-Link wurde gerade schon benutzt.');
   }
   const def = JSON.parse(l.definition);
   const c = { id: l.case_id, workspace_id: l.workspace_id };
-  const tasks = markBlocked(await rows('SELECT * FROM tasks WHERE case_id = ?', l.case_id));
-  const task = tasks.find(t => t.id === l.task_id);
   // Acts like the team member who sent the link would see it, but the version is labelled with who really uploaded.
   const ctx = { c, def, user: { id: l.created_by }, role: null, staff: true };
   const doc = await taskDocument(ctx, task, null, f.filename);
