@@ -189,8 +189,8 @@ export async function createUploadLink(rq) {
       await sha256(secret), ctx.c.id, t.id, label, user.id, time, new Date(Date.now() + days * 864e5).toISOString(), body.single_use === false ? 0 : 1),
     event(ctx.c.id, user.id, 'upload_link.created', { task: t.title, task_id: t.id, label, days }, []),
   ]);
-  const link = `${originOf(url)}/#/upload/${secret}`;
-  const sent = email ? await sendMail(email, `Bitte Datei bereitstellen: ${t.title}`, [
+  const link = `${originOf(rq, url)}/#/upload/${secret}`;
+  const sent = email ? await sendMail(rq, email, `Bitte Datei bereitstellen: ${t.title}`, [
     'Guten Tag,',
     `${user.name} bittet Sie, für „${t.title}“ eine Datei bereitzustellen. Eine Anmeldung ist nicht nötig:\n${link}`,
     `Der Link ist ${days} Tage gültig${body.single_use === false ? '' : ' und funktioniert für eine Datei'}. Erlaubt sind PDF, Bilder (PNG, JPG), Word, Excel, OpenDocument und Text bis 20 MB.`,

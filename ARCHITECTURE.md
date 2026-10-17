@@ -152,7 +152,7 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   `row`, `rows`, `sql`, `batch`, `event`, `wsEvent`, `env`, `time`, `rpId` aus ihrem Argument, Helfer bekommen ihn als
   `rq`. Lange Namen, damit die Prüfung auf freie Variablen ein vergessenes Holen bemerkt. Modul für Modul, von oben:
   people ✓ · workspaces ✓ · forms ✓ · signatures ✓ · inbox ✓ · finance ✓ · tasks ✓ · templates ✓ · rules ✓ · documents ✓ · cases ✓ ·
-  notify · auth · access, dann `DB`/`E`/`init` und die globalen Helfer in core.js entfernen
+  notify ✓ · auth ✓ · access, dann `DB`/`E`/`init` und die globalen Helfer in core.js entfernen
 - [ ] Danach aus dem Review: Importzyklen auflösen (+ Prüfung); Testisolation je Lauf
 - [x] Passkey-Anmeldung ohne Schreibzugriff für Anonyme: Challenges sind signiert („Ablauf.Nonce.HMAC“, Schlüssel in
   `app_secrets`, beim ersten Gebrauch erzeugt); erst eine erfolgreiche Anmeldung verbraucht ihre Challenge (kein Replay)

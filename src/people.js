@@ -6,7 +6,8 @@ import { bulkCap, checkSenderCap, mailAnswer, outboxStmt, sendFromOutbox } from 
 import { workspaceInvitation, WORKSPACE_ROLES } from './workspaces.js';
 import { CONSENT_VERSION } from '../public/shared/consent.js';
 
-export async function invite({ user, params, body, url, row, sql, batch, event, env, time }) {
+export async function invite(rq) {
+  const { user, params, body, url, row, sql, batch, event, env, time } = rq;
   const ctx = await caseCtx(user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche können einladen');
   const email = String(body.email ?? '').trim().toLowerCase();
@@ -35,12 +36,12 @@ export async function invite({ user, params, body, url, row, sql, batch, event, 
   // The open invitation's mail has not gone out yet (the provider failed): asking again continues it – same link.
   const open = !body.new_role && await row(`SELECT o.id FROM invitations i JOIN mail_outbox o ON o.ref = i.token_hash AND o.status = 'pending'
     WHERE i.case_id = ? AND i.email = ? AND i.role = ? AND i.accepted_at IS NULL`, ctx.c.id, email, role.key);
-  if (open) return { ...mailAnswer(await sendFromOutbox(open.id)), role: role.key };
-  await checkSenderCap(user.id);
+  if (open) return { ...mailAnswer(await sendFromOutbox(rq, open.id)), role: role.key };
+  await checkSenderCap(rq, user.id);
   const t = token(), hash = await sha256(t), mailId = uid();
   // Inviting the same address again (e.g. after the link expired) replaces the open invitation: one row, a fresh link.
   const again = await row('SELECT 1 FROM invitations WHERE case_id = ? AND email = ? AND accepted_at IS NULL', ctx.c.id, email);
-  const link = `${originOf(url)}/#/invite/${t}`;
+  const link = `${originOf(rq, url)}/#/invite/${t}`;
   await batch([
     ...stmts,
     sql('DELETE FROM invitations WHERE case_id = ? AND email = ? AND accepted_at IS NULL', ctx.c.id, email),
@@ -48,7 +49,7 @@ export async function invite({ user, params, body, url, row, sql, batch, event, 
       hash, ctx.c.id, email, role.key, access, body.access_until ? `${body.access_until}T23:59:59` : null,
       new Date(Date.now() + 14 * 864e5).toISOString(), user.id, time),
     // the mail with the link, in the same transaction (migration 0043); replies go to the inviter, the sender address has no mailbox
-    outboxStmt({ id: mailId, kind: 'invitation', ref: hash, to: email, subject: `Einladung: ${ctx.c.title}`, replyTo: user.email, sender: user.id, paragraphs: [
+    outboxStmt(rq, { id: mailId, kind: 'invitation', ref: hash, to: email, subject: `Einladung: ${ctx.c.title}`, replyTo: user.email, sender: user.id, paragraphs: [
       'Guten Tag,',
       `${user.name} lädt Sie in NomoCase zum Vorgang „${ctx.c.title}“ ein. Sie sind dort als ${role.label} beteiligt.`,
       `Einladung annehmen:\n${link}`,
@@ -56,7 +57,7 @@ export async function invite({ user, params, body, url, row, sql, batch, event, 
       'Falls Sie diese Einladung nicht erwartet haben, ignorieren Sie diese E-Mail einfach.'] }),
     event(ctx.c.id, user.id, 'participant.invited', { email, role: role.label, ...(again && { again: true }) }, []),
   ]);
-  const answer = { ...mailAnswer(await sendFromOutbox(mailId)), role: role.key };
+  const answer = { ...mailAnswer(await sendFromOutbox(rq, mailId)), role: role.key };
   // Only the invitee may ever hold the link: whoever accepts it chooses name and passkey of the new account.
   // (Locally it comes back for testing.)
   return env.DEV_LOGIN ? { ...answer, link } : answer;
@@ -91,11 +92,11 @@ async function invitee(rq, email, user, body) {
   if (needsLogin(existing, user)) fail(401, 'Für diese E-Mail gibt es schon ein Konto. Bitte zuerst mit Passkey anmelden.');
   const userId = existing?.id ?? uid();
   const name = existing?.name ?? (String(body.name ?? '').trim() || email);
-  const agreed = existing && await hasConsent(existing.id);
+  const agreed = existing && await hasConsent(rq, existing.id);
   if (!agreed && body.consent !== true) fail(400, 'Bitte stimmen Sie der Nutzung zu – oder wählen Sie den bisherigen Weg per E-Mail.');
   return { userId, stmts: [
     ...(existing ? [] : [rq.sql('INSERT INTO users (id, email, name, created_at) VALUES (?, ?, ?, ?)', userId, email, name, rq.time)]),
-    ...(agreed ? [] : [consentStmt(userId)]),
+    ...(agreed ? [] : [consentStmt(rq, userId)]),
   ] };
 }
 
@@ -129,7 +130,7 @@ export async function acceptInvitation(rq) {
       inv.case_id, userId, inv.access, inv.role, inv.access_until, time),
     event(inv.case_id, userId, 'participant.joined', { role: role?.label ?? inv.role }, ['*']),
   ]);
-  return json({ case_id: inv.case_id }, 200, { 'set-cookie': await sessionCookie(userId, url) });
+  return json({ case_id: inv.case_id }, 200, { 'set-cookie': await sessionCookie(rq, userId, url) });
 }
 
 async function acceptWorkspaceInvitation(rq, hash) {
@@ -143,7 +144,7 @@ async function acceptWorkspaceInvitation(rq, hash) {
     sql('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?) ON CONFLICT (workspace_id, user_id) DO NOTHING', ws.workspace_id, userId, ws.role),
     wsEvent(ws.workspace_id, userId, 'member.joined', { member: String(body.name ?? '').trim() || user?.name || ws.email, role: ws.role }),
   ]);
-  return json({ workspace_id: ws.workspace_id }, 200, { 'set-cookie': await sessionCookie(userId, url) });
+  return json({ workspace_id: ws.workspace_id }, 200, { 'set-cookie': await sessionCookie(rq, userId, url) });
 }
 
 export async function revoke({ user, params, row, sql, batch, event, time }) {
@@ -170,7 +171,8 @@ export async function withdrawInvitation({ user, params, sql, event }) {
 
 // Admin overview for workspace owners: everyone in their workspaces (members and case participants, also former ones),
 // open invitations and today's mail volume. Scoped to owned workspaces; other workspaces' cases stay hidden.
-export async function peopleOverview({ user, row, rows, rpId, time }) {
+export async function peopleOverview(rq) {
+  const { user, row, rows, rpId, time } = rq;
   const owned = (await rows("SELECT workspace_id FROM workspace_members WHERE user_id = ? AND role = 'owner'", user.id)).map(r => r.workspace_id);
   if (!owned.length) fail(403, 'Nur für Workspace-Owner');
   const ws = JSON.stringify(owned);
@@ -210,7 +212,7 @@ export async function peopleOverview({ user, row, rows, rpId, time }) {
     invitations,
     stats: { cases_open: cases.open ?? 0, cases_closed: cases.closed ?? 0,
       // the mail log is not per workspace: only who owns every workspace (in practice the operator) sees its numbers
-      ...(operator && { mails_today: mails.total ?? 0, bulk_today: mails.bulk, bulk_cap: bulkCap(), mails_failed: mails.failed ?? 0,
+      ...(operator && { mails_today: mails.total ?? 0, bulk_today: mails.bulk, bulk_cap: bulkCap(rq), mails_failed: mails.failed ?? 0,
         last_error: mails.last_error, last_error_at: mails.last_error_at }) },
   };
 }

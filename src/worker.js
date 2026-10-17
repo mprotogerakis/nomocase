@@ -114,12 +114,12 @@ export default {
       // refused too. (Compared with the request's own origin as well, because wrangler dev rewrites both URL and Origin
       // to the production route.)
       const origin = req.headers.get('origin');
-      if (req.method !== 'GET' && origin !== url.origin && origin !== originOf(url)) fail(403, 'Anfrage von fremder Seite');
+      if (req.method !== 'GET' && origin !== url.origin && origin !== originOf(rq, url)) fail(403, 'Anfrage von fremder Seite');
       // Public writes (passkey challenges, login, invitation and upload links) per client address and endpoint, so one
       // machine cannot flood D1 or the mail quota. Local requests (the tests) are not limited.
       if (isPublic && req.method !== 'GET' && viaCloudflare(req) && handler !== logout && env.PUBLIC_LIMIT
         && !(await env.PUBLIC_LIMIT.limit({ key: `${req.headers.get('cf-connecting-ip')} ${url.pathname}` })).success) fail(429, 'Zu viele Anfragen. Bitte in einer Minute noch einmal versuchen.');
-      const user = await loadUser(req);
+      const user = await loadUser(rq, req);
       if (!user && !isPublic) fail(401, 'Nicht angemeldet');
       if (user && !isPublic && !user.consented && !CONSENT_FREE.has(handler)) fail(403, 'Bitte stimmen Sie zuerst der Nutzung zu.');
       // JSON up to 1 MB: the largest are a logo (300 KB as a data URL) and templates with forms (~30 KB); uploads are forms
@@ -155,10 +155,10 @@ export default {
     const rq = context(env), { batch, sql, time } = rq, failed = [];
     const step = async (name, fn) => { try { await fn(); } catch (e) { console.error(`cron ${name}`, e.message); failed.push(name); } };
     await step('rules', () => processRules(rq, { retries: true })); // catch-up (e.g. after a request that failed midway) and retries
-    await step('outbox', processOutbox); // mails with links the provider did not take yet
+    await step('outbox', () => processOutbox(rq)); // mails with links the provider did not take yet
     if (controller.cron === DAILY_CRON) {
       await step('retention', () => applyRetention(rq));
-      await step('digests', sendDigests);
+      await step('digests', () => sendDigests(rq));
       // housekeeping: old mail log, expired sessions, login links and passkey challenges
       await step('housekeeping', () => batch([
         sql('DELETE FROM mail_log WHERE sent_at < ?', new Date(Date.now() - 3 * 864e5).toISOString()),
@@ -169,7 +169,7 @@ export default {
       ]));
       await step('file sweep', () => sweepOrphanFiles(rq));
     } else {
-      await step('progress', sendProgress);
+      await step('progress', () => sendProgress(rq));
     }
     if (failed.length) throw new Error(`cron steps failed: ${failed.join(', ')}`);
   },

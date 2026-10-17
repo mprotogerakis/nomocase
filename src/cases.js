@@ -275,7 +275,7 @@ export async function applyRetention(rq) {
       WHERE p.case_id = ? AND p.access = 'case_owner' AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?)
       AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.user_id = u.id AND n.task_id = p.case_id AND n.stage = 'retention')`, c.id, time);
     for (const o of owners) {
-      const ok = await sendMail(o.email, `Wird gelöscht: ${c.title}`, [
+      const ok = await sendMail(rq, o.email, `Wird gelöscht: ${c.title}`, [
         `Guten Tag ${o.name},`,
         `der abgeschlossene Vorgang „${c.title}“ wird gemäß Aufbewahrungsfrist am ${deDate(deleteOn)} endgültig gelöscht, mit allen Dokumenten und Nachrichten.`,
         `Wenn Sie ihn behalten möchten, öffnen Sie ihn wieder:

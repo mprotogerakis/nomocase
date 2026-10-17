@@ -1,5 +1,5 @@
 // Mail via Resend, daily caps, daily digest and bundled progress mails.
-import { DB, E, fail, now, q, row, rows, STAFF } from './core.js';
+import { fail, STAFF } from './core.js';
 import { CONSENT_VERSION } from '../public/shared/consent.js';
 import { canSee } from './access.js';
 import { markBlocked } from './tasks.js';
@@ -10,9 +10,9 @@ import { markBlocked } from './tasks.js';
 // Returns true when the mail was handed over; never throws, callers decide on a fallback.
 // Digest and progress mails ("bulk") stop at MAIL_DAILY_CAP per day (Resend free tier: 100/day), so invitations,
 // login links and deletion notices always have room.
-export const bulkCap = () => Number(E.MAIL_DAILY_CAP ?? 80);
+export const bulkCap = rq => Number(rq.env.MAIL_DAILY_CAP ?? 80);
 
-const mailsToday = async bulk => (await row('SELECT COUNT(*) AS n FROM mail_log WHERE ok = 1 AND sent_at >= ? AND (? = 0 OR bulk = 1)', now().slice(0, 10), bulk ? 1 : 0)).n;
+const mailsToday = async (rq, bulk) => (await rq.row('SELECT COUNT(*) AS n FROM mail_log WHERE ok = 1 AND sent_at >= ? AND (? = 0 OR bulk = 1)', rq.time.slice(0, 10), bulk ? 1 : 0)).n;
 
 // Returns true when the provider accepted the mail. Every attempt is logged (mail_log: ok, HTTP status, error text).
 // Digests and progress mails carry case data: only for people whose consent to the current text stands (withdrawing
@@ -25,38 +25,40 @@ const CONSENTED = 'EXISTS (SELECT 1 FROM consents k WHERE k.user_id = u.id AND k
 const PER_SENDER = 30, PER_OWNER = 150;
 
 // Counted per mail the person caused today: plain mails by their attempts, outbox mails once each (however often retried).
-export async function checkSenderCap(sender) {
+export async function checkSenderCap(rq, sender) {
+  const { row, time } = rq;
   const { n, owner } = await row(`SELECT (SELECT COUNT(*) FROM mail_log WHERE sender_id = ?1 AND outbox_id IS NULL AND sent_at >= ?2)
       + (SELECT COUNT(*) FROM mail_outbox WHERE sender_id = ?1 AND created_at >= ?2) AS n,
-    EXISTS (SELECT 1 FROM workspace_members WHERE user_id = ?1 AND role = 'owner') AS owner`, sender, now().slice(0, 10));
+    EXISTS (SELECT 1 FROM workspace_members WHERE user_id = ?1 AND role = 'owner') AS owner`, sender, time.slice(0, 10));
   const cap = owner ? PER_OWNER : PER_SENDER;
   if (n >= cap) fail(429, `Über Ihr Konto gingen heute schon ${cap} E-Mails hinaus. Morgen geht es weiter.`);
 }
 
-export async function sendMail(to, subject, paragraphs, { replyTo, bulk = false, kind = null, sender = null } = {}) {
-  return (await deliver(to, subject, paragraphs, { replyTo, bulk, kind, sender })).ok;
+export async function sendMail(rq, to, subject, paragraphs, { replyTo, bulk = false, kind = null, sender = null } = {}) {
+  return (await deliver(rq, to, subject, paragraphs, { replyTo, bulk, kind, sender })).ok;
 }
 
 // Same, with the provider's answer (for the test mail on the account page). `outboxId`: the outbox mail this attempt
 // is for – sent as Idempotency-Key (its sender was counted when it was queued).
-export async function deliver(to, subject, paragraphs, { replyTo, bulk = false, kind = null, sender = null, outboxId = null } = {}) {
-  if (sender && !outboxId) await checkSenderCap(sender);
-  if (bulk && (await mailsToday(true)) >= bulkCap()) {
+export async function deliver(rq, to, subject, paragraphs, { replyTo, bulk = false, kind = null, sender = null, outboxId = null } = {}) {
+  const { sql, env, time } = rq;
+  if (sender && !outboxId) await checkSenderCap(rq, sender);
+  if (bulk && (await mailsToday(rq, true)) >= bulkCap(rq)) {
     console.error('sendMail skipped: daily cap for digest/progress mails reached');
     return { ok: false, error: 'Tageskontingent für Sammelmails erreicht' };
   }
   const text = paragraphs.join('\n\n');
   let r;
-  if (!E.RESEND_API_KEY) {
-    if (!E.DEV_LOGIN) return { ok: false, error: 'kein Mail-Anbieter eingerichtet' };
+  if (!env.RESEND_API_KEY) {
+    if (!env.DEV_LOGIN) return { ok: false, error: 'kein Mail-Anbieter eingerichtet' };
     console.log(`[mail] to ${to}: ${subject}\n${text}`);
-    r = await devProvider(to, outboxId);
+    r = await devProvider(rq, to, outboxId);
   } else {
     try {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
-        headers: { authorization: `Bearer ${E.RESEND_API_KEY}`, 'content-type': 'application/json', ...(outboxId && { 'idempotency-key': outboxId }) },
-        body: JSON.stringify({ from: E.MAIL_FROM, to: [to], subject, text, ...(replyTo && { reply_to: replyTo }) }),
+        headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json', ...(outboxId && { 'idempotency-key': outboxId }) },
+        body: JSON.stringify({ from: env.MAIL_FROM, to: [to], subject, text, ...(replyTo && { reply_to: replyTo }) }),
         signal: AbortSignal.timeout(10e3), // a hanging provider must not hold the request; the outbox tries again
       });
       const body = await res.text();
@@ -66,15 +68,16 @@ export async function deliver(to, subject, paragraphs, { replyTo, bulk = false, 
     }
     if (!r.ok) console.error('sendMail failed', r.status, r.error);
   }
-  await q('INSERT INTO mail_log (bulk, kind, sent_at, ok, status, error, sender_id, outbox_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    bulk ? 1 : 0, kind, now(), r.ok ? 1 : 0, r.status ?? null, r.error ?? null, sender, outboxId).run();
+  await sql('INSERT INTO mail_log (bulk, kind, sent_at, ok, status, error, sender_id, outbox_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    bulk ? 1 : 0, kind, time, r.ok ? 1 : 0, r.status ?? null, r.error ?? null, sender, outboxId).run();
   return r;
 }
 
 // Locally there is no provider: mails are only logged. Addresses <mode>.…@outbox.test play its failures for the tests:
 // fail-once (an error, then fine), timeout-once, lost (accepted, but the answer never came – the retry carries the
 // same Idempotency-Key, so a real provider answers without sending again), fail-always.
-async function devProvider(to, outboxId) {
+async function devProvider(rq, to, outboxId) {
+  const { row } = rq;
   const [name, domain] = to.split('@'), mode = name.split('.')[0];
   if (domain !== 'outbox.test') return { ok: true, status: 200 };
   const first = !outboxId || !(await row('SELECT 1 FROM mail_log WHERE outbox_id = ?', outboxId));
@@ -92,39 +95,41 @@ const LINK_TABLES = { invitation: 'invitations', workspace_invitation: 'workspac
 const RETRY_MINUTES = [1, 5, 15, 60];
 const MAX_ATTEMPTS = RETRY_MINUTES.length + 1;
 
-export const outboxStmt = ({ id, kind, ref, to, subject, paragraphs, replyTo = null, sender = null, mailKind = null }) =>
-  q(`INSERT INTO mail_outbox (id, kind, ref, recipient, subject, body, reply_to, sender_id, mail_kind, next_attempt_at, created_at)
+export const outboxStmt = (rq, { id, kind, ref, to, subject, paragraphs, replyTo = null, sender = null, mailKind = null }) =>
+  rq.sql(`INSERT INTO mail_outbox (id, kind, ref, recipient, subject, body, reply_to, sender_id, mail_kind, next_attempt_at, created_at)
     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM ${LINK_TABLES[kind]} WHERE token_hash = ?)`,
-  id, kind, ref, to, subject, paragraphs.join('\n\n'), replyTo, sender, mailKind, now(), now(), ref);
+  id, kind, ref, to, subject, paragraphs.join('\n\n'), replyTo, sender, mailKind, rq.time, rq.time, ref);
 
-const giveUp = m => ({
-  invitation: q('UPDATE invitations SET expires_at = ? WHERE token_hash = ? AND accepted_at IS NULL', now(), m.ref),
-  workspace_invitation: q('UPDATE workspace_invitations SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL', now(), m.ref),
-  login_link: q('UPDATE login_links SET expires_at = ? WHERE token_hash = ? AND used_at IS NULL', now(), m.ref),
+const giveUp = (rq, m) => ({
+  invitation: rq.sql('UPDATE invitations SET expires_at = ? WHERE token_hash = ? AND accepted_at IS NULL', rq.time, m.ref),
+  workspace_invitation: rq.sql('UPDATE workspace_invitations SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL', rq.time, m.ref),
+  login_link: rq.sql('UPDATE login_links SET expires_at = ? WHERE token_hash = ? AND used_at IS NULL', rq.time, m.ref),
 }[m.kind]);
 
 // One attempt for a pending outbox mail: { ok } – ok also when it had gone out before (e.g. by the cron meanwhile).
-export async function sendFromOutbox(id) {
+export async function sendFromOutbox(rq, id) {
+  const { row, sql, batch, time } = rq;
   const m = await row("SELECT * FROM mail_outbox WHERE id = ? AND status = 'pending'", id);
   if (!m) return { ok: (await row('SELECT status FROM mail_outbox WHERE id = ?', id))?.status === 'sent' };
-  const r = await deliver(m.recipient, m.subject, [m.body], { replyTo: m.reply_to, kind: m.mail_kind, sender: m.sender_id, outboxId: m.id });
+  const r = await deliver(rq, m.recipient, m.subject, [m.body], { replyTo: m.reply_to, kind: m.mail_kind, sender: m.sender_id, outboxId: m.id });
   const attempts = m.attempts + 1, error = r.ok ? null : r.error ?? `HTTP ${r.status}`;
   if (r.ok) {
-    await q("UPDATE mail_outbox SET status = 'sent', body = NULL, attempts = ?, last_error = NULL, sent_at = ? WHERE id = ?", attempts, now(), m.id).run();
+    await sql("UPDATE mail_outbox SET status = 'sent', body = NULL, attempts = ?, last_error = NULL, sent_at = ? WHERE id = ?", attempts, time, m.id).run();
   } else if (attempts >= MAX_ATTEMPTS) {
     console.error('outbox: given up', m.kind, m.id, error);
-    await DB.batch([q("UPDATE mail_outbox SET status = 'failed', body = NULL, attempts = ?, last_error = ? WHERE id = ?", attempts, error, m.id), giveUp(m)]);
+    await batch([sql("UPDATE mail_outbox SET status = 'failed', body = NULL, attempts = ?, last_error = ? WHERE id = ?", attempts, error, m.id), giveUp(rq, m)]);
   } else {
-    await q('UPDATE mail_outbox SET attempts = ?, last_error = ?, next_attempt_at = ? WHERE id = ?',
+    await sql('UPDATE mail_outbox SET attempts = ?, last_error = ?, next_attempt_at = ? WHERE id = ?',
       attempts, error, new Date(Date.now() + RETRY_MINUTES[attempts - 1] * 60e3).toISOString(), m.id).run();
   }
   return r;
 }
 
 // Cron: retries the pending mails that are due (a few per run: the free plan allows 50 subrequests per run).
-export async function processOutbox() {
-  for (const { id } of await rows("SELECT id FROM mail_outbox WHERE status = 'pending' AND next_attempt_at <= ? ORDER BY next_attempt_at LIMIT 10", now())) {
-    await sendFromOutbox(id);
+export async function processOutbox(rq) {
+  const { rows, time } = rq;
+  for (const { id } of await rows("SELECT id FROM mail_outbox WHERE status = 'pending' AND next_attempt_at <= ? ORDER BY next_attempt_at LIMIT 10", time)) {
+    await sendFromOutbox(rq, id);
   }
 }
 
@@ -132,10 +137,11 @@ export async function processOutbox() {
 export const mailAnswer = r => ({ sent: !!r.ok, queued: !r.ok });
 
 // Account page: a test mail to oneself shows whether sending works and what the provider answered. At most 3 per hour.
-export async function testMail({ user }) {
+export async function testMail(rq) {
+  const { user, row } = rq;
   const { n } = await row("SELECT COUNT(*) AS n FROM mail_log WHERE kind = 'test' AND sent_at >= ?", new Date(Date.now() - 36e5).toISOString());
   if (n >= 3) fail(429, 'Höchstens drei Testmails pro Stunde.');
-  return deliver(user.email, 'NomoCase: Testmail', [`Guten Tag ${user.name},`, 'diese Testmail zeigt, dass NomoCase Ihnen Mails schicken kann.',
+  return deliver(rq, user.email, 'NomoCase: Testmail', [`Guten Tag ${user.name},`, 'diese Testmail zeigt, dass NomoCase Ihnen Mails schicken kann.',
     `Gesendet: ${new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })}`], { kind: 'test' });
 }
 
@@ -152,21 +158,22 @@ function stageOf(task, today) {
   return days < 0 ? 'overdue' : days <= 1 ? 'soon' : days <= 7 ? 'week' : 'new';
 }
 
-export async function sendDigests() {
-  if (!E.ORIGIN) return console.error('digest skipped: ORIGIN not set');
-  const ts = now(), today = ts.slice(0, 10);
+export async function sendDigests(rq) {
+  const { rows, sql, batch, env, time } = rq;
+  if (!env.ORIGIN) return console.error('digest skipped: ORIGIN not set');
+  const ts = time, today = ts.slice(0, 10);
   const parts = await rows(`
     SELECT p.user_id, p.case_id, p.role, p.access, u.email, u.name, u.last_digest_at, u.email_progress, c.title AS case_title
     FROM case_participants p JOIN users u ON u.id = p.user_id JOIN cases c ON c.id = p.case_id
     WHERE p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?1) AND c.status = 'open' AND u.email_reminders = 1 AND ${CONSENTED}`, ts, CONSENT_VERSION);
   const caseIds = JSON.stringify([...new Set(parts.map(p => p.case_id))]);
   const userIds = JSON.stringify([...new Set(parts.map(p => p.user_id))]);
-  const [tasks, comments, sent] = (await DB.batch([
-    q('SELECT * FROM tasks WHERE case_id IN (SELECT value FROM json_each(?))', caseIds),
+  const [tasks, comments, sent] = (await batch([
+    sql('SELECT * FROM tasks WHERE case_id IN (SELECT value FROM json_each(?))', caseIds),
     // ponytail: messages older than 8 days are never announced (e.g. after a long cron outage).
-    q("SELECT case_id, actor_id, visible_to, created_at FROM events WHERE type = 'comment' AND case_id IN (SELECT value FROM json_each(?)) AND created_at > ?",
+    sql("SELECT case_id, actor_id, visible_to, created_at FROM events WHERE type = 'comment' AND case_id IN (SELECT value FROM json_each(?)) AND created_at > ?",
       caseIds, new Date(Date.now() - 8 * 864e5).toISOString()),
-    q('SELECT user_id, task_id, stage FROM notifications WHERE user_id IN (SELECT value FROM json_each(?))', userIds),
+    sql('SELECT user_id, task_id, stage FROM notifications WHERE user_id IN (SELECT value FROM json_each(?))', userIds),
   ])).map(r => r.results);
   markBlocked(tasks);
   const done = new Set(sent.map(n => `${n.user_id}|${n.task_id}|${n.stage}`));
@@ -190,22 +197,22 @@ export async function sendDigests() {
   // so past ~40 recipients a day switch to Resend's batch endpoint (100 mails per request).
   for (const d of digests.values()) {
     if (!d.items.length && !d.messages.length) continue;
-    const link = caseId => `${E.ORIGIN}/#/case/${caseId}`;
+    const link = caseId => `${env.ORIGIN}/#/case/${caseId}`;
     const sections = STAGES.filter(([s]) => d.items.some(i => i.stage === s)).map(([s, label]) => [label, ...d.items.filter(i => i.stage === s)
       .map(({ t, p }) => `- ${t.title} (${p.case_title})${t.due_date ? `, Frist ${deDate(t.due_date)}` : ''}\n  ${link(p.case_id)}`)].join('\n'));
     if (d.messages.length) sections.push(['Neue Nachrichten', ...d.messages.map(({ n, p }) => `- ${n} in ${p.case_title}\n  ${link(p.case_id)}`)].join('\n'));
     const n = d.items.length;
     const subject = [n && `${n} ${n === 1 ? 'Aufgabe' : 'Aufgaben'}`, d.messages.length && 'neue Nachrichten'].filter(Boolean).join(', ');
-    const ok = await sendMail(d.email, `NomoCase: ${subject}`, [
+    const ok = await sendMail(rq, d.email, `NomoCase: ${subject}`, [
       `Guten Morgen ${d.name},`,
       'hier ist Ihre Übersicht aus NomoCase.',
       ...sections,
-      `Diese Erinnerungen können Sie hier abbestellen: ${E.ORIGIN}/#/account`,
+      `Diese Erinnerungen können Sie hier abbestellen: ${env.ORIGIN}/#/account`,
     ], { bulk: true });
     if (!ok) continue; // try again tomorrow
-    await DB.batch([
-      ...d.items.map(({ t, stage }) => q('INSERT OR IGNORE INTO notifications (user_id, task_id, stage, sent_at) VALUES (?, ?, ?, ?)', d.user_id, t.id, stage, ts)),
-      q('UPDATE users SET last_digest_at = ? WHERE id = ?', ts, d.user_id),
+    await batch([
+      ...d.items.map(({ t, stage }) => sql('INSERT OR IGNORE INTO notifications (user_id, task_id, stage, sent_at) VALUES (?, ?, ?, ?)', d.user_id, t.id, stage, ts)),
+      sql('UPDATE users SET last_digest_at = ? WHERE id = ?', ts, d.user_id),
     ]);
   }
 }
@@ -234,9 +241,10 @@ const PROGRESS_TEXT = {
   'case.reopened': () => 'hat den Vorgang wieder geöffnet',
 };
 
-export async function sendProgress() {
-  if (!E.ORIGIN) return console.error('progress skipped: ORIGIN not set');
-  const ts = now();
+export async function sendProgress(rq) {
+  const { rows, sql, env, time } = rq;
+  if (!env.ORIGIN) return console.error('progress skipped: ORIGIN not set');
+  const ts = time;
   const fallback = new Date(Date.parse(ts) - PROGRESS_GAP).toISOString();
   const parts = (await rows(`
     SELECT p.user_id, p.case_id, p.role, p.access, u.email, u.name, u.progress_cursor, u.progress_mail_at, c.title AS case_title
@@ -259,20 +267,20 @@ export async function sendProgress() {
   }
   for (const person of people.values()) {
     if (!person.cases.length) {
-      await q('UPDATE users SET progress_cursor = ? WHERE id = ?', ts, person.user_id).run();
+      await sql('UPDATE users SET progress_cursor = ? WHERE id = ?', ts, person.user_id).run();
       continue;
     }
-    const ok = await sendMail(person.email,
+    const ok = await sendMail(rq, person.email,
       person.cases.length === 1 ? `Neues in „${person.cases[0].p.case_title}“` : `Neues in ${person.cases.length} Vorgängen`, [
         `Guten Tag ${person.name},`,
         ...person.cases.map(({ p, news }) => [p.case_title, ...news.map(e => {
           const payload = JSON.parse(e.payload);
           return `- ${e.actor ?? payload.via ?? 'NomoCase'} ${PROGRESS_TEXT[e.type](payload)}`;
         }),
-          `  ${E.ORIGIN}/#/case/${p.case_id}`].join('\n')),
-        `Diese Benachrichtigungen (höchstens 3 pro Stunde) können Sie hier abbestellen: ${E.ORIGIN}/#/account`,
+          `  ${env.ORIGIN}/#/case/${p.case_id}`].join('\n')),
+        `Diese Benachrichtigungen (höchstens 3 pro Stunde) können Sie hier abbestellen: ${env.ORIGIN}/#/account`,
       ], { bulk: true });
-    if (ok) await q('UPDATE users SET progress_cursor = ?, progress_mail_at = ? WHERE id = ?', ts, ts, person.user_id).run();
+    if (ok) await sql('UPDATE users SET progress_cursor = ?, progress_mail_at = ? WHERE id = ?', ts, ts, person.user_id).run();
     // not ok (cap reached or mail failed): cursor stays, the news go out with the next run
   }
 }

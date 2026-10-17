@@ -129,7 +129,8 @@ export async function removeMember(rq) {
     wsEvent(params.id, user.id, params.userId === user.id ? 'member.left' : 'member.removed', { member: m.name })]);
 }
 
-export async function inviteToWorkspace({ user, params, body, url, row, sql, batch, wsEvent, env, time }) {
+export async function inviteToWorkspace(rq) {
+  const { user, params, body, url, row, sql, batch, wsEvent, env, time } = rq;
   await requireWsOwner(user, params.id);
   const ws = await row('SELECT name FROM workspaces WHERE id = ?', params.id);
   const email = String(body.email ?? '').trim().toLowerCase();
@@ -145,16 +146,16 @@ export async function inviteToWorkspace({ user, params, body, url, row, sql, bat
   // The open invitation's mail has not gone out yet: asking again continues it – same link (as for case invitations).
   const open = await row(`SELECT o.id FROM workspace_invitations i JOIN mail_outbox o ON o.ref = i.token_hash AND o.status = 'pending'
     WHERE i.workspace_id = ? AND i.email = ? AND i.role = ? AND i.accepted_at IS NULL AND i.revoked_at IS NULL`, params.id, email, role);
-  if (open) return mailAnswer(await sendFromOutbox(open.id));
-  await checkSenderCap(user.id);
+  if (open) return mailAnswer(await sendFromOutbox(rq, open.id));
+  await checkSenderCap(rq, user.id);
   const t = token(), hash = await sha256(t), mailId = uid();
-  const link = `${originOf(url)}/#/invite/${t}`;
+  const link = `${originOf(rq, url)}/#/invite/${t}`;
   await batch([
     // inviting again replaces the open invitation
     sql('UPDATE workspace_invitations SET revoked_at = ? WHERE workspace_id = ? AND email = ? AND accepted_at IS NULL AND revoked_at IS NULL', time, params.id, email),
     sql('INSERT INTO workspace_invitations (token_hash, workspace_id, email, role, expires_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       hash, params.id, email, role, new Date(Date.now() + 14 * 864e5).toISOString(), user.id, time),
-    outboxStmt({ id: mailId, kind: 'workspace_invitation', ref: hash, to: email, subject: `Einladung in den Workspace „${ws.name}“`,
+    outboxStmt(rq, { id: mailId, kind: 'workspace_invitation', ref: hash, to: email, subject: `Einladung in den Workspace „${ws.name}“`,
       replyTo: user.email, sender: user.id, paragraphs: [
         'Guten Tag,',
         `${user.name} lädt Sie in NomoCase in den Workspace „${ws.name}“ ein, als ${WORKSPACE_ROLES[role]}.`,
@@ -163,7 +164,7 @@ export async function inviteToWorkspace({ user, params, body, url, row, sql, bat
         'Falls Sie diese Einladung nicht erwartet haben, ignorieren Sie diese E-Mail einfach.'] }),
     wsEvent(params.id, user.id, 'member.invited', { email, role }),
   ]);
-  const answer = mailAnswer(await sendFromOutbox(mailId));
+  const answer = mailAnswer(await sendFromOutbox(rq, mailId));
   // As with case invitations: only the invitee may hold the link (locally it comes back for testing).
   return env.DEV_LOGIN ? { ...answer, link } : answer;
 }
