@@ -75,8 +75,8 @@ function editor() {
   return html`<main class="template-editor">
     <p class="small"><a href="#/templates">← Vorlagen</a></p>
     <h1>${tpl.name} <span class="muted small">· ${tpl.workspace} · Version ${tpl.version}</span></h1>
-    <p class="muted small">Speichern legt Version ${tpl.version + 1} an; laufende Vorgänge behalten ihre Version. Regeln, Formulare, Bewertung und
-      Geldschritte bearbeiten Sie weiterhin in der JSON-Ansicht – sie bleiben hier unverändert erhalten.</p>
+    <p class="muted small">Speichern legt Version ${tpl.version + 1} an; laufende Vorgänge behalten ihre Version. Bewertung (Notenskalen,
+      Verrechnung) und Geldschritte bearbeiten Sie weiterhin in der JSON-Ansicht – sie bleiben hier unverändert erhalten.</p>
 
     <h2>Rollen</h2>
     ${roles.map((r, i) => html`<div class="row">${text(`roles.${i}.label`, r.label, html`aria-label="Rolle" required`)}

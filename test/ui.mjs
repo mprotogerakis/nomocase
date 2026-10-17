@@ -412,6 +412,18 @@ try {
   await upload('form[data-submit="linkUpload"]', pdf);
   await waitFor(`document.querySelector('code.hash')?.textContent.length === 64`, 'Quittung mit SHA-256');
 
+  // On a phone (390 px wide) no page is wider than the screen (mobile browsers would shrink the whole page)
+  await b.cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await login('prof@example.org');
+  for (const [hash, ready] of [['#/', `!!document.querySelector('.stats')`], ['#/templates', `!!document.querySelector('details.card')`],
+    [`#/templates/${bt.id}`, `!!document.querySelector('.template-editor .step')`], [`#/case/${caseId}`, `!!document.querySelector('.task')`],
+    ['#/workspaces', `!!document.querySelector('.card')`], ['#/account', `document.querySelector('main h1')?.textContent === 'Konto'`]]) {
+    await go(hash, ready);
+    await evaluate(`(() => { document.querySelectorAll('details').forEach(d => d.open = true); return true; })()`);
+    assert.ok(await evaluate(`document.documentElement.scrollWidth <= innerWidth + 1 && innerWidth <= 391`), `${hash} fits a phone`);
+  }
+  await b.cdp('Emulation.clearDeviceMetricsOverride');
+
   assert.deepEqual(errors, [], 'no script errors');
   assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|verschieben\?$|^Verschoben nach|Vorgänge aus „.*“ anlegen|^Anhänge der E-Mail|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
   console.log('ok – ui test passed');

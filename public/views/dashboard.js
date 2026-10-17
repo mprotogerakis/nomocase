@@ -84,7 +84,7 @@ export async function dashboardView() {
     <div class="row" style="justify-content:space-between; align-items:flex-start">
       ${me.workspaces.length > 1 ? html`<div class="seg">${[['all', 'Alle'], ...me.workspaces.map(w => [w.id, w.name])].map(([id, label]) =>
         html`<button class="${wsFilter === id ? 'on' : ''}" data-on="ws" data-id="${id}">${label}</button>`)}</div>` : html`<span></span>`}
-      <div class="stack" style="align-items:flex-end">${newCaseForm(tpls.filter(t => !t.archived_at))}${bulkForm(tpls.filter(t => !t.archived_at))}</div>
+      <div class="stack" style="align-items:flex-end; min-width:0; max-width:100%">${newCaseForm(tpls.filter(t => !t.archived_at))}${bulkForm(tpls.filter(t => !t.archived_at))}</div>
     </div>
     <section class="stats">
       <div class="${overdue ? 'warn' : ''}"><b>${String(overdue)}</b>überfällig bei Ihnen</div>
