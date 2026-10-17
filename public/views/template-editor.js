@@ -1,9 +1,10 @@
-// Template editor: roles, Angaben, document types, phases and steps, PDF forms and rules as a form instead of JSON. It
-// works on a copy of the latest version; saving creates the next version (the server checks it like any other).
-// Everything the editor does not show (scales, money, labels …) stays in the definition untouched – the JSON view edits those.
-import { ACCESS, FILE_KIND_LABELS, NEEDS_FILE, RULE_ACTION_LABELS, RULE_FIELD_LABELS, RULE_MONEY_FIELDS, RULE_OP_LABELS, RULE_TRIGGER_LABELS } from '../shared/vocab.js';
+// Template editor: roles, Angaben, document types, phases and steps, assessments, PDF forms and rules as a form instead
+// of JSON. It works on a copy of the latest version; saving creates the next version (the server checks it like any other).
+// Everything the editor does not show (the scales themselves, money) stays in the definition untouched – the JSON view edits those.
+import { parseScore } from '../shared/assess.js';
+import { ACCESS, DECISIONS, FILE_KIND_LABELS, NEEDS_FILE, RULE_ACTION_LABELS, RULE_FIELD_LABELS, RULE_MONEY_FIELDS, RULE_OP_LABELS, RULE_TRIGGER_LABELS } from '../shared/vocab.js';
 import { change, input, me, on } from '../state.js';
-import { ACCESS_LABELS, api, go, html, page, plainEur, toCents, TYPES } from '../lib.js';
+import { ACCESS_LABELS, api, DECISION_LABELS, go, html, page, plainEur, toCents, TYPES } from '../lib.js';
 import { previewForm } from './admin.js';
 
 let tpl = null, draft = null, wsTemplates = [];
@@ -14,6 +15,9 @@ const uniqueKey = (base, taken) => { let k = slug(base); while (taken.includes(k
 const stepKeys = () => draft.phases.flatMap(p => p.tasks.map(t => t.key));
 // steps a rule creates share the key space with the template's steps
 const ruleTaskKeys = () => draft.rules.flatMap(r => r.actions).filter(a => a.type === 'create_task' && a.key).map(a => a.key);
+const guestKeys = () => draft.roles.filter(r => r.access.startsWith('guest_')).map(r => r.key);
+// a step that is no longer assessed on an aggregate's scale (or gone) leaves that aggregate
+const dropFromAggregates = (key, keepScale) => { for (const a of draft.aggregates) if (a.scale !== keepScale) a.from = a.from.filter(k => k !== key); };
 
 // "phases.0.tasks.2" → the object or array at that place
 const at = path => path.split('.').reduce((o, k) => o[k], draft);
@@ -24,7 +28,7 @@ export async function templateEditorView(id) {
     const all = await api('/templates');
     tpl = all.find(t => t.id === id) ?? null;
     draft = tpl && structuredClone(tpl.definition);
-    if (draft) { draft.rules ??= []; draft.forms ??= []; }
+    if (draft) { draft.rules ??= []; draft.forms ??= []; draft.aggregates ??= []; }
     wsTemplates = all.filter(t => t.workspace_id === tpl?.workspace_id && !t.archived_at).map(t => t.name); // sub-case templates
   }
   if (!tpl) return page(html`<main class="narrow"><p>Vorlage nicht gefunden.</p><a href="#/templates">Zu den Vorlagen</a></main>`);
@@ -55,6 +59,8 @@ function editor() {
     const path = `phases.${pi}.tasks.${ti}`;
     const deadline = t.due_field ? `field:${t.due_field}` : t.due_days != null ? 'days' : '';
     const before = stepKeys().filter(k => k !== t.key);
+    const shareable = draft.roles.filter(r => r.access.startsWith('guest_') && r.key !== t.role), scales = Object.entries(draft.scales ?? {});
+    const seen = k => (t.visible_to ?? []).includes(k) || (t.visible_to ?? []).includes('*');
     return html`<div class="step">
       <div class="row">${text(`${path}.title`, t.title, html`aria-label="Titel" class="grow" required`)}
         ${select(`${path}.type`, t.type, Object.entries(TYPES), 'tplSet', 'Typ des Schritts')} ${select(`${path}.role`, t.role, roleOptions, 'tplSet', 'zuständige Rolle')} ${tools(`phases.${pi}.tasks`, ti, n)}</div>
@@ -69,15 +75,21 @@ function editor() {
       ${NEEDS_FILE.includes(t.type) || t.doc_type ? html`<div class="row small">Dateien ${select(path, t.files?.multiple ? 'many' : '', [['', 'eine'], ['many', 'mehrere']], 'tplMultiple', 'Anzahl der Dateien')}
         · erlaubt: ${Object.entries(FILE_KIND_LABELS).map(([k, label]) => html`<label><input type="checkbox" data-change="tplAccept" data-path="${path}" value="${k}"
           ${(t.files?.accept ?? []).includes(k) ? 'checked' : ''}> ${label}</label>`)} <span class="muted">(nichts angehakt: alle)</span></div>` : ''}
+      ${DECISIONS.includes(t.type) ? html`<div class="row small">
+        ${scales.length ? html`<label class="row">Bewertung ${select(path, t.assess ?? '', [['', 'keine'], ...scales.map(([k, sc]) => [k, `auf ${sc.label}`])], 'tplAssess')}</label>` : ''}
+        ${t.assess ? '' : html`<span class="row">Knöpfe ${[0, 1].map(i => html`<input value="${t.labels?.[i] ?? ''}" placeholder="${DECISION_LABELS[t.type][i]}"
+          data-input="tplLabel" data-path="${path}" data-i="${i}" aria-label="${i ? 'Beschriftung negativ' : 'Beschriftung positiv'}" style="width:9em">`)}</span>`}</div>` : ''}
+      ${shareable.length ? html`<div class="row small">auch sichtbar für: ${shareable.map(r => html`<label><input type="checkbox" data-change="tplShare"
+        data-path="${path}" value="${r.key}" ${seen(r.key) ? 'checked' : ''}> ${r.label}</label>`)} <span class="muted">(Team und zuständige Rolle immer)</span></div>` : ''}
       <textarea rows="2" placeholder="Beschreibung für die Beteiligten (optional)" aria-label="Beschreibung" data-input="tplSet" data-path="${path}.description">${t.description ?? ''}</textarea>
-      <div class="muted small">Schlüssel: <code>${t.key}</code>${t.assess || t.labels || t.money || t.form || t.visible_to ? ' · weitere Einstellungen in der JSON-Ansicht' : ''}</div>
+      <div class="muted small">Schlüssel: <code>${t.key}</code>${t.money ? ' · Geld-Einstellungen in der JSON-Ansicht' : ''}</div>
     </div>`;
   };
   return html`<main class="template-editor">
     <p class="small"><a href="#/templates">← Vorlagen</a></p>
     <h1>${tpl.name} <span class="muted small">· ${tpl.workspace} · Version ${tpl.version}</span></h1>
-    <p class="muted small">Speichern legt Version ${tpl.version + 1} an; laufende Vorgänge behalten ihre Version. Bewertung (Notenskalen,
-      Verrechnung) und Geldschritte bearbeiten Sie weiterhin in der JSON-Ansicht – sie bleiben hier unverändert erhalten.</p>
+    <p class="muted small">Speichern legt Version ${tpl.version + 1} an; laufende Vorgänge behalten ihre Version. Notenskalen und
+      Geldschritte bearbeiten Sie weiterhin in der JSON-Ansicht – sie bleiben hier unverändert erhalten.</p>
 
     <h2>Rollen</h2>
     ${roles.map((r, i) => html`<div class="row">${text(`roles.${i}.label`, r.label, html`aria-label="Rolle" required`)}
@@ -104,6 +116,8 @@ function editor() {
     </fieldset>`)}
     <button type="button" class="link" data-on="tplAdd" data-path="phases">+ Phase</button>
 
+    ${assessSection()}
+
     ${formsSection()}
 
     ${rulesSection()}
@@ -119,7 +133,10 @@ input.tplSet = change.tplSet = el => {
   const value = el.value;
   // emptied texts stay (the server names what is missing); a form item keeps its kind
   if (value === '' && !['title', 'label', 'name', 'text', 'heading', 'sign'].includes(prop)) delete obj[prop]; else obj[prop] = value;
-  if (el.tagName === 'SELECT' && (prop === 'type' || prop === 'doc_type')) render(); // file settings show for steps that take files
+  if (prop === 'type' && el.dataset.path.startsWith('phases.') && !DECISIONS.includes(value)) { // only decisions are assessed or labelled
+    delete obj.assess; delete obj.labels; dropFromAggregates(obj.key);
+  }
+  if (el.tagName === 'SELECT' && (prop === 'type' || prop === 'doc_type' || prop === 'role')) render(); // settings that depend on these
   if (fresh.has(obj) && prop === 'name' && el.dataset.path.startsWith('rules.')) obj.id = uniqueKey(value, draft.rules.filter(r => r !== obj).map(r => r.id));
   if (fresh.has(obj) && obj.key && prop === 'title' && /^forms\.\d+\.title$/.test(el.dataset.path)) { // a new form: key from its title
     const old = obj.key;
@@ -130,10 +147,11 @@ input.tplSet = change.tplSet = el => {
   if (fresh.has(obj) && obj.key && (prop === 'title' || prop === 'label')) {
     const isStep = el.dataset.path.startsWith('phases.') || el.dataset.path.startsWith('rules.');
     const list = isStep ? [...stepKeys(), ...ruleTaskKeys()] : (el.dataset.path.startsWith('roles.') ? draft.roles
-      : el.dataset.path.startsWith('fields.') ? draft.fields : draft.document_types).map(x => x.key);
+      : el.dataset.path.startsWith('fields.') ? draft.fields : el.dataset.path.startsWith('aggregates.') ? draft.aggregates : draft.document_types).map(x => x.key);
     const old = obj.key;
     obj.key = uniqueKey(value, list.filter(k => k !== old));
     if (isStep) for (const t of draft.phases.flatMap(ph => ph.tasks)) if (t.after?.includes(old)) t.after = t.after.map(k => (k === old ? obj.key : k));
+    if (isStep) for (const a of draft.aggregates) a.from = a.from.map(k => (k === old ? obj.key : k));
   }
 };
 input.tplDays = el => { at(el.dataset.path).due_days = Math.max(0, Number(el.value) || 0); };
@@ -163,9 +181,23 @@ change.tplAccept = el => {
   const { accept: _, ...rest } = t.files ?? {};
   setFiles(t, accept.size ? { ...rest, accept: [...accept] } : rest);
 };
+// A list of keys ticked one by one: who sees a document type or step, which steps an aggregate combines.
 change.tplShare = el => {
-  const d = at(el.dataset.path);
-  d.visible_to = el.checked ? [...new Set([...(d.visible_to ?? []), el.value])] : (d.visible_to ?? []).filter(v => v !== el.value);
+  const d = at(el.dataset.path), prop = el.dataset.prop ?? 'visible_to';
+  const cur = d[prop]?.includes('*') ? guestKeys() : d[prop] ?? [];
+  d[prop] = el.checked ? [...new Set([...cur, el.value])] : cur.filter(v => v !== el.value);
+};
+change.tplAssess = el => {
+  const t = at(el.dataset.path);
+  if (el.value) t.assess = el.value; else delete t.assess;
+  dropFromAggregates(t.key, t.assess);
+  render();
+};
+// Own button labels; an empty one takes the type's usual word, both empty: the usual words.
+input.tplLabel = el => {
+  const t = at(el.dataset.path), labels = [0, 1].map(i => (t.labels?.[i] ?? '').trim());
+  labels[el.dataset.i] = el.value.trim();
+  if (labels.some(Boolean)) t.labels = labels.map((l, i) => l || DECISION_LABELS[t.type][i]); else delete t.labels;
 };
 
 on.tplMove = ({ path, i, dir }) => {
@@ -178,6 +210,7 @@ on.tplRemove = ({ path, i }) => {
   // steps that waited for a removed step no longer do; steps that offered a removed form no longer do
   for (const key of path === 'phases' ? item.tasks.map(t => t.key) : [item.key]) {
     for (const t of draft.phases.flatMap(p => p.tasks)) if (t.after?.includes(key)) t.after = t.after.filter(k => k !== key);
+    if (path.startsWith('phases')) dropFromAggregates(key);
   }
   if (path === 'forms') for (const t of draft.phases.flatMap(p => p.tasks)) if (t.form === item.key) delete t.form;
   render();
@@ -188,6 +221,7 @@ on.tplAdd = ({ path }) => {
     : path === 'fields' ? { key: uniqueKey('angabe', draft.fields.map(f => f.key)), label: '' }
     : path === 'document_types' ? { key: uniqueKey('dokument', draft.document_types.map(d => d.key)), label: '', visible_to: [] }
     : path === 'phases' ? { title: '', tasks: [] }
+    : path === 'aggregates' ? newAggregate()
     : path === 'forms' ? { key: uniqueKey('formular', draft.forms.map(f => f.key)), title: '', items: [{ heading: 'Angaben' }] }
     : path.endsWith('.items') ? { label: '' }
     : path === 'rules' ? { id: uniqueKey('regel', draft.rules.map(r => r.id)), name: '', trigger: 'task.complete', conditions: [],
@@ -198,6 +232,55 @@ on.tplAdd = ({ path }) => {
   fresh.add(item);
   list.push(item);
   render();
+};
+
+// --- Assessments --------------------------------------------------------------------------------------------------
+// Steps are assessed on a scale (chosen at the step); an aggregate combines several of them into one value – e.g. the
+// grade of a thesis from both examiners' grades – and may hand it to an Angabe. The scales stay in the JSON view.
+const METHODS = [['mean', 'Mittelwert'], ['min', 'kleinster Wert'], ['max', 'größter Wert'], ['sum', 'Summe']];
+const assessedOn = scale => draft.phases.flatMap(p => p.tasks).filter(t => t.assess === scale);
+function newAggregate() {
+  const scale = Object.keys(draft.scales)[0];
+  return { key: uniqueKey('verrechnung', draft.aggregates.map(a => a.key)), label: '', scale, from: assessedOn(scale).map(t => t.key), method: 'mean' };
+}
+
+function assessSection() {
+  const scales = Object.entries(draft.scales ?? {});
+  if (!scales.length) return '';
+  return html`<h2>Bewertung</h2>
+    <p class="muted small">Skalen: ${scales.map(([, sc]) => sc.label).join(', ')}. Bei einem Entscheidungs-Schritt unter „Bewertung“ die Skala
+      wählen; eine Verrechnung fasst mehrere Bewertungen zu einem Wert zusammen.</p>
+    ${draft.aggregates.map((a, i) => {
+      const path = `aggregates.${i}`, steps = assessedOn(a.scale);
+      return html`<div class="step">
+        <div class="row">${text(`${path}.label`, a.label, html`aria-label="Name der Verrechnung" class="grow" placeholder="z. B. Note der Arbeit" required`)}
+          ${scales.length > 1 ? select(path, a.scale, scales.map(([k, sc]) => [k, sc.label]), 'tplAggScale', 'Skala') : ''} ${tools('aggregates', i, draft.aggregates.length)}</div>
+        <div class="row small">aus: ${steps.length ? steps.map(t => html`<label><input type="checkbox" data-change="tplShare" data-prop="from" data-path="${path}"
+          value="${t.key}" ${a.from.includes(t.key) ? 'checked' : ''}> ${t.title}</label>`) : html`<span class="muted">noch kein Schritt auf dieser Skala</span>`}</div>
+        <div class="row small">
+          <label class="row">als ${select(`${path}.method`, a.method ?? 'mean', METHODS)}</label>
+          <label class="row">gerundet ${select(`${path}.round`, a.round ?? 'half_up', [['half_up', 'kaufmännisch'], ['truncate', 'abgeschnitten']])}</label>
+          <label class="row">nicht bestanden gilt <input value="${a.fail_value === undefined ? '' : String(a.fail_value).replace('.', ',')}" data-input="tplFailValue"
+            data-path="${path}" placeholder="der Wert" style="width:5em"></label>
+          <label class="row">übernehmen in ${select(`${path}.field`, a.field ?? '', [['', '– keine Angabe –'], ...draft.fields.map(f => [f.key, f.label])])}</label>
+        </div>
+        ${text(`${path}.note`, a.note, html`aria-label="Erläuterung" placeholder="Erläuterung (optional), z. B. die Rechtsgrundlage"`)}
+      </div>`;
+    })}
+    <button type="button" class="link" data-on="tplAdd" data-path="aggregates">+ Verrechnung</button>`;
+}
+
+change.tplAggScale = el => {
+  const a = at(el.dataset.path);
+  a.scale = el.value;
+  a.from = assessedOn(a.scale).map(t => t.key);
+  delete a.fail_value;
+  render();
+};
+input.tplFailValue = el => {
+  const a = at(el.dataset.path), v = parseScore(draft.scales[a.scale], el.value);
+  if (v === null) delete a.fail_value; else a.fail_value = v;
+  el.setCustomValidity(v === null && el.value.trim() ? 'kein Wert der Skala' : '');
 };
 
 // --- PDF forms --------------------------------------------------------------------------------------------------

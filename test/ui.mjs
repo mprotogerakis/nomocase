@@ -147,8 +147,12 @@ try {
   // Template editor: rename a step as you type, add one that takes several PDFs, save as the next version
   const post = (path, body) => evaluate(`fetch('/api${path}', { method: 'POST', headers: { 'content-type': 'application/json' }, body: ${J(J(body))} }).then(r => r.json())`);
   const { id: edId } = await post('/templates', { workspace_id: 'ws_hs', name: `UI-Editor ${run}`, definition: {
-    roles: [{ key: 'owner', label: 'Team', access: 'case_owner' }], fields: [], document_types: [{ key: 'att', label: 'Anlagen', visible_to: [] }],
-    phases: [{ title: 'Ablauf', tasks: [{ key: 'start', title: 'Start', type: 'task' }] }] } });
+    roles: [{ key: 'owner', label: 'Team', access: 'case_owner' }, { key: 'student', label: 'Studierende:r', access: 'guest_contributor' }],
+    fields: [{ key: 'grade', label: 'Note' }], document_types: [{ key: 'att', label: 'Anlagen', visible_to: [] }],
+    scales: { note: { label: 'Note', range: [1, 4], step: 0.1, extra: [5], pass: { max: 4 } } },
+    phases: [{ title: 'Ablauf', tasks: [{ key: 'start', title: 'Start', type: 'task' }] }, { title: 'Bewertung', tasks: [
+      { key: 'g1', title: 'Gutachten 1', type: 'review', assess: 'note' }, { key: 'g2', title: 'Gutachten 2', type: 'review' },
+      { key: 'g3', title: 'Freigabe', type: 'approval' }] }] } });
   await go(`#/templates/${edId}`, `!!document.querySelector('.template-editor .step')`);
   const typeInto = (path, value) => evaluate(`(() => { const i = document.querySelector('[data-path="${path}"]'); i.value = ${J(value)};
     i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
@@ -162,6 +166,20 @@ try {
   await evaluate(`(() => { const c = document.querySelector('[data-change="tplAccept"][data-path="phases.0.tasks.1"][value="pdf"]');
     c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
   await change('[data-path="phases.0.tasks.1.doc_type"]', 'att');
+  const check = (sel, on = true) => evaluate(`(() => { const c = document.querySelector('${sel}'); c.checked = ${on}; c.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await check('[data-change="tplShare"][data-path="phases.0.tasks.1"][value="student"]');
+  // assessments: a second graded step, own button words for an approval, an aggregate of both grades; then one grader goes
+  await change('[data-change="tplAssess"][data-path="phases.1.tasks.1"]', 'note');
+  await typeInto('phases.1.tasks.2"][data-i="0', 'Passt');
+  await b.click('[data-on="tplAdd"][data-path="aggregates"]');
+  await waitFor(`!!document.querySelector('[data-path="aggregates.0.label"]')`, 'neue Verrechnung');
+  assert.equal(await evaluate(`document.querySelectorAll('[data-prop="from"][data-path="aggregates.0"]:checked').length`), 2, 'both graded steps preselected');
+  await typeInto('aggregates.0.label', 'Gesamtnote');
+  await change('[data-path="aggregates.0.round"]', 'truncate');
+  await change('[data-path="aggregates.0.field"]', 'grade');
+  await typeInto('aggregates.0"][data-input="tplFailValue', '5,0');
+  await b.click('[data-on="tplRemove"][data-path="phases.1.tasks"][data-i="0"]');
+  await waitFor(`!document.querySelector('[data-prop="from"][value="g1"]')`, 'Gutachten 1 entfernt');
   // a PDF form, built from lists, offered at "Beginn"; its preview is a real PDF with the placeholder's name in the field
   await b.click('[data-on="tplAdd"][data-path="forms"]');
   await waitFor(`!!document.querySelector('[data-path="forms.0.title"]')`, 'neues Formular');
@@ -199,6 +217,10 @@ try {
   assert.deepEqual(saved.definition.forms, [{ key: 'bestatigung', title: 'Bestätigung',
     items: [{ heading: 'Angaben' }, { label: 'Vorgang', value: '{case.title}' }, { sign: 'Unterschrift Team', place: 'Düsseldorf' }] }]);
   assert.equal(saved.definition.phases[0].tasks[0].form, 'bestatigung');
+  assert.deepEqual(saved.definition.phases[0].tasks[1].visible_to, ['student']);
+  assert.deepEqual(saved.definition.phases[1].tasks, [{ key: 'g2', title: 'Gutachten 2', type: 'review', assess: 'note' },
+    { key: 'g3', title: 'Freigabe', type: 'approval', labels: ['Passt', 'Ablehnen'] }]);
+  assert.deepEqual(saved.definition.aggregates, [{ key: 'gesamtnote', label: 'Gesamtnote', scale: 'note', from: ['g2'], method: 'mean', round: 'truncate', field: 'grade', fail_value: 5 }]);
   assert.deepEqual(saved.definition.rules, [{ id: 'start-melden', name: 'Start melden', trigger: 'task.complete',
     conditions: [{ field: 'task.key', operator: 'equals', value: 'start' }], actions: [{ type: 'add_comment', text: 'Gestartet: {task.title}', visible_to: ['*'] }] }]);
   // … and in a case from it: the step takes several PDFs at once, each one a document, the step done after the last

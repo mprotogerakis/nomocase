@@ -2,7 +2,7 @@
 import { ACCESS, arr, DB, DECISIONS, ev, fail, FILE_KINDS, isDate, now, q, row, rows, TASK_TYPES, uid, validFiles, wsEv } from './core.js';
 import { caseCtx, requireWsOwner } from './access.js';
 import { RULE_ACTIONS, RULE_OPS, RULE_TRIGGERS } from './rules.js';
-import { scaleProblem } from '../public/shared/assess.js';
+import { parseScore, scaleProblem } from '../public/shared/assess.js';
 import { newInbox } from './inbox.js';
 import { formProblems } from '../public/shared/forms.js';
 
@@ -65,6 +65,7 @@ export function checkDef(d) {
     ok(Array.isArray(a.from) && a.from.length && a.from.every(k => assessed.get(k) === a.scale), `Verrechnung "${a.key}": from = Schritte, die auf "${a.scale}" bewertet werden`);
     ok(['mean', 'min', 'max', 'sum'].includes(a.method ?? 'mean') && ['truncate', 'half_up'].includes(a.round ?? 'half_up'), `Verrechnung "${a.key}": method mean|min|max|sum, round truncate|half_up`);
     ok(a.field === undefined || d.fields.some(f => f.key === a.field), `Verrechnung "${a.key}": field "${a.field}" gibt es nicht`);
+    ok(a.fail_value === undefined || (typeof a.fail_value === 'number' && parseScore(d.scales[a.scale], a.fail_value) !== null), `Verrechnung "${a.key}": fail_value ist kein Wert der Skala`);
   }
   // Rules refer to steps by key (template steps, or steps a rule creates): a typo would silently never match.
   const ruleKeys = new Set(d.rules.flatMap(r => r.actions.filter(a => a.type === 'create_task' && a.key).map(a => a.key)));

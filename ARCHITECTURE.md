@@ -137,7 +137,9 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   Dokument, Upload-Einstellungen, Beschreibung) als Formular; Regeln, Formulare, Bewertung, Geld weiter als JSON
 - [x] Vorlagen-Editor, Stufe 2a: Regeln als Formular (Auslöser, Bedingungen mit Auswahllisten, Aktionen je Typ)
 - [x] Vorlagen-Editor, Stufe 2b: PDF-Formulare als Formular (Einträge je Art, Werte aus einer Liste von Platzhaltern
-  oder fester Text, Zuordnung zum Schritt, Vorschau); als JSON bleiben nur Bewertung (`scales`/`aggregates`) und Geld
+  oder fester Text, Zuordnung zum Schritt, Vorschau)
+- [x] Vorlagen-Editor, Stufe 2c: je Schritt „auch sichtbar für“, Bewertungsskala, eigene Knopf-Beschriftungen; Verrechnungen
+  als Formular (Schritte, Verfahren, Rundung, Wert bei „nicht bestanden“, Ziel-Angabe); als JSON bleiben die Skalen und Geld
 - ~~Dokumente in mehreren Vorgängen~~ – nicht gewünscht (17.10.); gebraucht wird das Verschieben ganzer Vorgänge (umgesetzt)
 - [x] Prüfung auf freie Variablen (fehlende Importe) in `npm run check` (`scripts/freevars.mjs`); esbuild meldet sie nicht
 - [x] Workspace-Änderungen protokollieren (`workspace_events`, nur ergänzbar): Name, Mitglieder, Rollen, Einladungen,

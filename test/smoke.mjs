@@ -578,6 +578,10 @@ const filesDef = { roles: [{ key: 'owner', label: 'Team', access: 'case_owner' }
     { key: 'plain', title: 'Beliebige Datei', type: 'upload' }] }] };
 await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`,
   definition: { ...filesDef, phases: [{ title: 'x', tasks: [{ key: 'a', title: 'A', type: 'upload', files: { accept: ['exe'] } }] }] } } }), 400);
+// an aggregate's "not passed" value must be a value of its scale
+await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`, definition: { ...filesDef,
+  scales: { n: { label: 'Note', range: [1, 4], step: 0.1, pass: { max: 4 } } }, phases: [{ title: 'x', tasks: [{ key: 'g', title: 'G', type: 'review', assess: 'n' }] }],
+  aggregates: [{ key: 'a', label: 'A', scale: 'n', from: ['g'], fail_value: 4.05 }] } } }), 400);
 const { id: filesTpl } = await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`, definition: filesDef } }));
 const { id: filesCase } = await expect(prof('/cases', { body: { template_id: filesTpl, title: `Uploads ${run}` } }));
 let fc = await expect(prof(`/cases/${filesCase}`));
