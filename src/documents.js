@@ -163,7 +163,7 @@ export async function upload(rq) {
     if (!ctx.staff && dt && !dt.visible_to.some(v => v === '*' || v === ctx.role)) fail(403, 'Dokumente dieses Typs legt das Team an.');
     doc = { isNew: true, id: uid(), title: String(form.get('title') || dt?.label || f.filename).slice(0, 200), doc_type: docType, visible_to: dt?.visible_to ?? [] };
   }
-  const stmts = task ? await moneyStmts(ctx, user, task, form.get('amount_cents')) : [];
+  const stmts = task ? await moneyStmts(rq, ctx, user, task, form.get('amount_cents')) : [];
   return storeVersion({ rq, c: ctx.c, actorId: user.id, uploadedBy: user.id, f, task, doc, stmts, byTeam: ctx.staff,
     complete: !(several && form.get('more') === '1') });
 }

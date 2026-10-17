@@ -91,7 +91,7 @@ export async function getCase(rq) {
     case: {
       id, title: ctx.c.title, status: ctx.c.status, fields: ctx.staff ? JSON.parse(ctx.c.fields) : {}, created_at: ctx.c.created_at,
       template_name: ctx.c.template_name, template_version: ctx.c.template_version, phase: currentPhase(visiblePhases, visibleTasks),
-      template_id: ctx.c.template_id, workspace_id: ctx.c.workspace_id, inbox: ctx.staff ? inboxAddress(ctx.c) : null,
+      template_id: ctx.c.template_id, workspace_id: ctx.c.workspace_id, inbox: ctx.staff ? inboxAddress(rq, ctx.c) : null,
       closed_at: ctx.c.closed_at, retention_days: ctx.def.retention_days ?? null,
       // who the case is waiting for (role labels only, no task titles of other roles)
       waiting_on: [...new Set(tasks.filter(t => t.status === 'open' && !t.blocked && t.role && t.role !== ctx.role).map(t => roleLabel(t.role)))],
@@ -111,7 +111,7 @@ export async function getCase(rq) {
     events: events.filter(e => canSee(ctx, e)).map(e => ({ ...e, payload: JSON.parse(e.payload), visible_to: arr(e.visible_to) })),
     participants: ctx.staff ? parts : parts.filter(p => !p.revoked_at).map(({ name, role }) => ({ name, role })),
     invitations: ctx.owner ? invites : [],
-    finance: ctx.staff ? financeSummary(await loadFinance([id])) : null, // guests never see money
+    finance: ctx.staff ? financeSummary(await loadFinance(rq, [id])) : null, // guests never see money
     parent: ctx.c.parent_case_id ? await row(`SELECT c.id, c.title FROM cases c WHERE c.id = ?1 AND ${ACCESSIBLE}`, ctx.c.parent_case_id, user.id, now()) : null,
     // the phase of a subcase only for the team (it is computed from all its steps)
     subcases: (await rows(`SELECT c.id, c.title, c.status, t.name AS template,
@@ -276,7 +276,8 @@ ${E.ORIGIN}/#/case/${c.id}`,
   }
 }
 
-export async function dashboard({ user }) {
+export async function dashboard(rq) {
+  const { user } = rq;
   const stamp = await dashboardStamp(user); // before the data: a change in between only causes one extra refresh
   const cases = await rows(`
     SELECT c.id, c.title, c.status, c.workspace_id, c.parent_case_id, w.name AS workspace, t.name AS template,
@@ -302,7 +303,7 @@ export async function dashboard({ user }) {
     c.staff = c.ws_role === 'owner' || STAFF.includes(c.access);
     c.parent_title = cases.find(x => x.id === c.parent_case_id)?.title ?? null; // only parents the user can open anyway
   }
-  const claims = await loadFinance(cases.filter(c => c.staff).map(c => c.id));
+  const claims = await loadFinance(rq, cases.filter(c => c.staff).map(c => c.id));
   const openReceivable = cs => sum(cs.filter(x => x.direction === 'receivable'), x => x.open_cents);
   const myTasks = [];
   for (const c of cases) {

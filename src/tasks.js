@@ -102,7 +102,8 @@ export async function deleteTask({ user, params }) {
   await DB.batch([q('DELETE FROM tasks WHERE id = ?', t.id), ev(ctx.c.id, user.id, 'task.removed', { task: t.title }, taskAudience(t))]);
 }
 
-export async function taskAction({ user, params, body }) {
+export async function taskAction(rq) {
+  const { user, params, body } = rq;
   const { ctx, t, tasks } = await loadTask(user, params.id);
   if (ctx.c.status === 'closed') fail(409, CASE_CLOSED); // said first: the database refuses it anyway
   let { action } = body;
@@ -142,7 +143,7 @@ export async function taskAction({ user, params, body }) {
     const closed = status !== 'open';
     stmts.push(q('UPDATE tasks SET status = ?, outcome = ?, completed_at = ?, completed_by = ?, score = ? WHERE id = ?',
       status, outcome, closed ? now() : null, closed ? user.id : null, closed ? score : null, t.id));
-    if (action === 'complete') stmts.push(...await moneyStmts(ctx, user, t, body.amount_cents));
+    if (action === 'complete') stmts.push(...await moneyStmts(rq, ctx, user, t, body.amount_cents));
     if (action === 'reopen') stmts.push(q('DELETE FROM notifications WHERE task_id = ?', t.id));
   }
   stmts.push(ev(ctx.c.id, user.id, `task.${action}`, { task: t.title, task_id: t.id, type: t.type, note, ...(action === 'question' && { reopened: t.depends_on }),

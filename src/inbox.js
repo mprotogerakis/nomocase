@@ -2,7 +2,7 @@
 // Worker's email handler). Each mail is kept as an .eml document (team only by default), once per Message-ID.
 // Attachments are only listed here (unpacking a large mail would cost the Worker too much CPU); the team takes them
 // into the case as checked documents from the browser (public/shared/mime.js, documents view).
-import { E, hex, now, q, row, uid } from './core.js';
+import { hex, uid } from './core.js';
 import { MAX_UPLOAD, storeVersion } from './documents.js';
 import { decodeHeader } from '../public/shared/mime.js';
 
@@ -11,7 +11,7 @@ export { decodeHeader };
 const MAILS_PER_CASE_AND_DAY = 100;
 const latin1 = b => new TextDecoder('latin1').decode(b);
 
-export const inboxAddress = c => (E.INBOX_DOMAIN && c.inbox ? `v-${c.inbox}@${E.INBOX_DOMAIN}` : null);
+export const inboxAddress = (rq, c) => (rq.env.INBOX_DOMAIN && c.inbox ? `v-${c.inbox}@${rq.env.INBOX_DOMAIN}` : null);
 export const newInbox = () => hex(crypto.getRandomValues(new Uint8Array(5)));
 
 // File names of attachments, from the part headers (filename="…", RFC 2231 filename*=utf-8''…, or name="…").
@@ -30,12 +30,13 @@ const safeName = s => s.replace(/[\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').
 
 // Called by worker.js for every mail Email Routing hands over. Rejecting makes the sender's server bounce it.
 export async function receiveMail(rq, message) {
+  const { row, sql, time } = rq;
   const local = message.to.split('@')[0].toLowerCase();
   const c = local.startsWith('v-') && await row('SELECT * FROM cases WHERE inbox = ?', local.slice(2));
   if (!c) return message.setReject('Unbekannte Adresse');
   if (c.status === 'closed') return message.setReject('Der Vorgang ist abgeschlossen und nimmt keine Mails mehr an.');
   if (message.rawSize > MAX_UPLOAD) return message.setReject('Die Mail ist zu groß (höchstens 20 MB).');
-  const today = now().slice(0, 10);
+  const today = time.slice(0, 10);
   if ((await row('SELECT COUNT(*) AS n FROM inbound_mail WHERE case_id = ? AND received_at >= ?', c.id, today)).n >= MAILS_PER_CASE_AND_DAY) {
     return message.setReject('Für diesen Vorgang kamen heute schon zu viele Mails.');
   }
@@ -51,5 +52,5 @@ export async function receiveMail(rq, message) {
     sha256: hex(await crypto.subtle.digest('SHA-256', bytes)) };
   await storeVersion({ rq, c, actorId: null, uploadedBy: owner.user_id, label: from, channel: 'mail', f, task: null, doc,
     extra: { subject, attachments: attachmentNames(bytes) },
-    stmts: [q('INSERT INTO inbound_mail (case_id, message_id, document_id, sender, received_at) VALUES (?, ?, ?, ?, ?)', c.id, messageId, doc.id, message.from, now())] });
+    stmts: [sql('INSERT INTO inbound_mail (case_id, message_id, document_id, sender, received_at) VALUES (?, ?, ?, ?, ?)', c.id, messageId, doc.id, message.from, time)] });
 }

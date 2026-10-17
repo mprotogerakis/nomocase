@@ -28,7 +28,7 @@ export const RULE_ACTIONS = ['create_task', 'complete_tasks', 'add_comment', 'cr
 const MONEY_FACTS = ['claim.amount', 'claim.recognized', 'claim.cut', 'claim.settled', 'claim.open', 'case.payables_open', 'case.receivables_open'];
 
 // Everything a condition or a {placeholder} can refer to, for one event.
-async function ruleFacts(c, e, p) {
+async function ruleFacts(rq, c, e, p) {
   const f = { 'event.type': e.type, 'event.actor': e.actor ?? '', 'case.title': c.title };
   if (e.actor_id) f['event.actor_role'] = (await row('SELECT role FROM case_participants WHERE case_id = ? AND user_id = ?', c.id, e.actor_id))?.role ?? '';
   if (p.task_id) {
@@ -40,7 +40,7 @@ async function ruleFacts(c, e, p) {
     if (d) Object.assign(f, { 'document.title': d.title, 'document.type': d.doc_type ?? '', 'document.version': d.version, 'document.filename': d.filename });
   }
   if (p.claim_id) {
-    const claims = await loadFinance([c.id]);
+    const claims = await loadFinance(rq, [c.id]);
     const cl = claims.find(x => x.id === p.claim_id);
     if (cl) {
       Object.assign(f, { 'claim.title': cl.title, 'claim.direction': cl.direction, 'claim.amount': cl.amount_cents, 'claim.recognized': cl.recognized_cents ?? cl.amount_cents,
@@ -130,7 +130,7 @@ async function recordFailure(caseId, eventId, ruleId, attempts, detail) {
 
 // New events, each looked at once (the cursor); `retries` (the cron): also the failed runs that are due again. The
 // cursor is not what guarantees a run – a failed one stays in automation_runs until it succeeds or gives up.
-export async function processRules({ retries = false } = {}) {
+export async function processRules(rq, { retries = false } = {}) {
   const events = await rows(`SELECT e.*, u.name AS actor FROM events e LEFT JOIN users u ON u.id = e.actor_id
     WHERE e.id > (SELECT last_event_id FROM rule_cursor WHERE id = 1) ORDER BY e.id LIMIT 200`);
   if (events.length) {
@@ -140,7 +140,7 @@ export async function processRules({ retries = false } = {}) {
       const p = JSON.parse(e.payload);
       const rules = (c?.def.rules ?? []).filter(r => r.trigger === e.type && r.enabled !== false);
       if (!rules.length || p.rule) continue; // nothing to do, or caused by a rule (no chains)
-      const f = await ruleFacts(c, e, p);
+      const f = await ruleFacts(rq, c, e, p);
       for (const rule of rules) {
         if (!rule.conditions.every(cond => RULE_OPS[cond.operator](f[cond.field], cond.value))) continue;
         if (await row('SELECT 1 FROM automation_runs WHERE event_id = ? AND rule_id = ?', e.id, rule.id)) continue; // ran already
@@ -149,11 +149,11 @@ export async function processRules({ retries = false } = {}) {
     }
     await q('UPDATE rule_cursor SET last_event_id = MAX(last_event_id, ?) WHERE id = 1', events.at(-1).id).run();
   }
-  if (retries) await retryRules();
+  if (retries) await retryRules(rq);
 }
 
 // Failed runs that are due: the same rule on the same event (its conditions held then), with the facts of now.
-async function retryRules() {
+async function retryRules(rq) {
   const due = await rows(`SELECT r.rule_id, r.attempts, e.*, u.name AS actor FROM automation_runs r JOIN events e ON e.id = r.event_id
     LEFT JOIN users u ON u.id = e.actor_id WHERE r.status = 'retry' AND r.next_attempt_at <= ? ORDER BY r.next_attempt_at LIMIT 20`, now());
   const cases = await loadCases(due.map(d => d.case_id));
@@ -163,7 +163,7 @@ async function retryRules() {
       await recordFailure(e.case_id, e.id, ruleId, ATTEMPTS, 'nicht wiederholt: Regel inzwischen ausgeschaltet oder entfernt');
       continue;
     }
-    await runRule(c, e, rule, await ruleFacts(c, e, JSON.parse(e.payload)), attempts);
+    await runRule(c, e, rule, await ruleFacts(rq, c, e, JSON.parse(e.payload)), attempts);
   }
 }
 

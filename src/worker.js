@@ -127,7 +127,7 @@ export default {
       let body = {};
       if (raw) try { body = JSON.parse(raw); } catch { fail(400, 'Ungültiges JSON'); }
       const res = await handler({ ...rq, req, url, user, exec, body: body ?? {}, params: url.pathname.match(re).groups ?? {} });
-      if (req.method !== 'GET') await processRules().catch(e => console.error('rules', e.message)); // the events this request wrote
+      if (req.method !== 'GET') await processRules(rq).catch(e => console.error('rules', e.message)); // the events this request wrote
       return res instanceof Response ? res : json(res ?? { ok: true });
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, e.status);
@@ -154,7 +154,7 @@ export default {
     init(env);
     const failed = [];
     const step = async (name, fn) => { try { await fn(); } catch (e) { console.error(`cron ${name}`, e.message); failed.push(name); } };
-    await step('rules', () => processRules({ retries: true })); // catch-up (e.g. after a request that failed midway) and retries
+    await step('rules', () => processRules(context(env), { retries: true })); // catch-up (e.g. after a request that failed midway) and retries
     await step('outbox', processOutbox); // mails with links the provider did not take yet
     if (controller.cron === DAILY_CRON) {
       await step('retention', applyRetention);

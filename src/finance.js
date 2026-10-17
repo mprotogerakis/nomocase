@@ -1,5 +1,5 @@
 // Finance: claims, decisions and transactions (immutable, cents), money steps on tasks.
-import { DB, ev, fail, isDate, now, q, row, uid } from './core.js';
+import { fail, isDate, uid } from './core.js';
 import { caseCtx } from './access.js';
 import { loadTask } from './tasks.js';
 
@@ -13,15 +13,16 @@ const cents = v => (Number.isSafeInteger(v) && v >= 0 && v <= MAX_CENTS ? v : fa
 
 export const eur = c => `${(c / 100).toFixed(2).replace('.', ',')} €`;
 
-const dayOrToday = d => (d ? (isDate(d) ? d : fail(400, 'Datum ungültig')) : now().slice(0, 10));
+const dayOrToday = (rq, d) => (d ? (isDate(d) ? d : fail(400, 'Datum ungültig')) : rq.time.slice(0, 10));
 
-export async function loadFinance(caseIds) {
+export async function loadFinance(rq, caseIds) {
+  const { batch, sql } = rq;
   const ids = JSON.stringify(caseIds);
-  const [claims, decisions, txs] = (await DB.batch([
-    q('SELECT * FROM financial_claims WHERE case_id IN (SELECT value FROM json_each(?)) ORDER BY created_at, rowid', ids),
-    q(`SELECT d.*, u.name AS author FROM financial_decisions d JOIN financial_claims c ON c.id = d.claim_id LEFT JOIN users u ON u.id = d.created_by
+  const [claims, decisions, txs] = (await batch([
+    sql('SELECT * FROM financial_claims WHERE case_id IN (SELECT value FROM json_each(?)) ORDER BY created_at, rowid', ids),
+    sql(`SELECT d.*, u.name AS author FROM financial_decisions d JOIN financial_claims c ON c.id = d.claim_id LEFT JOIN users u ON u.id = d.created_by
        WHERE c.case_id IN (SELECT value FROM json_each(?)) ORDER BY d.created_at, d.rowid`, ids),
-    q(`SELECT t.*, u.name AS author FROM financial_transactions t JOIN financial_claims c ON c.id = t.claim_id LEFT JOIN users u ON u.id = t.created_by
+    sql(`SELECT t.*, u.name AS author FROM financial_transactions t JOIN financial_claims c ON c.id = t.claim_id LEFT JOIN users u ON u.id = t.created_by
        WHERE c.case_id IN (SELECT value FROM json_each(?)) ORDER BY t.created_at, t.rowid`, ids),
   ])).map(r => r.results);
   return claims.map(c => {
@@ -56,8 +57,8 @@ export function financeSummary(claims) {
   };
 }
 
-async function loadClaim(user, claimId) {
-  const c = (await row('SELECT * FROM financial_claims WHERE id = ?', claimId)) ?? fail(404, 'Forderung nicht gefunden');
+async function loadClaim(rq, user, claimId) {
+  const c = (await rq.row('SELECT * FROM financial_claims WHERE id = ?', claimId)) ?? fail(404, 'Forderung nicht gefunden');
   const ctx = await caseCtx(user, c.case_id);
   if (!ctx.staff) fail(404, 'Forderung nicht gefunden');
   return { ctx, c };
@@ -65,28 +66,28 @@ async function loadClaim(user, claimId) {
 
 // Statement builders, shared by the finance panel and by tasks with a money step.
 // `taskId`: the step that created the claim (money steps); claims added by hand have none.
-function claimStmts(ctx, user, { id = uid(), title, direction, amount, counterparty, taskId = null }) {
+function claimStmts(rq, ctx, user, { id = uid(), title, direction, amount, counterparty, taskId = null }) {
   return [
-    q('INSERT INTO financial_claims (id, case_id, title, counterparty, direction, amount_cents, created_by, created_at, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      id, ctx.c.id, title, counterparty || null, direction, amount, user.id, now(), taskId),
-    ev(ctx.c.id, user.id, 'claim.added', { claim: title, claim_id: id, direction, amount_cents: amount }, []),
+    rq.sql('INSERT INTO financial_claims (id, case_id, title, counterparty, direction, amount_cents, created_by, created_at, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      id, ctx.c.id, title, counterparty || null, direction, amount, user.id, rq.time, taskId),
+    rq.event(ctx.c.id, user.id, 'claim.added', { claim: title, claim_id: id, direction, amount_cents: amount }, []),
   ];
 }
 
 // What follows from a decision (e.g. a review task for a cut) is up to the case's rules.
-function decisionStmts(ctx, user, c, approved, { day, note, taskId = null } = {}) {
+function decisionStmts(rq, ctx, user, c, approved, { day, note, taskId = null } = {}) {
   return [
-    q('INSERT INTO financial_decisions (id, claim_id, approved_cents, decided_on, note, created_by, created_at, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      uid(), c.id, approved, dayOrToday(day), String(note ?? '').trim() || null, user.id, now(), taskId),
-    ev(ctx.c.id, user.id, 'decision.added', { claim: c.title, claim_id: c.id, approved_cents: approved, amount_cents: c.amount_cents }, []),
+    rq.sql('INSERT INTO financial_decisions (id, claim_id, approved_cents, decided_on, note, created_by, created_at, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      uid(), c.id, approved, dayOrToday(rq, day), String(note ?? '').trim() || null, user.id, rq.time, taskId),
+    rq.event(ctx.c.id, user.id, 'decision.added', { claim: c.title, claim_id: c.id, approved_cents: approved, amount_cents: c.amount_cents }, []),
   ];
 }
 
-function transactionStmts(ctx, user, c, amount, { day, note, taskId = null } = {}) {
+function transactionStmts(rq, ctx, user, c, amount, { day, note, taskId = null } = {}) {
   return [
-    q('INSERT INTO financial_transactions (id, claim_id, amount_cents, booked_on, note, created_by, created_at, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      uid(), c.id, amount, dayOrToday(day), String(note ?? '').trim() || null, user.id, now(), taskId),
-    ev(ctx.c.id, user.id, 'transaction.booked', { claim: c.title, claim_id: c.id, direction: c.direction, amount_cents: amount }, []),
+    rq.sql('INSERT INTO financial_transactions (id, claim_id, amount_cents, booked_on, note, created_by, created_at, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      uid(), c.id, amount, dayOrToday(rq, day), String(note ?? '').trim() || null, user.id, rq.time, taskId),
+    rq.event(ctx.c.id, user.id, 'transaction.booked', { claim: c.title, claim_id: c.id, direction: c.direction, amount_cents: amount }, []),
   ];
 }
 
@@ -94,7 +95,8 @@ function transactionStmts(ctx, user, c, amount, { day, note, taskId = null } = {
 export const BOOKED_ONCE = 'Für diese Aufgabe ist schon ein Betrag gebucht. Korrekturen bitte direkt bei der Forderung.';
 
 // The money step of a template task, done together with the task. Staff only; no amount = no booking.
-export async function moneyStmts(ctx, user, t, amount) {
+export async function moneyStmts(rq, ctx, user, t, amount) {
+  const { row } = rq;
   const m = t.money;
   if (!m || !ctx.def.finance || !ctx.staff) return [];
   const booked = await row(`SELECT 1 FROM financial_claims WHERE task_id = ?1 UNION ALL SELECT 1 FROM financial_decisions WHERE task_id = ?1
@@ -110,7 +112,7 @@ export async function moneyStmts(ctx, user, t, amount) {
   const cts = cents(Number(amount));
   if (m.claim) {
     const counterparty = m.counterparty_field ? JSON.parse(ctx.c.fields)[m.counterparty_field] : m.counterparty;
-    return claimStmts(ctx, user, { title: m.claim, direction: m.direction, amount: cts, counterparty, taskId: t.id });
+    return claimStmts(rq, ctx, user, { title: m.claim, direction: m.direction, amount: cts, counterparty, taskId: t.id });
   }
   // A claim a money step created (task_id set, also when that step was deleted since): claim names are unique per
   // template, so the title tells which step's. Claims added by hand have no task_id and never catch a booking.
@@ -118,48 +120,53 @@ export async function moneyStmts(ctx, user, t, amount) {
   const c = (await row(`SELECT * FROM financial_claims WHERE case_id = ? AND task_id IS NOT NULL AND title = ?
     ORDER BY created_at DESC, rowid DESC LIMIT 1`, ctx.c.id, name))
     ?? fail(409, `Es gibt noch keine Forderung „${name}“ aus der Aufgabe davor. Bitte dort zuerst den Betrag eintragen – oder direkt bei der Forderung buchen.`);
-  return m.decision ? decisionStmts(ctx, user, c, cts, { taskId: t.id }) : transactionStmts(ctx, user, c, cts || fail(400, 'Betrag muss größer als 0 sein'), { taskId: t.id });
+  return m.decision ? decisionStmts(rq, ctx, user, c, cts, { taskId: t.id }) : transactionStmts(rq, ctx, user, c, cts || fail(400, 'Betrag muss größer als 0 sein'), { taskId: t.id });
 }
 
 // Book the money step of a task afterwards (e.g. the task was done before the amount was known).
-export async function taskMoney({ user, params, body }) {
+export async function taskMoney(rq) {
+  const { user, params, body, batch } = rq;
   const { ctx, t } = await loadTask(user, params.id);
   if (!ctx.staff) fail(403, 'Nur das Team bucht Beträge');
   if (!t.money || !ctx.def.finance) fail(400, 'Diese Aufgabe hat keinen Geldschritt');
   if (body.amount_cents == null) fail(400, 'Betrag fehlt');
-  await DB.batch(await moneyStmts(ctx, user, t, body.amount_cents));
+  await batch(await moneyStmts(rq, ctx, user, t, body.amount_cents));
 }
 
-export async function addClaim({ user, params, body }) {
+export async function addClaim(rq) {
+  const { user, params, body, batch } = rq;
   const ctx = await caseCtx(user, params.id);
   if (!ctx.staff) fail(404, 'Vorgang nicht gefunden');
   const title = String(body.title ?? '').trim() || fail(400, 'Titel fehlt');
   if (!['payable', 'receivable'].includes(body.direction)) fail(400, 'Richtung ungültig');
   const id = uid();
-  await DB.batch(claimStmts(ctx, user, { id, title, direction: body.direction, amount: cents(body.amount_cents), counterparty: String(body.counterparty ?? '').trim() }));
+  await batch(claimStmts(rq, ctx, user, { id, title, direction: body.direction, amount: cents(body.amount_cents), counterparty: String(body.counterparty ?? '').trim() }));
   return { id };
 }
 
-export async function addDecision({ user, params, body }) {
-  const { ctx, c } = await loadClaim(user, params.id);
-  await DB.batch(decisionStmts(ctx, user, c, cents(body.approved_cents), { day: body.decided_on, note: body.note }));
+export async function addDecision(rq) {
+  const { user, params, body, batch } = rq;
+  const { ctx, c } = await loadClaim(rq, user, params.id);
+  await batch(decisionStmts(rq, ctx, user, c, cents(body.approved_cents), { day: body.decided_on, note: body.note }));
 }
 
-export async function addTransaction({ user, params, body }) {
-  const { ctx, c } = await loadClaim(user, params.id);
+export async function addTransaction(rq) {
+  const { user, params, body, batch } = rq;
+  const { ctx, c } = await loadClaim(rq, user, params.id);
   const amount = cents(body.amount_cents) || fail(400, 'Betrag muss größer als 0 sein');
-  await DB.batch(transactionStmts(ctx, user, c, amount, { day: body.booked_on, note: body.note }));
+  await batch(transactionStmts(rq, ctx, user, c, amount, { day: body.booked_on, note: body.note }));
 }
 
 // Corrections are counter-entries; the original booking stays visible.
-export async function reverseTransaction({ user, params, body }) {
+export async function reverseTransaction(rq) {
+  const { user, params, body, row, sql, batch, event, time } = rq;
   const t = (await row('SELECT * FROM financial_transactions WHERE id = ?', params.id)) ?? fail(404, 'Buchung nicht gefunden');
-  const { ctx, c } = await loadClaim(user, t.claim_id);
+  const { ctx, c } = await loadClaim(rq, user, t.claim_id);
   if (t.reverses_id) fail(400, 'Ein Storno kann nicht storniert werden');
   if (await row('SELECT 1 FROM financial_transactions WHERE reverses_id = ?', t.id)) fail(409, 'Buchung ist bereits storniert');
-  await DB.batch([
-    q('INSERT INTO financial_transactions (id, claim_id, amount_cents, booked_on, note, reverses_id, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      uid(), c.id, -t.amount_cents, now().slice(0, 10), String(body.note ?? '').trim() || null, t.id, user.id, now()),
-    ev(ctx.c.id, user.id, 'transaction.reversed', { claim: c.title, amount_cents: t.amount_cents }, []),
+  await batch([
+    sql('INSERT INTO financial_transactions (id, claim_id, amount_cents, booked_on, note, reverses_id, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      uid(), c.id, -t.amount_cents, time.slice(0, 10), String(body.note ?? '').trim() || null, t.id, user.id, time),
+    event(ctx.c.id, user.id, 'transaction.reversed', { claim: c.title, amount_cents: t.amount_cents }, []),
   ]);
 }
