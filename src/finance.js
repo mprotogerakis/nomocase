@@ -103,10 +103,11 @@ export async function moneyStmts(ctx, user, t, amount) {
     const counterparty = m.counterparty_field ? JSON.parse(ctx.c.fields)[m.counterparty_field] : m.counterparty;
     return claimStmts(ctx, user, { title: m.claim, direction: m.direction, amount: cts, counterparty, taskId: t.id });
   }
-  // the claim of the step that creates "<name>" (one per template), not just any claim with that title
+  // A claim a money step created (task_id set, also when that step was deleted since): claim names are unique per
+  // template, so the title tells which step's. Claims added by hand have no task_id and never catch a booking.
   const name = m.decision ?? m.payment;
-  const c = (await row(`SELECT fc.* FROM financial_claims fc JOIN tasks t ON t.id = fc.task_id
-    WHERE fc.case_id = ? AND json_extract(t.money, '$.claim') = ? ORDER BY fc.created_at DESC, fc.rowid DESC LIMIT 1`, ctx.c.id, name))
+  const c = (await row(`SELECT * FROM financial_claims WHERE case_id = ? AND task_id IS NOT NULL AND title = ?
+    ORDER BY created_at DESC, rowid DESC LIMIT 1`, ctx.c.id, name))
     ?? fail(409, `Es gibt noch keine Forderung „${name}“. Bitte zuerst die vorherige Aufgabe mit Betrag erledigen.`);
   return m.decision ? decisionStmts(ctx, user, c, cts) : transactionStmts(ctx, user, c, cts || fail(400, 'Betrag muss größer als 0 sein'));
 }

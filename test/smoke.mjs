@@ -494,11 +494,13 @@ assert.equal(kc.tasks.find(t => t.title === 'Beihilfe-Erstattung eingegangen').s
 await expect(prof(`/tasks/${kt('Beihilfe-Erstattung eingegangen')}/money`, { body: { amount_cents: 12000 } }));
 assert.equal((await expect(prof(`/cases/${viaTasks}`))).finance.totals.open_receivable_cents, 0);
 await expect(student(`/tasks/${kt('Beihilfe-Erstattung eingegangen')}/money`, { body: { amount_cents: 1 } }), 404);
-// A claim added by hand with the same title does not catch the step's payment: that goes to the claim the step made.
+// A claim added by hand with the same title does not catch the step's payment: that goes to the claim the step made,
+// also after the step that made it was deleted.
 const { id: twin } = await expect(prof('/cases', { body: { template_id: med.id, title: 'Arztrechnung Zwilling', fields: { doctor: 'Dr. Zwei' } } }));
 const twinTask = async title => (await expect(prof(`/cases/${twin}`))).tasks.find(t => t.title === title).id;
 await expect(prof(`/cases/${twin}/documents`, { form: file('Rechnung-Zwei.pdf', PDF, { task_id: await twinTask('Rechnung erfassen'), amount_cents: '20000' }) }));
 await expect(prof(`/cases/${twin}/claims`, { body: { title: 'Rechnung', direction: 'payable', amount_cents: 999 } }));
+await expect(prof(`/tasks/${await twinTask('Rechnung erfassen')}`, { method: 'DELETE' }));
 await expect(prof(`/tasks/${await twinTask('Rechnung bezahlen')}/action`, { body: { action: 'complete', amount_cents: 20000 } }));
 assert.deepEqual((await expect(prof(`/cases/${twin}`))).finance.claims.filter(c => c.title === 'Rechnung').map(c => [c.amount_cents, c.settled_cents]),
   [[20000, 20000], [999, 0]]);
