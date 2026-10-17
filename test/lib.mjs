@@ -1,9 +1,12 @@
-// Shared helpers for the end-to-end tests (they run against `npm run dev`, BASE=http://localhost:8787).
+// Shared helpers for the end-to-end tests. test/run.mjs gives each suite its own server (BASE) and local state
+// (NOMOCASE_STATE); run directly, a suite uses `npm run dev` and .wrangler/state.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 
 export const BASE = process.env.BASE ?? 'http://localhost:8787';
-export const run = Date.now().toString(36); // unique emails so tests can be re-run on the same DB
+export const STATE = process.env.NOMOCASE_STATE ?? '.wrangler/state';
+export const LOCAL = ['--local', '--persist-to', STATE]; // for wrangler's d1 and r2 commands
+export const run = Date.now().toString(36); // unique emails, also when a suite runs twice on the same state
 export const PDF = '%PDF-1.4\n% demo\n';
 
 // While sql() blocks the event loop (wrangler CLI), workerd drops idle keep-alive connections; such a request never
@@ -45,9 +48,4 @@ export const file = (name, content, extra = {}) => {
 export const tokenOf = link => link.split('/invite/')[1];
 
 // Direct look into the local D1 (only for checks the API deliberately doesn't expose).
-// Local runs start with a fresh daily mail quota per sender (tests run many times a day).
-export const freshMailQuota = () => new URL(BASE).hostname === 'localhost' && sql('DELETE FROM mail_log WHERE sender_id IS NOT NULL')
-  && sql("DELETE FROM mail_outbox WHERE sender_id IS NOT NULL AND status <> 'pending'") // the cap counts these too
-  && sql("UPDATE login_links SET kind = NULL WHERE kind = 'login_request'"); // self-service links of earlier runs
-
-export const sql = query => JSON.parse(execFileSync('npx', ['wrangler', 'd1', 'execute', 'nomocase', '--local', '--json', '--command', query], { encoding: 'utf8' }))[0].results;
+export const sql = query => JSON.parse(execFileSync('npx', ['wrangler', 'd1', 'execute', 'nomocase', ...LOCAL, '--json', '--command', query], { encoding: 'utf8' }))[0].results;

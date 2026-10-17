@@ -1,11 +1,10 @@
 // Walks the real example template "Praxisprojekt (B.Eng.)" (process plan of the EI faculty) from topic to booking,
 // with all four parties, and checks visibility, rules and the grading logic on the way.
 import assert from 'node:assert/strict';
-import { run, PDF, client, expect, file, freshMailQuota, tokenOf } from './lib.mjs';
+import { run, PDF, client, expect, file, tokenOf } from './lib.mjs';
 import { formPdf } from '../public/formpdf.js';
 import { PDFDocument } from '../public/vendor/pdf-lib.esm.min.js';
 
-freshMailQuota();
 const prof = client(), student = client(), company = client(), office = client();
 await expect(prof('/dev-login', { body: { email: 'prof@example.org' } }));
 const tpl = (await expect(prof('/templates'))).find(t => t.name === 'Praxisprojekt (B.Eng.)');

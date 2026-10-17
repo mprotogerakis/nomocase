@@ -92,8 +92,12 @@ statt verschickt. `npm run db:reset` setzt die lokale Datenbank zurück. Vorher 
 ## Tests
 
 ```sh
-npm test            # im zweiten Terminal, gegen den laufenden `npm run dev`
+npm test                    # startet je Suite einen eigenen Server mit frischer Datenbank
+node test/run.mjs smoke     # eine einzelne Suite
 ```
+
+Die Tests brauchen keinen laufenden `npm run dev` und lassen dessen Datenbank in Ruhe. Mehrere Läufe dürfen
+gleichzeitig laufen.
 
 Die Suite umfasst:
 - **Bündeln:** Jeder Import hat seinen Export.

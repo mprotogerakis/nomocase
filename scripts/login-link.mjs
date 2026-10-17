@@ -19,7 +19,9 @@ const hash = createHash('sha256').update(token).digest('hex');
 const sqlEmail = email.trim().toLowerCase().replaceAll("'", "''");
 const sql = `INSERT INTO login_links (token_hash, user_id, expires_at)
   SELECT '${hash}', id, '${new Date(Date.now() + 864e5).toISOString()}' FROM users WHERE email = '${sqlEmail}' RETURNING user_id`;
-const out = JSON.parse(execFileSync('npx', ['wrangler', 'd1', 'execute', 'nomocase', values.remote ? '--remote' : '--local', '--json', '--command', sql], { encoding: 'utf8' }));
+// NOMOCASE_STATE: another local state than .wrangler/state (the test runner gives each suite its own)
+const where = values.remote ? ['--remote'] : ['--local', ...(process.env.NOMOCASE_STATE ? ['--persist-to', process.env.NOMOCASE_STATE] : [])];
+const out = JSON.parse(execFileSync('npx', ['wrangler', 'd1', 'execute', 'nomocase', ...where, '--json', '--command', sql], { encoding: 'utf8' }));
 if (!out[0].results.length) {
   console.error(`Kein Benutzer mit der E-Mail ${email}`);
   process.exit(1);

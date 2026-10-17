@@ -1,13 +1,12 @@
 // UI walk-through in headless Chrome: every view renders, the main forms and buttons do what they say, and no script
-// error or error popup appears. The API tests never load app.js; this one does. Needs a local `npm run dev` (dev login).
+// error or error popup appears. The API tests never load app.js; this one does. Needs a server with the dev login (test/run.mjs starts one).
 import assert from 'node:assert/strict';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BASE, fetchOnce, run, PDF, freshMailQuota } from './lib.mjs';
+import { BASE, fetchOnce, run, PDF } from './lib.mjs';
 import { openBrowser, sleep } from './browser.mjs';
 
-freshMailQuota();
 const J = JSON.stringify;
 const pdf = join(mkdtempSync(join(tmpdir(), 'nomocase-ui-')), 'UI-Test.pdf');
 writeFileSync(pdf, `${PDF}% UI ${run}\n`);

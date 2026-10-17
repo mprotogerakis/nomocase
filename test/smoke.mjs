@@ -1,4 +1,4 @@
-// End-to-end check against a running `npm run dev` (BASE=http://localhost:8787).
+// End-to-end check against a server (test/run.mjs starts one; directly: `npm run dev`, BASE=http://localhost:8787).
 // Walks a Praxisprojekt-like flow (own test template, see fixtures/) and asserts the permission boundaries.
 // Leaves demo data behind.
 import assert from 'node:assert/strict';
@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { BASE, run, PDF, fetchOnce, client, expect, file, freshMailQuota, tokenOf, sql } from './lib.mjs';
+import { BASE, LOCAL, run, PDF, fetchOnce, client, expect, file, STATE, tokenOf, sql } from './lib.mjs';
 import { checkDef } from '../src/templates.js';
 
 // Client handlers live in plain objects: a second `submit.x = …` silently replaces the first (broke template saving once).
@@ -15,10 +15,6 @@ const handlers = readdirSync(ui, { recursive: true }).filter(f => f.endsWith('.j
   .flatMap(f => readFileSync(new URL(f, ui), 'utf8').match(/^(on|submit|change|input)\.\w+ =/gm) ?? []);
 assert.deepEqual(handlers.filter((h, i) => handlers.indexOf(h) !== i), [], 'duplicate client handlers');
 
-// Daily mail caps (bulk 80, self-service login links 20) would trip on reruns: locally each run starts with an empty mail log.
-if (new URL(BASE).hostname === 'localhost') sql('DELETE FROM mail_log');
-
-freshMailQuota();
 const prof = client(), student = client(), office = client();
 await expect(prof('/dev-login', { body: { email: 'prof@example.org' } }));
 
@@ -87,7 +83,6 @@ if (new URL(BASE).hostname === 'localhost') {
   sql(`DELETE FROM workspaces WHERE id = 'ws_other_${run}'`);
   assert.ok('mails_today' in (await expect(prof('/people'))).stats, 'the operator sees them');
 }
-if (new URL(BASE).hostname === 'localhost') sql("DELETE FROM mail_log WHERE kind = 'test'"); // the UI test sends one too
 
 // Templates: one that cases use is archived instead of deleted (no new cases from it), one without cases is deleted.
 {
@@ -171,16 +166,13 @@ await expect(prof(`/workspaces/${wsId}`, { method: 'DELETE' }));
 assert.ok(!(await expect(prof('/templates'))).some(t => t.id === wsTpl), 'templates go with the workspace');
 
 // Digital signatures in PDFs (synthetic fixtures): recognised per person, a new key under a known name is flagged,
-// a trusted issuer identifies, the team can assign. Local only: fixture keys are global, so each run starts fresh.
+// a trusted issuer identifies, the team can assign. Local only: fixture keys are global, so it needs a state of its own.
 if (new URL(BASE).hostname === 'localhost') {
   const fixture = name => readFileSync(new URL(`./fixtures/signed/${name}`, import.meta.url));
-  sql("DELETE FROM signing_keys WHERE subject_name IN ('Max Beispiel', 'Dr. Muster')");
-  sql("DELETE FROM trusted_issuers WHERE name = 'Test-CA'");
   const signer = client();
   const { link: sigInvite } = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `sig.${run}@example.org`, role: 'student' } }));
   await expect(signer('/invitations/accept', { body: { consent: true, token: tokenOf(sigInvite), name: 'Max Beispiel' } }));
-  // the signer's account carries the certificate's address (freed from earlier runs first)
-  sql(`UPDATE users SET email = 'freed-' || id || '@example.org' WHERE email = 'max@example.org'`);
+  // the signer's account carries the certificate's address
   sql(`UPDATE users SET email = 'max@example.org' WHERE email = 'sig.${run}@example.org'`);
   const signedUpload = async (who, name) => (await expect(who(`/cases/${caseId}/documents`, { form: file(name, fixture(name), { title: `Signiert ${run}` }) }))).document_id;
   const sigsOf = async (who, docId) => (await expect(who(`/cases/${caseId}`))).documents.find(x => x.id === docId).versions.at(-1).signatures;
@@ -749,12 +741,12 @@ if (new URL(BASE).hostname === 'localhost') {
   const runDigest = async () => assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=0+5+*+*+*`)).status, 200);
   // Files in R2 without a version (a delete that failed, an upload whose DB write never happened) go in the daily run
   // once they are a day old; a younger one may belong to an upload in progress. (Local R2: miniflare's SQLite file.)
-  const r2dir = '.wrangler/state/v3/r2/miniflare-R2BucketObject';
+  const r2dir = `${STATE}/v3/r2/miniflare-R2BucketObject`;
   const r2db = `${r2dir}/${readdirSync(r2dir).find(f => f.endsWith('.sqlite') && f !== 'metadata.sqlite')}`;
   const r2sql = query => execFileSync('sqlite3', [r2db, query], { encoding: 'utf8' }).trim();
   const blob = `${mkdtempSync(`${tmpdir()}/nomocase-`)}/orphan.txt`;
   writeFileSync(blob, 'verwaist');
-  for (const age of ['old', 'young']) execFileSync('npx', ['wrangler', 'r2', 'object', 'put', `nomocase-files/orphan-${run}/${age}`, '--local', '--file', blob], { stdio: 'ignore' });
+  for (const age of ['old', 'young']) execFileSync('npx', ['wrangler', 'r2', 'object', 'put', `nomocase-files/orphan-${run}/${age}`, ...LOCAL, '--file', blob], { stdio: 'ignore' });
   r2sql(`UPDATE _mf_objects SET uploaded = uploaded - 2 * 864e5 WHERE key = 'orphan-${run}/old'`);
   await runDigest();
   assert.equal(r2sql(`SELECT group_concat(key) FROM _mf_objects WHERE key LIKE 'orphan-${run}/%'`), `orphan-${run}/young`, 'the old orphan is gone, the young one stays');
@@ -800,7 +792,7 @@ if (new URL(BASE).hostname === 'localhost') {
   assert.equal((await expect(delGuest('/me'))).user, null, 'guest account is gone');
   assert.deepEqual(sql(`SELECT reason FROM case_deletions WHERE case_id = '${doomed}'`), [{ reason: 'manual' }]);
   assert.deepEqual(sql(`SELECT (SELECT COUNT(*) FROM events WHERE case_id = '${doomed}') + (SELECT COUNT(*) FROM financial_claims WHERE case_id = '${doomed}') AS n`), [{ n: 0 }]);
-  assert.throws(() => execFileSync('npx', ['wrangler', 'r2', 'object', 'get', `nomocase-files/${r2_key}`, '--local', '--pipe'], { stdio: 'pipe' }), 'file is gone from R2');
+  assert.throws(() => execFileSync('npx', ['wrangler', 'r2', 'object', 'get', `nomocase-files/${r2_key}`, ...LOCAL, '--pipe'], { stdio: 'pipe' }), 'file is gone from R2');
   assert.throws(() => sql(`DELETE FROM events WHERE case_id = '${caseId}'`), e => /append-only/.test(`${e.stdout}${e.stderr}`), 'other cases stay append-only');
 
   // Retention: 14 days ahead the owner is told, at the end of the period the case is deleted.

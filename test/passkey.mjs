@@ -1,4 +1,4 @@
-// Passkey flow in headless Chrome with a virtual authenticator. Needs a running `npm run dev` and Chrome.
+// Passkey flow in headless Chrome with a virtual authenticator. Needs a server (test/run.mjs starts one) and Chrome.
 // Login link → register passkey → log out → log in with passkey; plus: invites can't open passkey-protected accounts.
 // Against production: BASE=https://… EMAIL=<owner> node test/passkey.mjs (cleans up its passkey afterwards).
 import assert from 'node:assert/strict';
@@ -35,6 +35,12 @@ try {
   await click('[data-on="useLoginLink"]');
   await waitFor(`fetch('/api/me').then(r => r.json()).then(m => m.user?.email === '${EMAIL}')`, 'Anmeldung per Link');
   await cdp('Page.navigate', { url: `${BASE}/#/account` });
+  // an account that has not agreed yet (a fresh local state, or a new privacy notice) agrees first, like anyone would
+  await waitFor(`['Konto', 'Einwilligung'].includes(document.querySelector('main h1')?.textContent)`, 'Konto- oder Einwilligungsseite');
+  if (await evaluate(`document.querySelector('main h1').textContent === 'Einwilligung'`)) {
+    await evaluate(`document.querySelector('form[data-submit="giveConsent"] [name=consent]').checked = true`);
+    await click('form[data-submit="giveConsent"] button');
+  }
   await waitFor(`document.querySelector('main h1')?.textContent === 'Konto'`, 'Kontoseite');
   assert.equal((await api('/login-link', { body: { token: linkToken } })).status, 404, 'login link is single use');
 

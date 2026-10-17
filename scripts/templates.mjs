@@ -10,7 +10,9 @@ import { checkDef } from '../src/templates.js';
 
 const args = process.argv.slice(2);
 const remote = args.includes('--remote'), force = args.includes('--force'), dry = args.includes('--dry-run');
-const wrangler = a => execFileSync('npx', ['wrangler', 'd1', 'execute', 'nomocase', remote ? '--remote' : '--local', ...a],
+// NOMOCASE_STATE: another local state than .wrangler/state (the test runner prepares its own)
+const where = remote ? ['--remote'] : ['--local', ...(process.env.NOMOCASE_STATE ? ['--persist-to', process.env.NOMOCASE_STATE] : [])];
+const wrangler = a => execFileSync('npx', ['wrangler', 'd1', 'execute', 'nomocase', ...where, ...a],
   { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 64 << 20 });
 const query = sql => JSON.parse(wrangler(['--json', '--command', sql]))[0].results;
 const lit = v => (v == null ? 'NULL' : `'${String(v).replaceAll("'", "''")}'`);

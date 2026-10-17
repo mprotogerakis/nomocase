@@ -65,9 +65,13 @@ eine Richtung: keine Importzyklen (`scripts/cycles.mjs` in `npm run check`, für
 Jede Ansicht registriert ihre Handler selbst (`on.x = …`). Ein Test verhindert doppelte Handlernamen über alle
 Module hinweg.
 
-### Tests (`npm test`, gegen `npm run dev`)
+### Tests (`npm test`, `test/run.mjs`)
 
-`check` (Server und Oberfläche bündeln: jeder Import hat seinen Export) · `validate` (Upload-Prüfung, ohne Server) ·
+Jede Suite mit Server bekommt ihren eigenen: eine Kopie eines frisch vorbereiteten Zustands (Migrationen, Seed, Vorlagen)
+und ein eigenes `wrangler dev` auf einem freien Port. Läufe nebeneinander sehen nichts voneinander, keine Suite räumt
+hinter einer anderen auf. Eine einzelne Suite: `node test/run.mjs smoke`.
+
+`check` (freie Variablen, Importzyklen; Server und Oberfläche bündeln: jeder Import hat seinen Export) · `validate` (Upload-Prüfung, ohne Server) ·
 `assess`, `pdfsig`, `forms` (Bewertung, Signaturen, Formular-PDFs, ohne Server) · `smoke` (Berechtigungen, Finanzen, Regeln, Mails) ·
 `praxisprojekt` (Beispielvorlagen von Anfang bis Ende) · `ui` (alle Ansichten im echten Browser, ohne Skriptfehler, auch in Handy-Breite, jedes Bedienelement mit Namen für Screenreader und per Tastatur erreichbar) ·
 `passkey` (Anmeldung, auch gegen Produktion). `test/browser.mjs` steuert Chrome über das DevTools-Protokoll.
@@ -155,7 +159,9 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Keine Importzyklen: Regel-Vokabular zur Vorlagenprüfung, Upload-Prüfung nach `validate.js`, Angaben setzen nach
   `forms.js`, Betrag nachbuchen nach `tasks.js`; in der Oberfläche teilen die Vorgangsabschnitte `views/case-base.js`.
   `scripts/cycles.mjs` in `npm run check` lässt keinen neuen zu
-- [ ] Danach aus dem Review: Testisolation je Lauf
+- [x] Testisolation: `npm test` startet je Server-Suite ein eigenes `wrangler dev` (freier Port, eigener Zustand per
+  `--persist-to`, ORIGIN per `--var`), vorbereitet einmal je Lauf und kopiert. Kein Test löscht mehr fremde Zeilen
+  (Mail-Log, Signaturschlüssel, Aussteller); parallele Läufe stören sich nicht mehr
 - [x] Passkey-Anmeldung ohne Schreibzugriff für Anonyme: Challenges sind signiert („Ablauf.Nonce.HMAC“, Schlüssel in
   `app_secrets`, beim ersten Gebrauch erzeugt); erst eine erfolgreiche Anmeldung verbraucht ihre Challenge (kein Replay)
 - [x] Vorlagen-Editor, Stufe 1: Rollen, Angaben, Dokumenttypen, Phasen und Schritte (Typ, Rolle, Reihenfolge, Frist,
