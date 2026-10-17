@@ -22,7 +22,9 @@ const EVENTS = {
   'task.reopen': p => `hat „${p.task}“ wieder geöffnet`,
   'request.created': p => `hat ein Anliegen eingereicht: „${p.task}“`,
   'document.uploaded': p => (p.channel === 'mail' ? `E-Mail „${p.subject}“${p.attachments?.length ? ` mit Anhang: ${p.attachments.join(', ')}` : ''} abgelegt (SHA-256 ${shortHash(p.sha256)})`
+    : p.from_case ? `hat „${p.document}“ aus dem Vorgang „${p.from_case}“ übernommen (${p.filename}${p.sha256 ? `, SHA-256 ${shortHash(p.sha256)}` : ''})`
     : `hat „${p.document}“ hochgeladen (v${p.version}: ${p.filename}${p.sha256 ? `, SHA-256 ${shortHash(p.sha256)}` : ''})${p.completed ? ` und damit „${p.task}“ erledigt` : p.task ? ` zu „${p.task}“` : ''}`),
+  'document.copied': p => `hat „${p.document}“ (v${p.version}) in den Vorgang „${p.to}“ übernommen`,
   'upload.rejected': p => `wollte „${p.filename}“ hochladen – abgelehnt`,
   'document.updated': p => `hat Freigabe oder Status von „${p.document}“ geändert${p.final ? ' (Endfassung)' : ''}`,
   'role.added': p => `hat die Rolle „${p.role}“ angelegt`,

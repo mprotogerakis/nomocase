@@ -7,7 +7,7 @@ import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard
 import { addTask, deleteTask, taskAction, updateTask } from './tasks.js';
 import { addClaim, addDecision, addTransaction, reverseTransaction, taskMoney } from './finance.js';
 import { processRules, toggleRule } from './rules.js';
-import { createUploadLink, deleteVersion, download, getUploadLink, revokeUploadLinks, updateDocument, upload, useUploadLink } from './documents.js';
+import { copyVersion, createUploadLink, deleteVersion, download, getUploadLink, revokeUploadLinks, updateDocument, upload, useUploadLink } from './documents.js';
 import { acceptInvitation, declineInvitation, getInvitation, invite, peopleOverview, revoke, withdrawInvitation } from './people.js';
 import { DAILY_CRON, sendDigests, sendProgress, testMail } from './notify.js';
 import { addSigningKey, addTrustedIssuer, assignSignature, claimSignature, mySigningKeys, removeSigningKey, removeTrustedIssuer } from './signatures.js';
@@ -81,6 +81,7 @@ const ROUTES = [
   ['DELETE', '/api/cases/:id/participants/:userId', revoke],
   ['DELETE', '/api/cases/:id/invitations/:email', withdrawInvitation],
   ['DELETE', '/api/document-versions/:id', deleteVersion],
+  ['POST', '/api/document-versions/:id/copy', copyVersion],
   ['POST', '/api/cases/:id/participants/:userId/login-link', sendParticipantLink],
   ['PATCH', '/api/tasks/:id', updateTask],
   ['DELETE', '/api/tasks/:id', deleteTask],

@@ -562,6 +562,24 @@ await expect(anon(`/upload-links/${pdfToken}`, { form: file('x.txt', 'hallo', { 
 await expect(anon(`/upload-links/${pdfToken}`, { form: file('x.pdf', PDF, { consent: 'yes' }) }), 200, 'a wrong kind did not use up the link');
 await expect(prof(`/cases/${filesCase}`, { method: 'DELETE' }));
 await expect(prof(`/templates/${filesTpl}`, { method: 'DELETE' }));
+
+// A document into another case: team of both only; a copy of its own (same bytes and SHA-256) that outlives the original.
+await expect(student(`/document-versions/${descVersion}/copy`, { body: { case_id: caseId } }), 403);
+const { id: copyFrom } = await expect(prof('/cases', { body: { template_id: free.id, title: `Quelle ${run}` } }));
+const { id: copyTo } = await expect(prof('/cases', { body: { template_id: free.id, title: `Ziel ${run}` } }));
+const { document_id: srcDoc } = await expect(prof(`/cases/${copyFrom}/documents`, { form: file('Exposé.pdf', `${PDF}% Exposé ${run}\n`, { title: 'Exposé' }) }));
+const srcVersion = (await expect(prof(`/cases/${copyFrom}`))).documents.find(d => d.id === srcDoc).versions[0];
+await expect(prof(`/document-versions/${srcVersion.id}/copy`, { body: { case_id: copyFrom } }), 400);
+await expect(prof(`/document-versions/${srcVersion.id}/copy`, { body: { case_id: 'nope' } }), 404);
+const copied = await expect(prof(`/document-versions/${srcVersion.id}/copy`, { body: { case_id: copyTo } }));
+let target = await expect(prof(`/cases/${copyTo}`));
+const copyDoc = target.documents.find(d => d.id === copied.document_id);
+assert.deepEqual([copyDoc.title, copyDoc.visible_to, copyDoc.versions[0].sha256], ['Exposé', [], srcVersion.sha256], 'team-only, same SHA-256');
+assert.ok(target.events.some(e => e.type === 'document.uploaded' && e.payload.from_case === `Quelle ${run}`), 'the target says where it came from');
+assert.ok((await expect(prof(`/cases/${copyFrom}`))).events.some(e => e.type === 'document.copied' && e.payload.to === `Ziel ${run}`), 'the source says where it went');
+await expect(prof(`/cases/${copyFrom}`, { method: 'DELETE' }));
+assert.equal((await prof(`/files/${copyDoc.versions[0].id}`)).data, `${PDF}% Exposé ${run}\n`, 'the copy outlives the original');
+await expect(prof(`/cases/${copyTo}`, { method: 'DELETE' }));
 await expect(prof(`/cases/${parentToGo}`, { method: 'DELETE' }));
 await expect(prof(`/cases/${childToGo}`), 404, 'subcases go with their parent');
 

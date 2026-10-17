@@ -135,4 +135,7 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Vorlagen-Editor, Stufe 1: Rollen, Angaben, Dokumenttypen, Phasen und Schritte (Typ, Rolle, Reihenfolge, Frist,
   Dokument, Upload-Einstellungen, Beschreibung) als Formular; Regeln, Formulare, Bewertung, Geld weiter als JSON
 - [ ] Vorlagen-Editor, Stufe 2: Regeln und Formulare als Formular
+- [x] Dokumente in mehreren Vorgängen: als eigene Kopie übernehmen (gleiche Bytes und SHA-256, Herkunft in beiden
+  Verläufen, im Ziel zunächst nur fürs Team) – bewusst keine Verknüpfung, damit Rechte und Löschfristen je Vorgang gelten
+- [ ] Prüfung auf freie Variablen (fehlende Importe) fest in `npm test`; esbuild meldet sie nicht
 - [ ] Workspace-Änderungen (Mitglieder, Name) protokollieren; das Ereignisprotokoll kennt bisher nur Vorgänge

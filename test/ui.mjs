@@ -177,6 +177,14 @@ try {
   await b.setFile('form[data-submit="upload"] input[type=file]', [pdf, second]);
   await evaluate(`document.querySelector('form[data-submit="upload"]').requestSubmit() ?? true`);
   await waitFor(`fetch('/api/cases/${edCase}').then(r => r.json()).then(c => c.documents.length === 2 && c.tasks.find(t => t.title === 'Anlagen hochladen').status === 'done')`, 'zwei Dateien hochgeladen');
+  // a document into another case where one is on the team: the choice loads when opened
+  await go(`#/case/${edCase}`, `!!document.querySelector('[data-on="copyTargets"]')`);
+  await b.click('[data-on="copyTargets"]');
+  await waitFor(`!!document.querySelector('form[data-submit="copyVersion"] option[value="${caseId}"]')`, 'Zielvorgänge geladen');
+  const copyForm = await evaluate(`document.querySelector('form[data-submit="copyVersion"]').dataset.id`);
+  await submit('copyVersion', { case_id: caseId }, copyForm);
+  await until(() => dialogs.some(d => d.startsWith(`Übernommen in „UI-Test ${run}“`)), 'Dokument übernommen');
+  assert.ok((await current()).documents.some(d => d.title === 'UI-Test.pdf' || d.title === 'Zweite.pdf'), 'the copy is in the other case');
   await evaluate(`fetch('/api/cases/${edCase}', { method: 'DELETE' }).then(r => r.status)`);
   await evaluate(`fetch('/api/templates/${edId}', { method: 'DELETE' }).then(r => r.status)`);
 
@@ -347,7 +355,7 @@ try {
   await waitFor(`document.querySelector('code.hash')?.textContent.length === 64`, 'Quittung mit SHA-256');
 
   assert.deepEqual(errors, [], 'no script errors');
-  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|verschieben\?$|^Verschoben nach|Vorgänge aus „.*“ anlegen|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
+  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|verschieben\?$|^Verschoben nach|Vorgänge aus „.*“ anlegen|^Übernommen in|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
   console.log('ok – ui test passed');
 } finally {
   if (caseId) {

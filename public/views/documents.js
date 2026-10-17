@@ -1,6 +1,6 @@
 // Documents in a case: versions, sharing, upload, SHA-256 check.
 import { change, cur, me, on, submit } from '../state.js';
-import { api, date, dateTime, html, reload, sha256, shortHash } from '../lib.js';
+import { api, date, dateTime, esc, html, reload, sha256, shortHash } from '../lib.js';
 import { caseApi, docTypeLabel, guestRoles, holders } from './case.js';
 import { openTaskFor, taskTitle } from './tasks.js';
 import { amountOf } from './finance.js';
@@ -84,6 +84,28 @@ export function formNotice(res) {
   if (lines.length) alert(lines.join('\n'));
 }
 
+// Into another case (team of both): a copy there, same bytes and SHA-256. The choice of cases loads when opened.
+const copyForm = v => html`<details class="inline small copy"><summary class="link" data-on="copyTargets" data-id="${v.id}">in anderen Vorgang …</summary>
+  <form data-submit="copyVersion" data-id="${v.id}" class="row"><select name="case_id" required aria-label="Zielvorgang"><option value="">wird geladen …</option></select>
+    <button>Übernehmen</button><span class="muted">dort zunächst nur fürs Team sichtbar</span></form></details>`;
+
+on.copyTargets = async ({ id }, el) => {
+  const select = el.closest('details').querySelector('select');
+  if (select.dataset.loaded) return;
+  const { cases } = await api('/dashboard');
+  const targets = cases.filter(c => c.staff && c.status === 'open' && c.id !== cur.case.id);
+  select.innerHTML = esc(targets.length ? html`<option value="">Vorgang wählen …</option>${Object.entries(Object.groupBy(targets, c => c.workspace))
+    .map(([ws, list]) => html`<optgroup label="${ws}">${list.map(c => html`<option value="${c.id}">${c.title}</option>`)}</optgroup>`)}`
+    : html`<option value="">kein anderer offener Vorgang, in dem Sie zum Team gehören</option>`);
+  select.dataset.loaded = '1';
+};
+
+submit.copyVersion = async (fd, form) => {
+  const r = await api(`/document-versions/${form.dataset.id}/copy`, { body: { case_id: fd.get('case_id') } });
+  alert(`Übernommen in „${r.case_title}“ – dort zunächst nur für das Team sichtbar.`);
+  reload();
+};
+
 export const fileLink = (v, label) => html`<a href="/api/files/${v.id}" target="_blank">${label}</a>`;
 
 export const documents = d => html`${d.documents.length ? '' : html`<p class="muted small">Noch keine Dokumente.</p>`}
@@ -95,6 +117,7 @@ export const documents = d => html`${d.documents.length ? '' : html`<p class="mu
       ${d.me.staff || (v.mine && i === all.length - 1 && !doc.final) ? html` <button class="link small" data-on="deleteVersion" data-id="${v.id}" data-name="${v.filename}">löschen</button>` : ''}
       ${signatures(v, d)}
       ${i === all.length - 1 ? formCheck(v, d) : ''}
+      ${d.me.staff && i === all.length - 1 ? copyForm(v) : ''}
     </li>`)}</ol>
     ${d.me.staff ? html`<div class="row small">
       ${guestRoles(d).length ? html`Freigegeben für:
