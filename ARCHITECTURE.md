@@ -137,6 +137,8 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Öffentliche Schreibanfragen (Passkey-Challenges, Anmelde-, Einladungs- und Upload-Links) pro Adresse und Endpunkt
   begrenzt (Workers Rate Limiting, 30/min); Anmeldelink-Grenzen in einer SQL-Anweisung (atomar); täglicher Abgleich
   löscht R2-Dateien ohne Fassung (älter als ein Tag) – fehlgeschlagene Löschungen und abgebrochene Uploads
+- [x] Passkey-Anmeldung ohne Schreibzugriff für Anonyme: Challenges sind signiert („Ablauf.Nonce.HMAC“, Schlüssel in
+  `app_secrets`, beim ersten Gebrauch erzeugt); erst eine erfolgreiche Anmeldung verbraucht ihre Challenge (kein Replay)
 - [x] Vorlagen-Editor, Stufe 1: Rollen, Angaben, Dokumenttypen, Phasen und Schritte (Typ, Rolle, Reihenfolge, Frist,
   Dokument, Upload-Einstellungen, Beschreibung) als Formular; Regeln, Formulare, Bewertung, Geld weiter als JSON
 - [x] Vorlagen-Editor, Stufe 2a: Regeln als Formular (Auslöser, Bedingungen mit Auswahllisten, Aktionen je Typ)

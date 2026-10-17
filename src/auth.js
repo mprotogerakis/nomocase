@@ -1,7 +1,7 @@
 // Sessions, passkeys, login links, dev login and the own account.
 import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthenticationResponse, verifyRegistrationResponse } from '@simplewebauthn/server';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
-import { appVersion, arr, DB, E, ev, fail, json, now, q, row, rows, rpId, sessionFrom, sha256, token, uid } from './core.js';
+import { appVersion, arr, DB, E, ev, fail, hex, json, now, q, row, rows, rpId, sessionFrom, sha256, token, uid } from './core.js';
 import { caseCtx } from './access.js';
 import { sendMail } from './notify.js';
 import { CONSENT_VERSION } from '../public/shared/consent.js';
@@ -118,8 +118,8 @@ async function newChallenge(options, userId = null) {
   return { challenge_id: id, options };
 }
 
-// Single use: the challenge is deleted by the same statement that reads it.
-const takeChallenge = async (id, userId = null) =>
+// Registration (signed in): single use, the challenge is deleted by the same statement that reads it.
+const takeChallenge = async (id, userId) =>
   (await row('DELETE FROM challenges WHERE id = ? AND user_id IS ? AND expires_at > ? RETURNING challenge', String(id ?? ''), userId, now()))?.challenge
   ?? fail(400, 'Anmeldeversuch abgelaufen, bitte erneut versuchen');
 
@@ -146,17 +146,44 @@ export async function passkeyRegisterVerify({ user, url, body }) {
     id, user.id, isoBase64URL.fromBuffer(publicKey), counter, JSON.stringify(transports ?? []), now(), rpOf(url)).run();
 }
 
+// Login challenges are signed instead of stored ("<expiry>.<nonce>.<HMAC>"): asking for one writes nothing, so anonymous
+// requests cannot fill D1. Only a successful login writes, to use its challenge up (no replay of a recorded response).
+let loginKey = null; // per isolate; the key itself is made once and kept in D1 (app_secrets)
+async function challengeKey() {
+  if (loginKey) return loginKey;
+  const read = () => row("SELECT value FROM app_secrets WHERE name = 'login_challenge'");
+  let r = await read();
+  if (!r) { await q("INSERT OR IGNORE INTO app_secrets (name, value) VALUES ('login_challenge', ?)", token()).run(); r = await read(); }
+  return (loginKey = await crypto.subtle.importKey('raw', new TextEncoder().encode(r.value), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']));
+}
+const challengeMac = async body => hex(await crypto.subtle.sign('HMAC', await challengeKey(), new TextEncoder().encode(body)));
+const macValid = async (body, mac) => /^[0-9a-f]{64}$/.test(mac ?? '') // compared in constant time by the platform
+  && crypto.subtle.verify('HMAC', await challengeKey(), Uint8Array.from(mac.match(/../g), h => parseInt(h, 16)), new TextEncoder().encode(body));
+
 // No allowCredentials: discoverable credentials, so the browser offers the user's passkeys without asking for an email.
-export const passkeyLoginOptions = async ({ url }) => newChallenge(await generateAuthenticationOptions({ rpID: rpOf(url), userVerification: 'required' }));
+export async function passkeyLoginOptions({ url }) {
+  const body = `${Date.now() + 5 * 60e3}.${hex(crypto.getRandomValues(new Uint8Array(16)))}`;
+  return { options: await generateAuthenticationOptions({ rpID: rpOf(url), userVerification: 'required', challenge: `${body}.${await challengeMac(body)}` }) };
+}
 
 export async function passkeyLoginVerify({ url, body }) {
-  const expectedChallenge = await takeChallenge(body.challenge_id);
+  let used = null; // the challenge the response signed, once its signature and expiry check out
+  const expectedChallenge = async encoded => {
+    const s = isoBase64URL.toUTF8String(encoded), [expiry, nonce, mac] = s.split('.');
+    if (!(Number(expiry) > Date.now()) || !(await macValid(`${expiry}.${nonce}`, mac))) return false;
+    used = { nonce, expiry: new Date(Number(expiry)).toISOString() };
+    return true;
+  };
   const pk = (await row('SELECT * FROM passkeys WHERE id = ?', String(body.response?.id ?? ''))) ?? fail(400, 'Passkey unbekannt');
   const { verified, authenticationInfo } = await verifyAuthenticationResponse({
     response: body.response, expectedChallenge, expectedOrigin: originOf(url), expectedRPID: rpOf(url),
     credential: { id: pk.id, publicKey: isoBase64URL.toBuffer(pk.public_key), counter: pk.counter, transports: arr(pk.transports) },
-  }).catch(e => fail(400, `Anmeldung fehlgeschlagen: ${e.message}`));
-  if (!verified) fail(400, 'Anmeldung fehlgeschlagen');
+  }).catch(e => fail(400, /challenge/i.test(e.message) ? 'Anmeldeversuch abgelaufen, bitte erneut versuchen' : `Anmeldung fehlgeschlagen: ${e.message}`));
+  if (!verified || !used) fail(400, 'Anmeldung fehlgeschlagen');
+  // single use: two requests with the same response get one session
+  if (!(await row("INSERT INTO challenges (id, challenge, expires_at) VALUES (?, 'login', ?) ON CONFLICT DO NOTHING RETURNING id", `login:${used.nonce}`, used.expiry))) {
+    fail(400, 'Anmeldeversuch abgelaufen, bitte erneut versuchen');
+  }
   await q('UPDATE passkeys SET counter = ?, last_used_at = ? WHERE id = ?', authenticationInfo.newCounter, now(), pk.id).run();
   return json({ ok: true }, 200, { 'set-cookie': await sessionCookie(pk.user_id, url) });
 }

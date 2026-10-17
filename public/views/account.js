@@ -6,9 +6,9 @@ import { api, date, dateTime, go, html, page, reload, show } from '../lib.js';
 
 // Passkeys use the browser's native WebAuthn JSON helpers; the server does the verification.
 async function passkeyLogin() {
-  const { challenge_id, options } = await api('/passkeys/login/options', { body: {} });
+  const { options } = await api('/passkeys/login/options', { body: {} });
   const cred = await navigator.credentials.get({ publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(options) });
-  await api('/passkeys/login/verify', { body: { challenge_id, response: cred.toJSON() } });
+  await api('/passkeys/login/verify', { body: { response: cred.toJSON() } });
 }
 
 async function passkeyRegister() {

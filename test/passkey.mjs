@@ -50,9 +50,20 @@ try {
   await click('[data-on="logout"]');
   await waitFor(`!!document.querySelector('[data-on="passkeyLogin"]')`, 'Login-Seite');
   assert.equal((await me()).user, null);
+  // (the page's request is recorded, to send the same signed response once more below)
+  await evaluate(`(() => { const send = fetch; window.fetch = (u, o) => { if (String(u).includes('/passkeys/login/verify')) window.loginBody = o.body; return send(u, o); }; return true; })()`);
   await click('[data-on="passkeyLogin"]');
   await waitFor(`fetch('/api/me').then(r => r.json()).then(m => m.user?.email === '${EMAIL}')`, 'Login per Passkey');
   assert.deepEqual(dialogs, []);
+  // A login response works once: its challenge is used up, a replay gets no session.
+  assert.equal(await evaluate(`fetch('/api/passkeys/login/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: window.loginBody, credentials: 'omit' }).then(r => r.status)`), 400, 'replayed login response');
+  // An altered challenge (signature no longer fits) is refused too.
+  const forged = await evaluate(`(() => { const b = JSON.parse(window.loginBody), c = JSON.parse(atob(b.response.response.clientDataJSON.replace(/-/g, '+').replace(/_/g, '/')));
+    const s = atob(c.challenge.replace(/-/g, '+').replace(/_/g, '/')).replace(/^\\d+/, String(Date.now() + 9e5));
+    c.challenge = btoa(s).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+    b.response.response.clientDataJSON = btoa(JSON.stringify(c)).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+    return fetch('/api/passkeys/login/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b), credentials: 'omit' }).then(r => r.json()); })()`);
+  assert.match(forged.error, /abgelaufen/, 'a challenge with another expiry fails its signature check');
 
   // 4. Production has no dev login. Locally: an invite to an email whose account has a passkey must not log anyone in.
   const login = await api('/dev-login', { body: { email: EMAIL } });

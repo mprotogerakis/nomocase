@@ -542,6 +542,11 @@ assert.equal((await expect(anon('/upload-links', { form: file('gross.pdf', new U
 // JSON bodies too: at most 1 MB, also for anonymous requests
 assert.equal((await fetchOnce(`${BASE}/api/passkeys/login/options`, { method: 'POST', headers: { origin: BASE, 'content-type': 'application/json' },
   body: JSON.stringify({ x: 'x'.repeat(2 * 1024 * 1024) }) })).status, 413);
+// Asking for a passkey login challenge writes nothing (the challenge is signed, not stored)
+const challengeRows = () => sql('SELECT COUNT(*) AS n FROM challenges')[0].n;
+const rowsBefore = challengeRows();
+for (let i = 0; i < 3; i++) assert.ok((await expect(anon('/passkeys/login/options', { body: {} }))).options.challenge);
+assert.equal(challengeRows(), rowsBefore, 'no rows for login challenges');
 // Public writes are limited per client address (Cloudflare sets CF-Connecting-IP; here a test address, locally none = no limit)
 const probeIp = `198.51.100.${Date.now() % 250}`, limited = [];
 for (let i = 0; i < 31; i++) limited.push((await fetchOnce(`${BASE}/api/passkeys/login/options`, { method: 'POST', headers: { origin: BASE, 'cf-connecting-ip': probeIp } })).status);
