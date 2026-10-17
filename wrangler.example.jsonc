@@ -3,6 +3,9 @@
   "name": "nomocase",
   "main": "src/worker.js",
   "compatibility_date": "2026-06-01",
+  // Smaller to parse on every cold start (low traffic: most requests start a fresh instance); maps keep stack traces readable.
+  "minify": true,
+  "upload_source_maps": true,
   "assets": { "directory": "./public" },
   // One canonical origin: passkeys are bound to the hostname, so a second URL would need second passkeys.
   "workers_dev": false,
