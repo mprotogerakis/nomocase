@@ -222,8 +222,8 @@ async function purgeCase(c, actorId, reason) {
     q('DELETE FROM automation_runs WHERE case_id = ?', c.id),
     q('DELETE FROM cases WHERE id = ?', c.id),
   ]);
-  // ponytail: if R2 fails here the blobs stay behind, unreachable; add an orphan sweep to the cron if that ever shows up in the logs.
-  for (let i = 0; i < keys.length; i += 1000) await E.FILES.delete(keys.slice(i, i + 1000)).catch(e => console.error('R2 delete failed', c.id, e.message));
+  // the rows are gone now: files R2 fails to delete here are found and removed by the daily sweep (sweepOrphanFiles)
+  for (let i = 0; i < keys.length; i += 1000) await E.FILES.delete(keys.slice(i, i + 1000)).catch(e => console.error('R2 delete failed (the daily sweep retries)', c.id, e.message));
   const orphans = await rows(`SELECT id FROM users WHERE id IN (SELECT value FROM json_each(?))
     AND NOT EXISTS (SELECT 1 FROM case_participants WHERE user_id = users.id) AND NOT EXISTS (SELECT 1 FROM workspace_members WHERE user_id = users.id)`, JSON.stringify(people));
   for (const { id } of orphans) {

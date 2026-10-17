@@ -50,21 +50,22 @@ export async function updateMe({ user, body }) {
 
 // One-time login link by mail: requested on the login page, or sent by a case owner to a participant (`sender`).
 // At most one unused link per person every 10 minutes and five a day, so nobody can flood an inbox; self-service
-// requests (from anyone, no login) have a daily total so strangers cannot use up the mail quota.
-// ponytail: the total can still be used up by someone who knows many addresses; add per-IP limits (Workers Rate
-// Limiting) or a challenge if that happens.
+// requests (from anyone, no login) have a daily total so strangers cannot use up the mail quota (and a limit per
+// address, see worker.js). One statement checks and inserts, so parallel requests cannot all see the same free capacity.
 const LOGIN_REQUEST_CAP = 60;
 const LINKS_PER_PERSON = 5;
 
 async function mailLoginLink(u, url, kind = null, sender = null) {
-  if (await row('SELECT 1 FROM login_links WHERE user_id = ? AND used_at IS NULL AND expires_at > ?', u.id, new Date(Date.now() + 864e5 - 10 * 60e3).toISOString())) return { throttled: true };
-  if ((await row('SELECT COUNT(*) AS n FROM login_links WHERE user_id = ? AND expires_at > ?', u.id, now())).n >= LINKS_PER_PERSON) return { throttled: true };
-  if (kind && (await row('SELECT COUNT(*) AS n FROM mail_log WHERE kind = ? AND ok = 1 AND sent_at >= ?', kind, now().slice(0, 10))).n >= LOGIN_REQUEST_CAP) {
-    console.error('login link requests: daily cap reached');
+  const t = token(), at = now(), day = 864e5;
+  const made = await q(`INSERT INTO login_links (token_hash, user_id, expires_at, kind) SELECT ?1, ?2, ?3, ?4
+    WHERE NOT EXISTS (SELECT 1 FROM login_links WHERE user_id = ?2 AND used_at IS NULL AND expires_at > ?5)
+      AND (SELECT COUNT(*) FROM login_links WHERE user_id = ?2 AND expires_at > ?6) < ?7
+      AND (?4 IS NULL OR (SELECT COUNT(*) FROM login_links WHERE kind = ?4 AND expires_at > ?6) < ?8)`,
+  await sha256(t), u.id, new Date(Date.now() + day).toISOString(), kind, new Date(Date.now() + day - 10 * 60e3).toISOString(), at, LINKS_PER_PERSON, LOGIN_REQUEST_CAP).run();
+  if (!made.meta.changes) {
+    if (kind && (await row('SELECT COUNT(*) AS n FROM login_links WHERE kind = ? AND expires_at > ?', kind, at)).n >= LOGIN_REQUEST_CAP) console.error('login link requests: daily cap reached');
     return { throttled: true };
   }
-  const t = token();
-  await q('INSERT INTO login_links (token_hash, user_id, expires_at) VALUES (?, ?, ?)', await sha256(t), u.id, new Date(Date.now() + 864e5).toISOString()).run();
   const link = `${originOf(url)}/#/login/${t}`;
   const sent = await sendMail(u.email, 'Ihr Anmeldelink für NomoCase', [
     `Guten Tag ${u.name},`,

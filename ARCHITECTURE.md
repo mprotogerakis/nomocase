@@ -132,7 +132,9 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Sicherheitsprüfung vor der Veröffentlichung: Signaturketten nur über echte CAs, Parser gegen präparierte Dateien,
   keine Einladungslinks an Einladende, Mail-Limit je Person, CSP und Header, Origin-Pflicht, `__Host-`-Cookie
 - [x] Tokens aus URL-Pfaden in den Request-Body (Einladung, Upload-Link): Pfade landen in den Worker-Logs
-- [ ] Anmeldelink-Anfragen zusätzlich pro IP begrenzen (Workers Rate Limiting), falls das Tageskontingent missbraucht wird
+- [x] Öffentliche Schreibanfragen (Passkey-Challenges, Anmelde-, Einladungs- und Upload-Links) pro Adresse und Endpunkt
+  begrenzt (Workers Rate Limiting, 30/min); Anmeldelink-Grenzen in einer SQL-Anweisung (atomar); täglicher Abgleich
+  löscht R2-Dateien ohne Fassung (älter als ein Tag) – fehlgeschlagene Löschungen und abgebrochene Uploads
 - [x] Vorlagen-Editor, Stufe 1: Rollen, Angaben, Dokumenttypen, Phasen und Schritte (Typ, Rolle, Reihenfolge, Frist,
   Dokument, Upload-Einstellungen, Beschreibung) als Formular; Regeln, Formulare, Bewertung, Geld weiter als JSON
 - [x] Vorlagen-Editor, Stufe 2a: Regeln als Formular (Auslöser, Bedingungen mit Auswahllisten, Aktionen je Typ)

@@ -7,7 +7,7 @@ import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard
 import { addTask, deleteTask, taskAction, updateTask } from './tasks.js';
 import { addClaim, addDecision, addTransaction, reverseTransaction, taskMoney } from './finance.js';
 import { processRules, toggleRule } from './rules.js';
-import { createUploadLink, deleteVersion, download, getUploadLink, revokeUploadLinks, updateDocument, upload, useUploadLink } from './documents.js';
+import { createUploadLink, deleteVersion, download, getUploadLink, revokeUploadLinks, sweepOrphanFiles, updateDocument, upload, useUploadLink } from './documents.js';
 import { acceptInvitation, declineInvitation, getInvitation, invite, peopleOverview, revoke, withdrawInvitation } from './people.js';
 import { DAILY_CRON, sendDigests, sendProgress, testMail } from './notify.js';
 import { addSigningKey, addTrustedIssuer, assignSignature, claimSignature, mySigningKeys, removeSigningKey, removeTrustedIssuer } from './signatures.js';
@@ -115,6 +115,12 @@ export default {
       // to the production route.)
       const origin = req.headers.get('origin');
       if (req.method !== 'GET' && origin !== url.origin && origin !== originOf(url)) fail(403, 'Anfrage von fremder Seite');
+      // Public writes (passkey challenges, login, invitation and upload links) per client address and endpoint, so one
+      // machine cannot flood D1 or the mail quota. Cloudflare sets CF-Connecting-IP; locally it is missing (no limit).
+      // ponytail: many addresses can still create challenges; stateless (signed) challenges would remove that write.
+      const ip = req.headers.get('cf-connecting-ip');
+      if (isPublic && req.method !== 'GET' && ip && handler !== logout && env.PUBLIC_LIMIT
+        && !(await env.PUBLIC_LIMIT.limit({ key: `${ip} ${url.pathname}` })).success) fail(429, 'Zu viele Anfragen. Bitte in einer Minute noch einmal versuchen.');
       const user = await loadUser(req);
       if (!user && !isPublic) fail(401, 'Nicht angemeldet');
       if (user && !isPublic && !user.consented && !CONSENT_FREE.has(handler)) fail(403, 'Bitte stimmen Sie zuerst der Nutzung zu.');
@@ -154,6 +160,7 @@ export default {
         q('DELETE FROM login_links WHERE expires_at < ?', t),
         q('DELETE FROM challenges WHERE expires_at < ?', t),
       ]);
+      await sweepOrphanFiles().catch(e => console.error('file sweep', e.message));
     } else {
       await sendProgress();
     }

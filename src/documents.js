@@ -89,7 +89,7 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
   if (completes) stmts.push(q("UPDATE tasks SET status = 'done', completed_at = ?, completed_by = ? WHERE id = ?", now(), actorId, task.id));
   // no row points at the file if the batch fails (e.g. two uploads took the same version number): it must not stay behind
   await DB.batch(stmts).catch(async e => {
-    await E.FILES.delete(key).catch(() => {});
+    await E.FILES.delete(key).catch(e2 => console.error('R2 delete failed (the daily sweep retries)', key, e2.message));
     if (/UNIQUE/.test(e.message)) fail(409, 'Gerade kam eine andere Fassung dieses Dokuments an. Bitte noch einmal hochladen.');
     throw e;
   });
@@ -218,16 +218,16 @@ export async function useUploadLink({ req }) {
     fail(422, f.problem);
   }
   const task = await linkTask(l);
-  checkKind(task, f.filename); // before the link is used up: a wrong kind of file leaves it usable
-  if (l.single_use && !(await row('UPDATE upload_links SET used_at = ? WHERE token_hash = ? AND used_at IS NULL RETURNING token_hash', now(), l.token_hash))) {
-    fail(404, 'Dieser Upload-Link wurde gerade schon benutzt.');
-  }
+  checkKind(task, f.filename); // before the link is used up: a wrong kind of file or a final document leave it usable
   const def = JSON.parse(l.definition);
   const c = { id: l.case_id, workspace_id: l.workspace_id };
   // Acts like the team member who sent the link would see it, but the version is labelled with who really uploaded.
   const ctx = { c, def, user: { id: l.created_by }, role: null, staff: true };
   const doc = await taskDocument(ctx, task, null, f.filename);
   if (doc.final) fail(410, 'Dieses Dokument ist bereits als Endfassung markiert.');
+  if (l.single_use && !(await row('UPDATE upload_links SET used_at = ? WHERE token_hash = ? AND used_at IS NULL RETURNING token_hash', now(), l.token_hash))) {
+    fail(404, 'Dieser Upload-Link wurde gerade schon benutzt.');
+  }
   try {
     await storeVersion({ c, actorId: null, uploadedBy: l.created_by, label: l.label, f, task, doc, extra: { consent: CONSENT_VERSION } });
   } catch (e) { // nothing was stored: a single-use link stays usable for another try
@@ -261,7 +261,25 @@ export async function deleteVersion({ user, params }) {
     ...(n === 1 ? [q('DELETE FROM documents WHERE id = ?', v.document_id)] : []),
     ev(ctx.c.id, user.id, 'document.version_deleted', { document: v.title, version: v.version }, arr(v.visible_to)),
   ]);
-  await E.FILES.delete(v.r2_key);
+  await E.FILES.delete(v.r2_key).catch(e => console.error('R2 delete failed (the daily sweep retries)', v.r2_key, e.message));
+}
+
+// Files without a version in the DB: a delete that failed after the rows were gone (case deletion, a version, a failed
+// upload), or an upload whose DB write never happened (Worker stopped in between). Daily; only files older than a
+// day, younger ones may belong to an upload still in progress.
+export async function sweepOrphanFiles() {
+  const before = Date.now() - 864e5;
+  let cursor, removed = 0;
+  do {
+    const page = await E.FILES.list({ cursor, limit: 1000 });
+    const old = page.objects.filter(o => o.uploaded.getTime() < before).map(o => o.key);
+    const known = new Set((await rows('SELECT r2_key FROM document_versions WHERE r2_key IN (SELECT value FROM json_each(?))', JSON.stringify(old))).map(r => r.r2_key));
+    const orphans = old.filter(k => !known.has(k));
+    if (orphans.length) await E.FILES.delete(orphans);
+    removed += orphans.length;
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  if (removed) console.log('orphaned files removed', removed);
 }
 
 export async function updateDocument({ user, params, body }) {

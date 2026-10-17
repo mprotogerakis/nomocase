@@ -528,6 +528,18 @@ const multiUse = (await expect(prof(`/tasks/${bescheid}/upload-links`, { body: {
 await expect(anon('/upload-links/lookup', { body: { token: multiUse } }), 409); // the step still waits for an earlier one
 await expect(prof(`/tasks/${bescheid}/action`, { body: { action: 'skip' } }));
 await expect(anon('/upload-links/lookup', { body: { token: multiUse } }), 404, 'task no longer open');
+// A final document takes no new version; that is checked before a single-use link is used up
+const invoiceDoc = (await expect(prof(`/cases/${linked}`))).documents.find(d => d.doc_type === 'invoice').id;
+const { id: fix } = await expect(prof(`/cases/${linked}/tasks`, { body: { title: `Korrektur ${run}`, type: 'upload', doc_type: 'invoice' } }));
+const fixToken = (await expect(prof(`/tasks/${fix}/upload-links`, { body: { label: 'Praxis Dr. Link' } }))).link.split('/#/upload/')[1];
+await expect(prof(`/documents/${invoiceDoc}`, { method: 'PATCH', body: { final: true } }));
+await expect(anon('/upload-links', { form: file('korrektur.pdf', `${PDF}% fix ${run}\n`, { token: fixToken, consent: 'yes' }) }), 410);
+await expect(prof(`/documents/${invoiceDoc}`, { method: 'PATCH', body: { final: false } }));
+await expect(anon('/upload-links', { form: file('korrektur.pdf', `${PDF}% fix ${run}\n`, { token: fixToken, consent: 'yes' }) }), 200, 'not used up by the refusal');
+// Public writes are limited per client address (Cloudflare sets CF-Connecting-IP; here a test address, locally none = no limit)
+const probeIp = `198.51.100.${Date.now() % 250}`, limited = [];
+for (let i = 0; i < 31; i++) limited.push((await fetchOnce(`${BASE}/api/passkeys/login/options`, { method: 'POST', headers: { origin: BASE, 'cf-connecting-ip': probeIp } })).status);
+assert.deepEqual([limited[29], limited[30]], [200, 429], '30 a minute, then 429');
 // Writes only from our own pages (CSRF from sibling subdomains).
 assert.equal((await fetchOnce(`${BASE}/api/logout`, { method: 'POST', headers: { origin: 'https://evil.example' } })).status, 403);
 assert.equal((await fetchOnce(`${BASE}/api/logout`, { method: 'POST' })).status, 403, 'a write without Origin is refused too');
@@ -722,12 +734,13 @@ if (new URL(BASE).hostname === 'localhost') {
   assert.equal(echoes(), 1, 'looking at the same events again changes nothing');
   assert.equal(sql(`SELECT COUNT(*) AS n FROM automation_runs WHERE case_id = '${echoCase}' AND status = 'done'`)[0].n, 1);
 
-  // Self-service login links stop at a daily cap, so strangers cannot use up the mail quota.
-  const capDay = `${new Date().toISOString().slice(0, 10)}T00:00:01.000Z`;
-  sql(`INSERT INTO mail_log (bulk, kind, sent_at) WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 60) SELECT 0, 'login_request', '${capDay}' FROM n`);
+  // Self-service login links stop at a daily cap, so strangers cannot use up the mail quota (60 links made in 24 hours).
+  const capUntil = new Date(Date.now() + 864e5).toISOString();
+  sql(`INSERT INTO login_links (token_hash, user_id, expires_at, used_at, kind) WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 60)
+    SELECT 'cap-${run}-' || i, (SELECT id FROM users WHERE email = 'prof@example.org'), '${capUntil}', '${capUntil}', 'login_request' FROM n`);
   assert.deepEqual(await expect(client()('/login-link/request', { body: { email: `pa.${run}@example.org` } })), { ok: true }, 'capped: no mail, same answer');
   assert.ok((await expect(client()('/login-link/request', { body: { email: `pa.${run}@example.org` } }))).link === undefined);
-  sql(`DELETE FROM mail_log WHERE sent_at = '${capDay}'`);
+  sql(`DELETE FROM login_links WHERE token_hash LIKE 'cap-${run}-%'`);
   assert.ok((await expect(client()('/login-link/request', { body: { email: `pa.${run}@example.org` } }))).link, 'below the cap the link goes out again');
 
   // Progress mails: bundled news from others, at most one per 20 minutes, and never beyond the daily cap.
