@@ -74,9 +74,6 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
   der Skala ein (z. B. Note 1,0–4,0 in 0,1-Schritten oder 5,0); unter `pass` liegt „bestanden“. `aggregates` verrechnen mehrere
   Bewertungen (Mittel, Minimum, Maximum, Summe; abschneiden oder runden) und können das Ergebnis in ein Feld übernehmen.
   Einzelwerte sehen nur, die den Schritt sehen dürfen. Beispiele: Masterprojekt, Bachelor- und Master-Thesis.
-- **Dokument in einen anderen Vorgang übernehmen** (Dokumente → aktuelle Fassung → „in anderen Vorgang …“; Team in beiden
-  Vorgängen): legt dort ein eigenes Dokument an, Datei kopiert (gleiche Bytes und SHA-256), zunächst nur für das Team sichtbar.
-  Beide Verläufe nennen den jeweils anderen Vorgang. Wird einer der Vorgänge gelöscht, bleibt das Dokument im anderen.
 - **Mehrere Vorgänge aus einer Tabelle** (Übersicht → „+ Mehrere aus Tabelle“): Vorlage wählen, Tabelle aus Excel
   einfügen (erste Zeile Spaltennamen: `Titel`, `E-Mail` und die Angaben der Vorlage; Daten als 31.12.2026). Die Vorschau
   prüft jede Zeile; angelegt wird erst, wenn alles stimmt. Mit E-Mail-Spalte werden die Personen in eine gewählte Rolle

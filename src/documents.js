@@ -260,27 +260,6 @@ export async function updateDocument({ user, params, body }) {
 }
 
 // Files are only ever served through this permission check; the bucket is never public.
-// A version goes into another case as a document of its own there: the file is copied in storage (same bytes, same
-// SHA-256), so deleting either case leaves the other intact. Team members of both cases only; in the target it starts
-// team-only, and both logs note where it came from and went to. Read like an upload (signatures, forms of the target).
-export async function copyVersion({ user, params, body }) {
-  const v = (await row(`SELECT v.*, d.case_id, d.title, d.doc_type, d.visible_to, d.created_by FROM document_versions v
-    JOIN documents d ON d.id = v.document_id WHERE v.id = ?`, params.id)) ?? fail(404, 'Fassung nicht gefunden');
-  const from = await caseCtx(user, v.case_id);
-  if (!canSee(from, v)) fail(404, 'Fassung nicht gefunden');
-  if (!from.staff) fail(403, 'Dokumente in andere Vorgänge übernehmen kann das Team.');
-  const to = await caseCtx(user, String(body.case_id ?? ''));
-  if (!to.staff) fail(403, 'Im Zielvorgang gehören Sie nicht zum Team.');
-  if (to.c.id === from.c.id) fail(400, 'Das Dokument ist schon in diesem Vorgang.');
-  const obj = (await E.FILES.get(v.r2_key)) ?? fail(404, 'Datei nicht gefunden');
-  const bytes = new Uint8Array(await obj.arrayBuffer());
-  const f = { bytes, contentType: v.content_type, filename: v.filename, size: v.size, sha256: v.sha256 ?? hex(await crypto.subtle.digest('SHA-256', bytes)) };
-  const doc = { isNew: true, id: uid(), title: v.title, doc_type: to.def.document_types.some(t => t.key === v.doc_type) ? v.doc_type : null, visible_to: [] };
-  const r = await storeVersion({ c: to.c, actorId: user.id, uploadedBy: user.id, f, task: null, doc, byTeam: true, extra: { from_case: from.c.title },
-    stmts: [ev(from.c.id, user.id, 'document.copied', { document: v.title, version: v.version, to: to.c.title }, [])] });
-  return { ...r, case_id: to.c.id, case_title: to.c.title };
-}
-
 export async function download({ user, params }) {
   const v = (await row(`SELECT v.*, d.case_id, d.visible_to, d.created_by FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE v.id = ?`, params.id))
     ?? fail(404, 'Datei nicht gefunden');
