@@ -192,44 +192,46 @@ export async function deleteCase(rq) {
   await purgeCase(rq, ctx.c, user.id, 'manual');
 }
 
-// Removes a case with everything in it (files in R2 included) and leaves only a tombstone.
-// People who were only part of this case lose their account too.
+// Removes a case with everything in it (files in R2 included) and its sub-cases, and leaves only a tombstone each.
+// People who were only part of these cases lose their account too. The same handful of subrequests however many
+// sub-cases, documents and people (one query for the tree, one batch to read, one to delete).
 async function purgeCase(rq, c, actorId, reason) {
-  const { rows, sql, batch, env, time } = rq;
-  for (const child of await rows('SELECT c.id, c.workspace_id, t.name AS template_name FROM cases c LEFT JOIN templates t ON t.id = c.template_id WHERE c.parent_case_id = ?', c.id)) {
-    await purgeCase(rq, child, actorId, reason);
-  }
-  const keys = (await rows('SELECT v.r2_key FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.case_id = ?', c.id)).map(r => r.r2_key);
-  const people = (await rows('SELECT user_id FROM case_participants WHERE case_id = ?', c.id)).map(r => r.user_id);
-  const ofClaims = 'IN (SELECT id FROM financial_claims WHERE case_id = ?)';
+  const { rows, sql, batch, room, env, time } = rq;
+  const tree = await rows(`WITH RECURSIVE tree(id) AS (SELECT ? UNION SELECT k.id FROM cases k JOIN tree ON k.parent_case_id = tree.id)
+    SELECT c.id, c.workspace_id, t.name AS template_name FROM tree JOIN cases c ON c.id = tree.id LEFT JOIN templates t ON t.id = c.template_id`, c.id);
+  const ids = JSON.stringify(tree.map(x => x.id)), all = 'IN (SELECT value FROM json_each(?))';
+  const [keys, people] = (await batch([
+    sql(`SELECT v.r2_key FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.case_id ${all}`, ids),
+    sql(`SELECT DISTINCT user_id FROM case_participants WHERE case_id ${all}`, ids),
+  ])).map(r => r.results.map(x => x.r2_key ?? x.user_id));
+  const ofClaims = `IN (SELECT id FROM financial_claims WHERE case_id ${all})`;
   await batch([
-    sql('INSERT INTO case_deletions (case_id, workspace_id, template_name, reason, deleted_by, deleted_at) VALUES (?, ?, ?, ?, ?, ?)',
-      c.id, c.workspace_id, c.template_name ?? null, reason, actorId, time),
-    sql('DELETE FROM notifications WHERE task_id = ? OR task_id IN (SELECT id FROM tasks WHERE case_id = ?)', c.id, c.id),
-    sql('DELETE FROM document_signatures WHERE version_id IN (SELECT v.id FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.case_id = ?)', c.id),
-    sql('DELETE FROM document_versions WHERE document_id IN (SELECT id FROM documents WHERE case_id = ?)', c.id),
-    sql('DELETE FROM documents WHERE case_id = ?', c.id),
-    sql(`DELETE FROM financial_transactions WHERE claim_id ${ofClaims}`, c.id),
-    sql(`DELETE FROM financial_decisions WHERE claim_id ${ofClaims}`, c.id),
-    sql('DELETE FROM financial_claims WHERE case_id = ?', c.id),
-    sql('DELETE FROM tasks WHERE case_id = ?', c.id),
-    sql('DELETE FROM phases WHERE case_id = ?', c.id),
-    sql('DELETE FROM events WHERE case_id = ?', c.id),
-    sql('DELETE FROM invitations WHERE case_id = ?', c.id),
-    sql('DELETE FROM case_participants WHERE case_id = ?', c.id),
-    sql('DELETE FROM upload_links WHERE case_id = ?', c.id),
-    sql('DELETE FROM inbound_mail WHERE case_id = ?', c.id),
-    sql('DELETE FROM automation_runs WHERE case_id = ?', c.id),
-    sql('DELETE FROM cases WHERE id = ?', c.id),
+    // the tombstones first: the triggers let rows of a case go only once it has one (migrations 0006, 0042)
+    ...tree.map(x => sql('INSERT INTO case_deletions (case_id, workspace_id, template_name, reason, deleted_by, deleted_at) VALUES (?, ?, ?, ?, ?, ?)',
+      x.id, x.workspace_id, x.template_name ?? null, reason, actorId, time)),
+    sql(`DELETE FROM notifications WHERE task_id ${all} OR task_id IN (SELECT id FROM tasks WHERE case_id ${all})`, ids, ids),
+    sql(`DELETE FROM document_signatures WHERE version_id IN (SELECT v.id FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.case_id ${all})`, ids),
+    sql(`DELETE FROM document_versions WHERE document_id IN (SELECT id FROM documents WHERE case_id ${all})`, ids),
+    ...['financial_transactions', 'financial_decisions'].map(t => sql(`DELETE FROM ${t} WHERE claim_id ${ofClaims}`, ids)),
+    ...['documents', 'financial_claims', 'tasks', 'phases', 'events', 'invitations', 'case_participants', 'upload_links', 'inbound_mail', 'automation_runs']
+      .map(t => sql(`DELETE FROM ${t} WHERE case_id ${all}`, ids)),
+    sql(`DELETE FROM cases WHERE id ${all}`, ids),
   ]);
   // the rows are gone now: files R2 fails to delete here are found and removed by the daily sweep (sweepOrphanFiles)
   for (let i = 0; i < keys.length; i += 1000) await env.FILES.delete(keys.slice(i, i + 1000)).catch(e => console.error('R2 delete failed (the daily sweep retries)', c.id, e.message));
-  const orphans = await rows(`SELECT id FROM users WHERE id IN (SELECT value FROM json_each(?))
-    AND NOT EXISTS (SELECT 1 FROM case_participants WHERE user_id = users.id) AND NOT EXISTS (SELECT 1 FROM workspace_members WHERE user_id = users.id)`, JSON.stringify(people));
-  for (const { id } of orphans) {
-    await batch(['sessions', 'passkeys', 'login_links', 'challenges', 'notifications', 'signing_keys', 'consents'].map(t => sql(`DELETE FROM ${t} WHERE user_id = ?`, id))
-      .concat(sql('UPDATE signing_keys SET vouched_by = NULL WHERE vouched_by = ?', id), sql('DELETE FROM users WHERE id = ?', id)))
-      .catch(e => console.error('user purge failed', id, e.message));
+  const orphans = (await rows(`SELECT id FROM users WHERE id ${all}
+    AND NOT EXISTS (SELECT 1 FROM case_participants WHERE user_id = users.id) AND NOT EXISTS (SELECT 1 FROM workspace_members WHERE user_id = users.id)`, JSON.stringify(people)))
+    .map(u => u.id);
+  const purgeUsers = list => {
+    const who = JSON.stringify(list);
+    return batch(['sessions', 'passkeys', 'login_links', 'challenges', 'notifications', 'signing_keys', 'consents'].map(t => sql(`DELETE FROM ${t} WHERE user_id ${all}`, who))
+      .concat(sql(`UPDATE signing_keys SET vouched_by = NULL WHERE vouched_by ${all}`, who), sql(`DELETE FROM users WHERE id ${all}`, who)));
+  };
+  // all at once; should one account still be referenced elsewhere, the others go one by one, as far as there is room
+  if (orphans.length) {
+    await purgeUsers(orphans).catch(async () => {
+      for (const id of orphans) if (room(1)) await purgeUsers([id]).catch(e => console.error('user purge failed', id, e.message));
+    });
   }
 }
 

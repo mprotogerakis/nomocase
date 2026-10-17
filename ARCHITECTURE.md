@@ -118,6 +118,9 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   Batch-Request an Resend (permissive: eine falsche Adresse trifft nur ihre Mail), Vermerke in einer D1-Batch; Regeln,
   Outbox, Aufbewahrung (jetzt im 20-Minuten-Lauf) und Datei-Sweep nehmen nur, wofür der Lauf Platz hat. Vorher riss der
   Lauf ab etwa 10 Empfängern einer Übersicht bzw. 40 Personen mit Fortschrittsmails
+- [x] Löschen eines Vorgangs mit Teilvorgängen in festen Kosten: Baum per rekursiver Abfrage, Dateien und Personen in
+  einer Lese-Batch, alle Zeilen in einer Lösch-Batch, verwaiste Konten zusammen (einzeln nur, wenn eines anderswo noch
+  gebraucht wird). Vorher ~7 Subrequests je Teilvorgang: ab etwa 7 Teilvorgängen brach das Löschen ab
 - [x] Aufräumen alter Benachrichtigungen: das tägliche Aufräumen löscht Vermerke zu Schritten, die nicht mehr offen
   sind oder in geschlossenen Vorgängen liegen (Wiederöffnen löscht sie ohnehin); so bleibt die Tabelle so groß wie
   die offene Arbeit

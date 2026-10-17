@@ -969,6 +969,24 @@ if (new URL(BASE).hostname === 'localhost') {
   assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=0+5+*+*+*`)).status, 200);
   assert.equal(notes(step.id), 0, 'done step: its notes are gone');
   assert.equal(others(), before, 'those of open steps stay');
+
+  // Deleting a case with many sub-cases, each with its own guest and file: in one go, within the limit.
+  const { id: big } = await expect(prof('/cases', { body: { template_id: free.id, title: `Groß ${run}` } }));
+  const kids = [];
+  for (let i = 0; i < 8; i++) {
+    const { id } = await expect(prof(`/cases/${big}/subcases`, { body: { template_id: free.id, title: `Teil ${i}` } }));
+    const { link } = await expect(prof(`/cases/${id}/invitations`, { body: { email: `kid${i}.${run}@example.org`, role: 'guest' } }));
+    await expect(client()('/invitations/accept', { body: { consent: true, token: tokenOf(link), name: `Kind ${i}` } }));
+    await expect(prof(`/cases/${id}/documents`, { form: file(`Teil${i}.pdf`, `${PDF}% ${i} ${run}\n`, { title: `Teil ${i}` }) }));
+    kids.push(id);
+  }
+  const family = `('${[big, ...kids].join("', '")}')`;
+  const [{ r2_key: kidFile }] = sql(`SELECT v.r2_key FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.case_id = '${kids[0]}'`);
+  await expect(prof(`/cases/${big}`, { method: 'DELETE' }));
+  assert.equal(sql(`SELECT COUNT(*) AS n FROM cases WHERE id IN ${family}`)[0].n, 0, 'the case and all its sub-cases are gone');
+  assert.equal(sql(`SELECT COUNT(*) AS n FROM case_deletions WHERE case_id IN ${family}`)[0].n, 9, 'a tombstone each');
+  assert.equal(sql(`SELECT COUNT(*) AS n FROM users WHERE email LIKE 'kid%.${run}@example.org'`)[0].n, 0, 'the guests only in them are gone');
+  assert.throws(() => execFileSync('npx', ['wrangler', 'r2', 'object', 'get', `nomocase-files/${kidFile}`, ...LOCAL, '--pipe'], { stdio: 'pipe' }), 'files gone from R2');
 }
 
 // Praxisprojekt rule: uploading the approval informs the student automatically.
