@@ -125,6 +125,7 @@ Deployt wird nur nach grüner Suite.
    | `INBOX_DOMAIN` | Domain der Vorgangs-Adressen |
    | `REDIRECT_HOSTS` | frühere Domains, die umgeleitet werden |
    | `OPERATOR`, `PRIVACY_CONTACT` | Angaben im Einwilligungstext |
+   | `MAIL_DAILY_CAP` | Sammelmails (Tagesübersicht, Fortschritt) je Tag, Standard 80: der Rest des Resend-Kontingents (Gratis-Tarif 100 am Tag) bleibt für Einladungen und Anmeldelinks |
 
 3. Secret setzen: `wrangler secret put RESEND_API_KEY`.
 4. Datenbank anlegen und deployen:
@@ -132,6 +133,9 @@ Deployt wird nur nach grüner Suite.
    - `wrangler deploy`
    - Beispielvorlagen mit `npm run templates -- --remote`.
 5. Ersten Zugang einrichten: `npm run login-link -- <email> --remote` erzeugt einen Anmeldelink, danach einen Passkey einrichten.
+
+Wer alle Workspaces besitzt, sieht unter „Personen“ die Mails des Tages und die Hintergrundläufe (alle 20 Minuten und
+täglich um 05:00 UTC): ob ein Schritt fehlschlug oder ein Lauf ausbleibt.
 
 Den Einwilligungstext sollte vor dem Einsatz die zuständige Datenschutzstelle prüfen.
 
