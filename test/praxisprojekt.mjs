@@ -132,7 +132,9 @@ assert.ok(!(await view(mstudent, m)).tasks.some(t => t.title.startsWith('Bewerte
 const grade = async (who, title, g, status) => expect(who(`/tasks/${await taskId(who, title, m)}/action`, { body: { action: 'assess', score: g } }), status);
 await grade(second, 'Bewerten (Zweitprüfer:in)', '4,5', 400);
 await grade(second, 'Bewerten (Zweitprüfer:in)', '1.75', 400);
-await expect(second(`/tasks/${await taskId(second, 'Bewerten (Zweitprüfer:in)', m)}/action`, { body: { action: 'approve' } }), 400);
+for (const action of ['approve', 'complete']) { // only a value decides an assessed step
+  await expect(second(`/tasks/${await taskId(second, 'Bewerten (Zweitprüfer:in)', m)}/action`, { body: { action } }), 400);
+}
 await grade(second, 'Bewerten (Zweitprüfer:in)', '5,0');
 await grade(prof, 'Bewerten (Erstprüfer:in)', '3.0');
 mc = await view(prof, m);

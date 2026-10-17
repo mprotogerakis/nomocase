@@ -118,6 +118,7 @@ export async function taskAction({ user, params, body }) {
     if (t.blocked) fail(409, 'Vorherige Aufgaben sind noch offen');
     if (action !== 'complete' && !DECISIONS.includes(t.type)) fail(400, 'Aktion passt nicht zum Aufgabentyp');
     if (action === 'complete' && NEEDS_FILE.includes(t.type)) fail(400, 'Diese Aufgabe wird erledigt, indem die Datei hochgeladen wird.');
+    if (action === 'complete' && DECISIONS.includes(t.type)) fail(400, 'Diese Aufgabe wird mit einer Entscheidung oder Bewertung erledigt.');
     if (action === 'question' && !t.depends_on.length) fail(400, 'Diese Aufgabe hat keinen Vorgänger, an den eine Rückfrage gehen könnte.');
   } else if (['skip', 'reopen'].includes(action)) {
     if (!ctx.staff) fail(403, 'Nur Bearbeiter');

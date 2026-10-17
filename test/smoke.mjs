@@ -335,6 +335,7 @@ sc = await expect(student(`/cases/${caseId}`));
 assert.equal(task('Antrag hochladen').status, 'open');
 assert.ok(sc.events.some(e => e.payload.note === 'Bitte die Methoden ergänzen.'), 'student sees the question');
 await expect(student(`/cases/${caseId}/documents`, { form: file('Antrag-korrigiert.pdf', PDF, { task_id: task('Antrag hochladen').id }) }));
+await expect(prof(`/tasks/${review.id}/action`, { body: { action: 'complete' } }), 400); // a decision is no checkbox
 await expect(prof(`/tasks/${review.id}/action`, { body: { action: 'approve' } }));
 sc = await expect(student(`/cases/${caseId}`));
 assert.ok(sc.events.some(e => e.type === 'task.approve' && e.payload.task === 'Antrag prüfen'), 'student learns the review outcome');
@@ -418,7 +419,9 @@ const claim = body => claimIn(privateId, body);
 const invoice = await claim({ title: 'Rechnung', counterparty: 'Dr. Weber', direction: 'payable', amount_cents: 45000 });
 const pkv = await claim({ title: 'PKV', counterparty: 'PKV', direction: 'receivable', amount_cents: 22500 });
 const aid = await claim({ title: 'Beihilfe', counterparty: 'Beihilfestelle', direction: 'receivable', amount_cents: 22500 });
-await expect(prof(`/cases/${privateId}/claims`, { body: { title: 'x', direction: 'receivable', amount_cents: 12.5 } }), 400);
+for (const amount_cents of [12.5, 2 ** 53, 1e10 + 1, -1]) {
+  await expect(prof(`/cases/${privateId}/claims`, { body: { title: 'x', direction: 'receivable', amount_cents } }), 400); // whole cents up to 100 Mio. €
+}
 await expect(prof(`/claims/${invoice}/transactions`, { body: { amount_cents: 45000, booked_on: '2026-10-06' } }));
 await expect(prof(`/claims/${pkv}/decisions`, { body: { approved_cents: 22500, decided_on: '2026-10-10' } }));
 await expect(prof(`/claims/${aid}/decisions`, { body: { approved_cents: 19000, decided_on: '2026-10-11', note: 'Bescheid Nr. 4711' } }));

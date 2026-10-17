@@ -7,7 +7,9 @@ import { loadTask } from './tasks.js';
 
 export const sum = (xs, f) => xs.reduce((s, x) => s + f(x), 0);
 
-const cents = v => (Number.isInteger(v) && v >= 0 ? v : fail(400, 'Betrag ungültig'));
+// Whole cents up to 100 Mio. €: far inside the safe integers, so sums stay exact (it takes ~900 000 maximal bookings to leave them).
+const MAX_CENTS = 1e10;
+const cents = v => (Number.isSafeInteger(v) && v >= 0 && v <= MAX_CENTS ? v : fail(400, 'Betrag ungültig (0 bis 100 000 000 €, in Cent)'));
 
 export const eur = c => `${(c / 100).toFixed(2).replace('.', ',')} €`;
 

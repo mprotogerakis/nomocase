@@ -82,7 +82,8 @@ for (const entry of ENTRIES) {
   const { outputFiles } = await build({ ...entry, bundle: true, write: false, format: 'esm', minifyIdentifiers: true, logLevel: 'silent', outfile: 'out.js' });
   const code = codeOnly(outputFiles[0].text.replace(/^import\s*\{[^}]*\}\s*from\s*"[^"]*";?/gm, '').replace(/export\s*\{[^}]*\};?/g, ''));
   const unknown = new Map();
-  for (const m of code.matchAll(/[A-Za-z_$][\w$]*/g)) {
+  for (const m of code.matchAll(/\d[\w$.]*|[A-Za-z_$][\w$]*/g)) { // numbers first, so 1e10 or 0xff is no name
+    if (/^\d/.test(m[0])) continue;
     const name = m[0], before = code.slice(Math.max(0, m.index - 3), m.index), after = code.slice(m.index + name.length).trimStart();
     if (name.length < 3 || known.has(name)) continue;
     if (/(?<!\.\.)\.\s*$/.test(before) || /\?\.$/.test(before)) continue; // property access (but not spread ...x)

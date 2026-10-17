@@ -87,7 +87,12 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
     ...(check?.differs.length ? [ev(c.id, actorId, 'form.mismatch', { document: doc.title, version_id: versionId, form: form.title, fields: check.differs }, [])] : []),
   );
   if (completes) stmts.push(q("UPDATE tasks SET status = 'done', completed_at = ?, completed_by = ? WHERE id = ?", now(), actorId, task.id));
-  await DB.batch(stmts);
+  // no row points at the file if the batch fails (e.g. two uploads took the same version number): it must not stay behind
+  await DB.batch(stmts).catch(async e => {
+    await E.FILES.delete(key).catch(() => {});
+    if (/UNIQUE/.test(e.message)) fail(409, 'Gerade kam eine andere Fassung dieses Dokuments an. Bitte noch einmal hochladen.');
+    throw e;
+  });
   return { document_id: doc.id, version: n, ...(form && { form: { title: form.title, differs: check.differs, taken: taken.changed.map(x => x.label) } }) };
 }
 
