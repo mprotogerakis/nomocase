@@ -94,7 +94,7 @@ export async function templatesView() {
     ${owned.some(w => w.id === t.workspace_id) ? html`<p><a class="btn" href="#/templates/${t.id}">Ablauf bearbeiten</a>
       <span class="muted small">· oder direkt als JSON (auch Regeln, Formulare, Bewertung):</span></p>
     <form data-submit="saveTemplate" data-id="${t.id}" class="stack">
-      <textarea name="definition" rows="26" class="code" spellcheck="false">${JSON.stringify(t.definition, null, 2)}</textarea>
+      <textarea name="definition" rows="26" class="code" spellcheck="false" aria-label="Vorlage als JSON">${JSON.stringify(t.definition, null, 2)}</textarea>
       <div class="row" style="justify-content:space-between"><button>Als Version ${t.version + 1} speichern</button>
         ${t.archived_at ? html`<button type="button" class="link" data-on="restoreTemplate" data-id="${t.id}">wiederherstellen</button>`
           : html`<button type="button" class="link danger" data-on="deleteTemplate" data-id="${t.id}" data-name="${t.name}" data-cases="${t.cases}">${t.cases ? 'archivieren' : 'löschen'}</button>`}</div>
@@ -110,8 +110,8 @@ export async function templatesView() {
     ${archived.length ? html`<h2>Archiv</h2><p class="muted small">Nicht mehr für neue Vorgänge; laufende Vorgänge sind nicht betroffen.</p>${archived.map(card)}` : ''}
     ${owned.length ? html`<h2>Neue Vorlage</h2>
       <form data-submit="newTemplate" class="row">
-        <select name="workspace_id">${owned.map(w => html`<option value="${w.id}">${w.name}</option>`)}</select>
-        <input name="name" placeholder="Name" required>
+        <select name="workspace_id" aria-label="Workspace">${owned.map(w => html`<option value="${w.id}">${w.name}</option>`)}</select>
+        <input name="name" placeholder="Name" aria-label="Name der neuen Vorlage" required>
         <button>Anlegen</button>
       </form>` : ''}
   </main>`);

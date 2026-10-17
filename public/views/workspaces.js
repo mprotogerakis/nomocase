@@ -15,7 +15,7 @@ function workspaceCard(w) {
       <span class="muted small">${count(w.cases, 'Vorgang', 'Vorgänge')} · ${count(w.templates, 'Vorlage', 'Vorlagen')} · Sie: ${owner ? 'Owner' : 'Mitglied'}</span></div>
     ${owner ? html`
       <details class="add"><summary>umbenennen</summary>
-        <form data-submit="wsRename" data-id="${w.id}" class="row"><input name="name" value="${w.name}" required><button>Speichern</button></form></details>
+        <form data-submit="wsRename" data-id="${w.id}" class="row"><input name="name" value="${w.name}" aria-label="Name des Workspace" required><button>Speichern</button></form></details>
       <h3>Mitglieder</h3>
       <ul class="list small">${w.members.map(m => html`<li class="row" style="justify-content:space-between">
         <span>${m.user_id === me.user.id ? 'Sie' : m.name} <span class="muted">${m.email}</span>${m.passkeys ? '' : html` <span class="tag internal">kein Passkey</span>`}</span>
@@ -61,7 +61,7 @@ export async function workspacesView() {
       Vorgänge eingeladen.</p>
     ${list.map(workspaceCard)}
     ${list.some(w => w.role === 'owner') ? html`<h2>Neuer Workspace</h2>
-      <form data-submit="wsCreate" class="row"><input name="name" placeholder="Name, z. B. Lehrstuhl" required><button>Anlegen</button></form>` : ''}
+      <form data-submit="wsCreate" class="row"><input name="name" placeholder="Name, z. B. Lehrstuhl" aria-label="Name des neuen Workspace" required><button>Anlegen</button></form>` : ''}
   </main>`);
 }
 

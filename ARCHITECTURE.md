@@ -69,7 +69,7 @@ Module hinweg.
 
 `check` (Server und Oberfläche bündeln: jeder Import hat seinen Export) · `validate` (Upload-Prüfung, ohne Server) ·
 `assess`, `pdfsig`, `forms` (Bewertung, Signaturen, Formular-PDFs, ohne Server) · `smoke` (Berechtigungen, Finanzen, Regeln, Mails) ·
-`praxisprojekt` (Beispielvorlagen von Anfang bis Ende) · `ui` (alle Ansichten im echten Browser, ohne Skriptfehler, auch in Handy-Breite) ·
+`praxisprojekt` (Beispielvorlagen von Anfang bis Ende) · `ui` (alle Ansichten im echten Browser, ohne Skriptfehler, auch in Handy-Breite, jedes Bedienelement mit Namen für Screenreader) ·
 `passkey` (Anmeldung, auch gegen Produktion). `test/browser.mjs` steuert Chrome über das DevTools-Protokoll.
 
 ## Erweiterungspunkte der Vorlage

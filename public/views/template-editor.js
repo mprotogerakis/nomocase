@@ -38,7 +38,8 @@ export async function templateEditorView(id) {
 const render = () => { const y = scrollY; page(editor()); scrollTo(0, y); };
 
 const text = (path, value, attrs = html``) => html`<input value="${value ?? ''}" data-input="tplSet" data-path="${path}" ${attrs}>`;
-const select = (path, value, options, handler = 'tplSet') => html`<select data-change="${handler}" data-path="${path}">${options.map(([v, label]) =>
+// `label`: the name screen readers announce, where no visible label wraps the list
+const select = (path, value, options, handler = 'tplSet', label = '') => html`<select data-change="${handler}" data-path="${path}" ${label ? html`aria-label="${label}"` : ''}>${options.map(([v, label]) =>
   html`<option value="${v}" ${String(value ?? '') === v ? 'selected' : ''}>${label}</option>`)}</select>`;
 const tools = (path, i, n) => html`<span class="row tools">
   <button type="button" class="link" data-on="tplMove" data-path="${path}" data-i="${i}" data-dir="-1" ${i ? '' : 'disabled'} title="nach oben">↑</button>
@@ -56,7 +57,7 @@ function editor() {
     const before = stepKeys().filter(k => k !== t.key);
     return html`<div class="step">
       <div class="row">${text(`${path}.title`, t.title, html`aria-label="Titel" class="grow" required`)}
-        ${select(`${path}.type`, t.type, Object.entries(TYPES))} ${select(`${path}.role`, t.role, roleOptions)} ${tools(`phases.${pi}.tasks`, ti, n)}</div>
+        ${select(`${path}.type`, t.type, Object.entries(TYPES), 'tplSet', 'Typ des Schritts')} ${select(`${path}.role`, t.role, roleOptions, 'tplSet', 'zuständige Rolle')} ${tools(`phases.${pi}.tasks`, ti, n)}</div>
       <div class="row small">
         <label class="row">Frist ${select(`${path}`, deadline, [['', 'keine'], ['days', 'Tage ab Start'], ...dates.map(f => [`field:${f.key}`, `aus „${f.label}“`])], 'tplDeadline')}</label>
         ${deadline === 'days' ? html`<input type="number" min="0" max="3650" value="${t.due_days}" data-input="tplDays" data-path="${path}" aria-label="Tage" style="width:5em"> Tage` : ''}
@@ -65,10 +66,10 @@ function editor() {
         ${before.length ? html`<label class="row">startet nach <select multiple size="${Math.min(3, before.length)}" data-change="tplAfter" data-path="${path}" aria-label="startet nach">
           ${before.map(k => html`<option value="${k}" ${(t.after ?? []).includes(k) ? 'selected' : ''}>${titleOf(k)}</option>`)}</select></label>` : ''}
       </div>
-      ${NEEDS_FILE.includes(t.type) || t.doc_type ? html`<div class="row small">Dateien ${select(path, t.files?.multiple ? 'many' : '', [['', 'eine'], ['many', 'mehrere']], 'tplMultiple')}
+      ${NEEDS_FILE.includes(t.type) || t.doc_type ? html`<div class="row small">Dateien ${select(path, t.files?.multiple ? 'many' : '', [['', 'eine'], ['many', 'mehrere']], 'tplMultiple', 'Anzahl der Dateien')}
         · erlaubt: ${Object.entries(FILE_KIND_LABELS).map(([k, label]) => html`<label><input type="checkbox" data-change="tplAccept" data-path="${path}" value="${k}"
           ${(t.files?.accept ?? []).includes(k) ? 'checked' : ''}> ${label}</label>`)} <span class="muted">(nichts angehakt: alle)</span></div>` : ''}
-      <textarea rows="2" placeholder="Beschreibung für die Beteiligten (optional)" data-input="tplSet" data-path="${path}.description">${t.description ?? ''}</textarea>
+      <textarea rows="2" placeholder="Beschreibung für die Beteiligten (optional)" aria-label="Beschreibung" data-input="tplSet" data-path="${path}.description">${t.description ?? ''}</textarea>
       <div class="muted small">Schlüssel: <code>${t.key}</code>${t.assess || t.labels || t.money || t.form || t.visible_to ? ' · weitere Einstellungen in der JSON-Ansicht' : ''}</div>
     </div>`;
   };
@@ -80,12 +81,12 @@ function editor() {
 
     <h2>Rollen</h2>
     ${roles.map((r, i) => html`<div class="row">${text(`roles.${i}.label`, r.label, html`aria-label="Rolle" required`)}
-      ${select(`roles.${i}.access`, r.access, ACCESS.map(a => [a, ACCESS_LABELS[a]]))} <code class="muted small">${r.key}</code> ${tools('roles', i, roles.length)}</div>`)}
+      ${select(`roles.${i}.access`, r.access, ACCESS.map(a => [a, ACCESS_LABELS[a]]), 'tplSet', 'Zugriff der Rolle')} <code class="muted small">${r.key}</code> ${tools('roles', i, roles.length)}</div>`)}
     <button type="button" class="link" data-on="tplAdd" data-path="roles">+ Rolle</button>
 
     <h2>Angaben</h2>
     ${draft.fields.map((f, i) => html`<div class="row">${text(`fields.${i}.label`, f.label, html`aria-label="Angabe" required`)}
-      ${select(`fields.${i}.type`, f.type, [['', 'Text'], ['date', 'Datum']])} <code class="muted small">${f.key}</code> ${tools('fields', i, draft.fields.length)}</div>`)}
+      ${select(`fields.${i}.type`, f.type, [['', 'Text'], ['date', 'Datum']], 'tplSet', 'Art der Angabe')} <code class="muted small">${f.key}</code> ${tools('fields', i, draft.fields.length)}</div>`)}
     <button type="button" class="link" data-on="tplAdd" data-path="fields">+ Angabe</button>
 
     <h2>Dokumenttypen</h2>
@@ -237,7 +238,7 @@ function formsSection() {
       <div class="row">${text(`forms.${fi}.title`, f.title, html`aria-label="Titel des Formulars" class="grow" placeholder="Titel des Formulars" required`)}
         <button type="button" class="link" data-on="tplPreview" data-i="${fi}">Vorschau</button> ${tools('forms', fi, draft.forms.length)}</div>
       ${text(`forms.${fi}.subtitle`, f.subtitle, html`aria-label="Untertitel" placeholder="Untertitel (optional), z. B. wohin das Formular geht"`)}
-      ${f.items.map((it, ii) => html`<div class="row small item">${select(`forms.${fi}.items.${ii}`, kindOf(it), KINDS, 'tplItemKind')}
+      ${f.items.map((it, ii) => html`<div class="row small item">${select(`forms.${fi}.items.${ii}`, kindOf(it), KINDS, 'tplItemKind', 'Art des Eintrags')}
         ${itemFields(it, `forms.${fi}.items.${ii}`)} ${tools(`forms.${fi}.items`, ii, f.items.length)}</div>`)}
       <button type="button" class="link small" data-on="tplAdd" data-path="forms.${fi}.items">+ Eintrag</button>
       <span class="muted small">Schlüssel: <code>${f.key}</code></span>
@@ -282,7 +283,7 @@ function conditionValue(c, path) {
     return html`<select multiple size="${Math.min(4, choices.length)}" data-change="tplCondValue" data-path="${path}" aria-label="Werte">${choices.map(([v, l]) =>
       html`<option value="${v}" ${[c.value].flat().includes(v) ? 'selected' : ''}>${l}</option>`)}</select>`;
   }
-  if (choices) return select(path, c.value, [['', '– wählen –'], ...choices], 'tplCondValue');
+  if (choices) return select(path, c.value, [['', '– wählen –'], ...choices], 'tplCondValue', 'Wert');
   const money = RULE_MONEY_FIELDS.includes(c.field);
   const shown = money && typeof c.value === 'number' ? plainEur(c.value) : [c.value].flat().join(', ');
   return html`<input value="${shown}" data-input="tplCondValue" data-path="${path}" aria-label="Wert"
@@ -292,22 +293,22 @@ function conditionValue(c, path) {
 function actionFields(a, path) {
   if (a.type === 'add_comment') {
     const audience = (a.visible_to ?? ['*']).includes('*') ? '*' : a.visible_to?.[0] ?? '';
-    return html`<textarea rows="2" data-input="tplSet" data-path="${path}.text" placeholder="Text, z. B. „{task.title} ist erledigt, weiter bis {date+14}.“" required>${a.text ?? ''}</textarea>
+    return html`<textarea rows="2" aria-label="Text der Nachricht" data-input="tplSet" data-path="${path}.text" placeholder="Text, z. B. „{task.title} ist erledigt, weiter bis {date+14}.“" required>${a.text ?? ''}</textarea>
       <label class="row small">an ${select(path, audience, [['', 'nur das Team'], ['*', 'alle Beteiligten'], ...roleChoices().map(([k, l]) => [k, `Team + ${l}`])], 'tplAudience')}</label>`;
   }
   if (a.type === 'create_task') {
     return html`<div class="row">${text(`${path}.title`, a.title, html`aria-label="Titel der Aufgabe" class="grow" placeholder="Titel" required`)}
-      ${select(`${path}.task_type`, a.task_type ?? 'task', Object.entries(TYPES))}
-      ${select(`${path}.assign_to_role`, a.assign_to_role ?? 'owner', [['owner', 'die Verantwortlichen'], ...roleChoices()])}
+      ${select(`${path}.task_type`, a.task_type ?? 'task', Object.entries(TYPES), 'tplSet', 'Typ der Aufgabe')}
+      ${select(`${path}.assign_to_role`, a.assign_to_role ?? 'owner', [['owner', 'die Verantwortlichen'], ...roleChoices()], 'tplSet', 'zuständig')}
       <label class="row small">Frist <input type="number" min="0" max="3650" value="${a.due_days ?? ''}" data-input="tplNumber" data-path="${path}.due_days" style="width:5em" aria-label="Frist in Tagen"> Tage</label></div>
-      <textarea rows="2" data-input="tplSet" data-path="${path}.description" placeholder="Beschreibung (optional)">${a.description ?? ''}</textarea>
+      <textarea rows="2" aria-label="Beschreibung der Aufgabe" data-input="tplSet" data-path="${path}.description" placeholder="Beschreibung (optional)">${a.description ?? ''}</textarea>
       <span class="muted small">Schlüssel: <code>${a.key ?? '–'}</code></span>`;
   }
   if (a.type === 'complete_tasks') {
     return a.key || (!a.task_type && !a.title) ? html`<label class="row small">Aufgabe ${select(`${path}.key`, a.key, [['', '– wählen –'], ...valueChoices('task.key')])}</label>`
       : html`<span class="muted small">abhaken nach ${a.task_type ? `Typ ${TYPES[a.task_type]}` : `Titel „${a.title}“`} (in der JSON-Ansicht änderbar)</span>`;
   }
-  return html`<div class="row">Vorlage ${select(`${path}.template`, a.template, [['', '– wählen –'], ...wsTemplates.map(n => [n, n])])}
+  return html`<div class="row">Vorlage ${select(`${path}.template`, a.template, [['', '– wählen –'], ...wsTemplates.map(n => [n, n])], 'tplSet', 'Vorlage des Teilvorgangs')}
     ${text(`${path}.title`, a.title, html`aria-label="Titel des Teilvorgangs" class="grow" placeholder="Titel des Teilvorgangs" required`)}</div>`;
 }
 
@@ -320,10 +321,10 @@ function rulesSection() {
       <div class="row">${text(`rules.${ri}.name`, r.name, html`aria-label="Name der Regel" class="grow" placeholder="Name der Regel" required`)} ${tools('rules', ri, draft.rules.length)}</div>
       <label class="row small">Wenn ${select(`rules.${ri}.trigger`, r.trigger, Object.entries(RULE_TRIGGER_LABELS))}</label>
       ${r.conditions.map((c, ci) => html`<div class="row small">und
-        ${select(`rules.${ri}.conditions.${ci}`, c.field, fields, 'tplCondField')} ${select(`rules.${ri}.conditions.${ci}`, c.operator, Object.entries(RULE_OP_LABELS), 'tplCondOp')}
+        ${select(`rules.${ri}.conditions.${ci}`, c.field, fields, 'tplCondField', 'Bedingung')} ${select(`rules.${ri}.conditions.${ci}`, c.operator, Object.entries(RULE_OP_LABELS), 'tplCondOp', 'Vergleich')}
         ${conditionValue(c, `rules.${ri}.conditions.${ci}`)} ${tools(`rules.${ri}.conditions`, ci, r.conditions.length)}</div>`)}
       <button type="button" class="link small" data-on="tplAdd" data-path="rules.${ri}.conditions">+ Bedingung</button>
-      ${r.actions.map((a, ai) => html`<div class="stack action"><div class="row small">dann ${select(`rules.${ri}.actions.${ai}`, a.type, Object.entries(RULE_ACTION_LABELS), 'tplActionType')}
+      ${r.actions.map((a, ai) => html`<div class="stack action"><div class="row small">dann ${select(`rules.${ri}.actions.${ai}`, a.type, Object.entries(RULE_ACTION_LABELS), 'tplActionType', 'Aktion')}
         ${tools(`rules.${ri}.actions`, ai, r.actions.length)}</div>${actionFields(a, `rules.${ri}.actions.${ai}`)}</div>`)}
       <button type="button" class="link small" data-on="tplAdd" data-path="rules.${ri}.actions">+ Aktion</button>
     </div>`)}

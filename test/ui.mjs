@@ -421,6 +421,12 @@ try {
     await go(hash, ready);
     await evaluate(`(() => { document.querySelectorAll('details').forEach(d => d.open = true); return true; })()`);
     assert.ok(await evaluate(`document.documentElement.scrollWidth <= innerWidth + 1 && innerWidth <= 391`), `${hash} fits a phone`);
+    // every control has a name a screen reader can announce (aria-label, a label around it, button text or title)
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('main input:not([type=hidden]), main select, main textarea, main button')].filter(el => {
+      const labelText = l => { const c = l.cloneNode(true); c.querySelectorAll('input, select, textarea, button, option').forEach(x => x.remove()); return c.textContent.trim(); };
+      return !(el.getAttribute('aria-label')?.trim() || [...(el.labels ?? [])].map(labelText).find(Boolean) || (el.tagName === 'BUTTON' && el.textContent.trim())
+        || el.title?.trim() || el.placeholder?.trim());
+    }).map(el => el.tagName + ' ' + (el.name || el.dataset.path || el.dataset.on || ''))`), [], `${hash}: every control has a name`);
   }
   await b.cdp('Emulation.clearDeviceMetricsOverride');
 

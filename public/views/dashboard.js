@@ -47,11 +47,11 @@ function newCaseForm(tpls) {
   if (!tpls.length) return '';
   return html`<details class="add"><summary>+ Neuer Vorgang</summary>
     <form data-submit="newCase" class="stack card">
-      <select name="template_id" data-change="pickTemplate" required>
+      <select name="template_id" data-change="pickTemplate" required aria-label="Vorlage">
         <option value="">Vorlage wählen…</option>
         ${Object.entries(Object.groupBy(tpls, t => t.workspace)).map(([ws, ts]) => html`<optgroup label="${ws}">${ts.map(t => html`<option value="${t.id}">${t.name} (v${t.version})</option>`)}</optgroup>`)}
       </select>
-      <input name="title" placeholder="Titel des Vorgangs" required>
+      <input name="title" placeholder="Titel des Vorgangs" aria-label="Titel des Vorgangs" required>
       <div id="fields" class="stack"></div>
       <button>Vorgang anlegen</button>
     </form>

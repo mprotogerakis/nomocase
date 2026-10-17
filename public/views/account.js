@@ -111,7 +111,7 @@ export async function uploadLinkView(token) {
   show(html`<main class="narrow"><h1>Datei bereitstellen</h1>
     <p>${l.requester} bittet ${l.label ? html`<b>${l.label}</b>` : 'Sie'}, für „${l.task}“ ${l.document ? `das Dokument „${l.document}“` : 'eine Datei'} hochzuladen.</p>
     <form data-submit="linkUpload" data-token="${token}" class="stack card">
-      <input type="file" name="file" required accept="${acceptAttr(l.files)}">${l.files?.accept?.length ? html`<span class="small muted">${filesHint({ accept: l.files.accept })}</span>` : ''}
+      <input type="file" name="file" required aria-label="Datei" accept="${acceptAttr(l.files)}">${l.files?.accept?.length ? html`<span class="small muted">${filesHint({ accept: l.files.accept })}</span>` : ''}
       <label class="row consent-check"><input type="checkbox" name="consent" value="yes" required>
         Ich bin einverstanden, dass die Datei in NomoCase gespeichert wird (Hinweise unten). Alternativ können Sie sie wie bisher per E-Mail schicken.</label>
       <button class="primary">Hochladen</button>

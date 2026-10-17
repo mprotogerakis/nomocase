@@ -21,7 +21,7 @@ change.verifyFile = async el => {
 
 export const verifyFile = () => html`<details class="verify small"><summary class="muted">Datei abgleichen</summary>
   <p class="muted">Prüft per SHA-256, ob eine Datei auf Ihrem Gerät genau einer gespeicherten Fassung entspricht. Die Datei wird nicht hochgeladen.</p>
-  <input type="file" data-change="verifyFile"> <output></output></details>`;
+  <input type="file" data-change="verifyFile" aria-label="Datei zum Abgleichen"> <output></output></details>`;
 
 // Digital signatures in a version: who signed, and whether it is the key that person used before.
 // Recognition, not legal validity: a known key means "same signer as before".
@@ -126,14 +126,14 @@ export const documents = d => html`${d.documents.length ? '' : html`<p class="mu
       <button class="link push" data-on="final" data-id="${doc.id}" data-final="${doc.final ? '' : '1'}">${doc.final ? 'Endfassung aufheben' : 'Als Endfassung markieren'}</button>
     </div>` : ''}
     ${doc.can_version && !openTaskFor(doc, d) ? html`<details class="add"><summary>neue Fassung</summary><form data-submit="upload" class="row small">
-      <input type="hidden" name="document_id" value="${doc.id}"><input type="file" name="file" required><button>Hochladen</button>
+      <input type="hidden" name="document_id" value="${doc.id}"><input type="file" name="file" required aria-label="Neue Fassung"><button>Hochladen</button>
     </form></details>` : ''}
   </div>`)}
   ${d.me.can_upload ? html`<details class="add"><summary>+ Dokument</summary><form data-submit="upload" class="stack small">
-    <input type="file" name="file" required>
+    <input type="file" name="file" required aria-label="Datei">
     <div class="row">
       <input name="title" placeholder="Titel (optional)">
-      <select name="doc_type"><option value="">– Dokumenttyp –</option>${d.definition.document_types.map(t => html`<option value="${t.key}">${t.label}</option>`)}</select>
+      <select name="doc_type" aria-label="Dokumenttyp"><option value="">– Dokumenttyp –</option>${d.definition.document_types.map(t => html`<option value="${t.key}">${t.label}</option>`)}</select>
     </div>
     <button>Hochladen</button>
   </form></details>` : ''}`;

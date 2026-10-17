@@ -140,7 +140,7 @@ function moneyStatus(t, d) {
 }
 
 // File input of a step: the kinds it takes (template "files.accept"), several files if allowed.
-const fileInput = (t, required) => html`<input type="file" name="file" ${required ? 'required' : html`title="Datei (optional)"`}
+const fileInput = (t, required) => html`<input type="file" name="file" aria-label="Datei" ${required ? 'required' : html`title="Datei (optional)"`}
   accept="${acceptAttr(t.files)}" ${t.files?.multiple ? 'multiple' : ''}>`;
 
 // The task type decides the actions. Upload and signature tasks are done by uploading; decisions by their
@@ -201,7 +201,7 @@ const taskTools = (t, d) => html`<details class="menu"><summary title="Aufgabe b
   </details>` : ''}
   <details><summary class="small">Titel und Beschreibung</summary>
     <form data-submit="editTask" data-id="${t.id}" class="stack">
-      <input name="title" value="${t.title}" required>
+      <input name="title" value="${t.title}" aria-label="Titel" required>
       <textarea name="description" rows="3" placeholder="Beschreibung (optional)">${t.description ?? ''}</textarea>
       <button>Speichern</button>
     </form>
@@ -212,15 +212,15 @@ const taskTools = (t, d) => html`<details class="menu"><summary title="Aufgabe b
 export const addTaskForm = (d, phaseId) => html`<details class="add"><summary>+ Aufgabe</summary>
   <form data-submit="addTask" class="stack small">
     <input type="hidden" name="phase_id" value="${phaseId}">
-    <input name="title" placeholder="Titel" required>
+    <input name="title" placeholder="Titel" aria-label="Titel der Aufgabe" required>
     <div class="row">
-      <select name="type">${Object.entries(TYPES).map(([k, v]) => html`<option value="${k}">${v}</option>`)}</select>
-      <select name="role"><option value="">– zuständig –</option>${d.definition.roles.map(r => html`<option value="${r.key}">${r.label}</option>`)}</select>
-      <select name="doc_type"><option value="">– Dokumenttyp –</option>${d.definition.document_types.map(t => html`<option value="${t.key}">${t.label}</option>`)}</select>
+      <select name="type" aria-label="Typ">${Object.entries(TYPES).map(([k, v]) => html`<option value="${k}">${v}</option>`)}</select>
+      <select name="role" aria-label="zuständige Rolle"><option value="">– zuständig –</option>${d.definition.roles.map(r => html`<option value="${r.key}">${r.label}</option>`)}</select>
+      <select name="doc_type" aria-label="Dokumenttyp"><option value="">– Dokumenttyp –</option>${d.definition.document_types.map(t => html`<option value="${t.key}">${t.label}</option>`)}</select>
     </div>
     <div class="row">
-      <select name="depends_on"><option value="">– startet sofort –</option>${d.tasks.map(t => html`<option value="${t.id}">nach: ${t.title}</option>`)}</select>
-      <input type="date" name="due_date">
+      <select name="depends_on" aria-label="startet nach"><option value="">– startet sofort –</option>${d.tasks.map(t => html`<option value="${t.id}">nach: ${t.title}</option>`)}</select>
+      <input type="date" name="due_date" aria-label="Frist">
     </div>
     <button>Hinzufügen</button>
   </form>

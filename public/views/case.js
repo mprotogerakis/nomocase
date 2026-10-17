@@ -109,9 +109,9 @@ const MESSAGE_TYPES = ['comment', 'task.question', 'task.reject', 'request.creat
 
 // Newest first, writing on top.
 const timeline = d => html`${d.me.access === 'guest_viewer' ? '' : html`<form data-submit="comment" class="stack">
-    <textarea name="body" rows="2" placeholder="Nachricht schreiben…" required></textarea>
+    <textarea name="body" rows="2" placeholder="Nachricht schreiben…" aria-label="Nachricht" required></textarea>
     <div class="row">
-      ${d.me.staff && guestRoles(d).length ? html`<select name="visible_to">
+      ${d.me.staff && guestRoles(d).length ? html`<select name="visible_to" aria-label="Empfänger">
         <option value="*">an alle</option>
         <option value="">nur Team (intern)</option>
         ${guestRoles(d).map(r => html`<option value="${r.key}">Team + ${r.label}</option>`)}
@@ -155,7 +155,7 @@ const inviteForm = d => {
       </label>
       <div id="newrole" class="row" hidden>
         <input name="new_label" placeholder="Name der Rolle, z. B. Steuerberater">
-        <select name="new_access">${['guest_contributor', 'guest_viewer', 'case_editor'].map(a => html`<option value="${a}">${ACCESS_LABELS[a]}</option>`)}</select>
+        <select name="new_access" aria-label="Zugriff der neuen Rolle">${['guest_contributor', 'guest_viewer', 'case_editor'].map(a => html`<option value="${a}">${ACCESS_LABELS[a]}</option>`)}</select>
       </div>
       <label class="row">Zugang bis <input type="date" name="access_until"> <span class="muted">(optional)</span></label>
       <p class="muted">Alle Personen in einer Rolle sehen dasselbe und teilen sich deren Aufgaben.</p>
@@ -281,7 +281,7 @@ function subcasesSection(d) {
       : html`<p class="muted small">Keine.</p>`}
     ${d.me.owner ? html`<details class="add"><summary>+ Teilvorgang</summary>
       <form data-submit="addSubcase" class="stack small">
-        <select name="template_id" required>${d.templates.map(t => html`<option value="${t.id}">${t.name}</option>`)}</select>
+        <select name="template_id" required aria-label="Vorlage des Teilvorgangs">${d.templates.map(t => html`<option value="${t.id}">${t.name}</option>`)}</select>
         <input name="title" placeholder="Titel des Teilvorgangs" required>
         <button>Anlegen</button>
       </form>
