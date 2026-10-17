@@ -1,26 +1,18 @@
 // Mail into a case: every case has an unguessable address v-<inbox>@INBOX_DOMAIN (Cloudflare Email Routing → this
 // Worker's email handler). Each mail is kept as an .eml document (team only by default), once per Message-ID.
-// ponytail: attachments are listed, not checked one by one like uploads; extract them as checked documents if needed.
+// Attachments are only listed here (unpacking a large mail would cost the Worker too much CPU); the team takes them
+// into the case as checked documents from the browser (public/shared/mime.js, documents view).
 import { E, hex, now, q, row, uid } from './core.js';
 import { MAX_UPLOAD, storeVersion } from './documents.js';
+import { decodeHeader } from '../public/shared/mime.js';
+
+export { decodeHeader };
 
 const MAILS_PER_CASE_AND_DAY = 100;
 const latin1 = b => new TextDecoder('latin1').decode(b);
 
 export const inboxAddress = c => (E.INBOX_DOMAIN && c.inbox ? `v-${c.inbox}@${E.INBOX_DOMAIN}` : null);
 export const newInbox = () => hex(crypto.getRandomValues(new Uint8Array(5)));
-
-// "=?utf-8?B?…?=" / "=?iso-8859-1?Q?…?=" (RFC 2047) in headers like Subject and From.
-const decoder = charset => { try { return new TextDecoder(charset); } catch { return new TextDecoder('utf-8'); } };
-// A damaged encoded word (e.g. broken base64) stays as it is instead of rejecting the whole mail.
-export const decodeHeader = s => String(s ?? '').replace(/\?=\s+=\?/g, '?==?').replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (word, charset, enc, text) => {
-  try {
-    const bytes = enc.toUpperCase() === 'B'
-      ? Uint8Array.from(atob(text), c => c.charCodeAt(0))
-      : Uint8Array.from(text.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (__, h) => String.fromCharCode(parseInt(h, 16))), c => c.charCodeAt(0));
-    return decoder(charset.toLowerCase()).decode(bytes);
-  } catch { return word; }
-}).replace(/\s+/g, ' ').trim();
 
 // File names of attachments, from the part headers (filename="…", RFC 2231 filename*=utf-8''…, or name="…").
 export function attachmentNames(raw) {

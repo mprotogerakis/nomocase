@@ -108,6 +108,8 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
 - **E-Mails an Vorgänge**: Jeder Vorgang hat eine nicht erratbare Adresse `v-…@<INBOX_DOMAIN>` (Details, nur Team). Mails an
   diese Adresse (auch in CC) landen als `.eml`-Dokument im Vorgang – Titel = Betreff, Absender als Hochlader, Anhänge im Verlauf,
   nur für das Team sichtbar, je Message-ID einmal; unbekannte Adressen werden abgewiesen, höchstens 100 Mails pro Vorgang und Tag.
+  „Anhänge als Dokumente übernehmen“ (Team) löst die Anhänge im Browser aus der Mail und lädt jeden als eigenes Dokument
+  hoch – mit allen Upload-Prüfungen, Signaturen und Formular-Abgleich; schon vorhandene Dateien werden übersprungen.
   Einrichtung: Cloudflare Email Routing für die Domain aus `INBOX_DOMAIN`, Catch-all → Worker `nomocase`.
 - **Digitale Signaturen in PDFs**: Beim Upload liest NomoCase eingebettete Signaturen (Acrobat/PAdES) aus und prüft, ob die
   signierten Bytes unverändert sind. Ein Schlüssel wird einer Person zugeordnet – durch sie selbst („Das ist meine Signatur“,

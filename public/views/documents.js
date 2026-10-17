@@ -4,6 +4,7 @@ import { api, date, dateTime, html, reload, sha256, shortHash } from '../lib.js'
 import { caseApi, docTypeLabel, guestRoles, holders } from './case.js';
 import { openTaskFor, taskTitle } from './tasks.js';
 import { amountOf } from './finance.js';
+import { mailAttachments } from '../shared/mime.js';
 
 on.copyHash = async ({ hash }, el) => { await navigator.clipboard.writeText(hash); el.textContent = 'SHA-256 kopiert'; };
 
@@ -84,6 +85,27 @@ export function formNotice(res) {
   if (lines.length) alert(lines.join('\n'));
 }
 
+// A stored mail's attachments become documents of the case: read in the browser (no Worker CPU for big mails), each
+// one an ordinary upload with all checks (content, signatures, forms); files already in the case are skipped.
+on.mailAttachments = async ({ id }) => {
+  const parts = mailAttachments(new Uint8Array(await (await fetch(`/api/files/${id}`)).arrayBuffer()));
+  if (!parts.length) return alert('Diese E-Mail hat keine Anhänge.');
+  const have = new Set(cur.documents.flatMap(d => d.versions.map(v => v.sha256)).filter(Boolean));
+  const lines = [];
+  for (const p of parts) {
+    const file = new File([p.bytes], p.filename, { type: p.contentType });
+    if (have.has(await sha256(file))) { lines.push(`• ${p.filename}: schon im Vorgang`); continue; }
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      await api(caseApi('/documents'), { body: fd, quiet: true });
+      lines.push(`• ${p.filename}: übernommen`);
+    } catch (e) { lines.push(`• ${p.filename}: nicht übernommen – ${e.message}`); }
+  }
+  alert(`Anhänge der E-Mail (nur für das Team sichtbar, wie die E-Mail):\n${lines.join('\n')}`);
+  reload();
+};
+
 export const fileLink = (v, label) => html`<a href="/api/files/${v.id}" target="_blank">${label}</a>`;
 
 export const documents = d => html`${d.documents.length ? '' : html`<p class="muted small">Noch keine Dokumente.</p>`}
@@ -95,6 +117,7 @@ export const documents = d => html`${d.documents.length ? '' : html`<p class="mu
       ${d.me.staff || (v.mine && i === all.length - 1 && !doc.final) ? html` <button class="link small" data-on="deleteVersion" data-id="${v.id}" data-name="${v.filename}">löschen</button>` : ''}
       ${signatures(v, d)}
       ${i === all.length - 1 ? formCheck(v, d) : ''}
+      ${d.me.staff && i === all.length - 1 && v.content_type === 'message/rfc822' ? html`<div class="small"><button class="link" data-on="mailAttachments" data-id="${v.id}">Anhänge als Dokumente übernehmen</button></div>` : ''}
     </li>`)}</ol>
     ${d.me.staff ? html`<div class="row small">
       ${guestRoles(d).length ? html`Freigegeben für:

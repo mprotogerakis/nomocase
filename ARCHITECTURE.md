@@ -118,7 +118,8 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Mail in Vorgänge: Adresse `v-…@INBOX_DOMAIN` je Vorgang, `.eml` als Dokument (nur Team), je Message-ID einmal
 - [x] Einwilligung (freiwillige Nutzung): bei Einladung, Upload-Link und nach der Anmeldung, serverseitig erzwungen,
       versioniert, widerrufbar, Nachweis je Person
-- [ ] Anhänge eingehender Mails als eigene, geprüfte Dokumente
+- [x] Anhänge eingehender Mails als eigene, geprüfte Dokumente: im Browser aus der `.eml` gelöst (`public/shared/mime.js`),
+  je Anhang ein normaler Upload mit allen Prüfungen, schon vorhandene (gleiche SHA-256) übersprungen
 - [x] Massenanlage: Tabelle aus Excel einfügen, Vorschau mit Prüfung je Zeile, Vorgänge samt Einladung anlegen
   (`public/shared/bulk.js` liest die Tabelle, eine Anfrage je Vorgang und Einladung – alle üblichen Prüfungen und Limits)
 - [x] Digitale Signaturen in PDFs: Schlüssel wiedererkennen (Erstkontakt + Bestätigung), vertrauenswürdige Aussteller je

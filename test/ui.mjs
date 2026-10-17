@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BASE, run, PDF, freshMailQuota } from './lib.mjs';
+import { BASE, fetchOnce, run, PDF, freshMailQuota } from './lib.mjs';
 import { openBrowser, sleep } from './browser.mjs';
 
 freshMailQuota();
@@ -292,6 +292,23 @@ try {
     (await PDFDocument.load(await pdfs[0].arrayBuffer())).getForm().getTextField('Matrikelnummer').getText())`), '‹Matrikelnummer›');
   assert.equal(await setLogo(null), 200);
 
+  // A mail with attachments, CC'd to the case: its attachments become documents with all upload checks, once
+  const inbox = (await current()).case.inbox;
+  const b64 = s => Buffer.from(s).toString('base64');
+  assert.equal((await fetchOnce(`${BASE}/cdn-cgi/handler/email?from=extern@example.org&to=${inbox}`, { method: 'POST', body: [
+    'From: Extern <extern@example.org>', `Cc: ${inbox}`, `Subject: Anlagen ${run}`, `Message-ID: <anlagen-${run}@example.org>`, 'MIME-Version: 1.0',
+    'Content-Type: multipart/mixed; boundary="b"', '', '--b', 'Content-Type: text/plain', '', 'Anbei.',
+    '--b', 'Content-Type: application/pdf; name="Anlage.pdf"', 'Content-Transfer-Encoding: base64', '', b64(`${PDF}% Anlage ${run}\n`),
+    '--b', 'Content-Type: application/zip; name="archiv.zip"', 'Content-Transfer-Encoding: base64', '', b64('PK\u0003\u0004'), '--b--', ''].join('\r\n') })).status, 200);
+  await go(`#/case/${caseId}`, `!!document.querySelector('[data-on="mailAttachments"]')`);
+  const mailVersion = (await current()).documents.find(d => d.title === `E-Mail: Anlagen ${run}`).versions[0].id;
+  await b.click(`[data-on="mailAttachments"][data-id="${mailVersion}"]`);
+  await until(() => dialogs.some(d => d.startsWith('Anhänge der E-Mail') && d.includes('Anlage.pdf: übernommen') && d.includes('archiv.zip: nicht übernommen')), 'Anhänge übernommen');
+  assert.ok((await current()).documents.some(d => d.title === 'Anlage.pdf' && d.visible_to.length === 0), 'a team-only document of its own');
+  await waitFor(`!!document.querySelector('[data-on="mailAttachments"][data-id="${mailVersion}"]')`, 'neu gezeichnet');
+  await b.click(`[data-on="mailAttachments"][data-id="${mailVersion}"]`);
+  await until(() => dialogs.some(d => d.includes('Anlage.pdf: schon im Vorgang')), 'kein zweites Mal');
+
   // How a step takes files, changed in a running case (⋯ menu): several at once, and back
   const exposeStep = (await current()).tasks.find(t => t.title === 'Exposé hochladen');
   await go(`#/case/${caseId}`, `!!document.querySelector('[data-change="taskFiles"][data-id="${exposeStep.id}"][data-kind="multiple"]')`);
@@ -394,7 +411,7 @@ try {
   await waitFor(`document.querySelector('code.hash')?.textContent.length === 64`, 'Quittung mit SHA-256');
 
   assert.deepEqual(errors, [], 'no script errors');
-  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|verschieben\?$|^Verschoben nach|Vorgänge aus „.*“ anlegen|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
+  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|verschieben\?$|^Verschoben nach|Vorgänge aus „.*“ anlegen|^Anhänge der E-Mail|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
   console.log('ok – ui test passed');
 } finally {
   if (caseId) {
