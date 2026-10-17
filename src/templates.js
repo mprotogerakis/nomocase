@@ -50,11 +50,16 @@ export function checkDef(d) {
       ok(t.visible_to === undefined || (Array.isArray(t.visible_to) && t.visible_to.every(v => v === '*' || roles.has(v))), `visible_to bei "${t.key}": Liste von Rollen oder "*"`);
       const m = t.money;
       ok(m === undefined || (m && typeof m === 'object' && (
-        (typeof m.claim === 'string' && ['payable', 'receivable'].includes(m.direction)) || typeof m.decision === 'string' || typeof m.payment === 'string')),
+        (typeof m.claim === 'string' && m.claim.trim() && ['payable', 'receivable'].includes(m.direction)) || typeof m.decision === 'string' || typeof m.payment === 'string')),
         `money bei "${t.key}": {"claim", "direction"} oder {"decision"} oder {"payment"}`);
     }
   }
   for (const p of d.phases) for (const t of p.tasks) for (const k of t.after ?? []) ok(keys.has(k), `after: "${k}" unbekannt`);
+  // a decision or payment refers to a claim by name: a typo would only show in a running case
+  const claims = new Set(d.phases.flatMap(p => p.tasks).map(t => t.money?.claim).filter(Boolean));
+  for (const t of d.phases.flatMap(p => p.tasks).filter(t => t.money?.decision ?? t.money?.payment)) {
+    ok(claims.has(t.money.decision ?? t.money.payment), `money bei "${t.key}": eine Forderung „${t.money.decision ?? t.money.payment}“ legt kein Schritt an`);
+  }
   ok(d.due_base_field === undefined || d.fields.some(f => f.key === d.due_base_field && f.type === 'date'), 'due_base_field muss ein Datumsfeld sein');
   for (const problem of formProblems(d)) ok(false, problem);
   // Assessments: scales the steps are assessed on, and how several assessments combine into one value.

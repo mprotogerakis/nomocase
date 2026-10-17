@@ -599,6 +599,9 @@ const filesDef = { roles: [{ key: 'owner', label: 'Team', access: 'case_owner' }
     { key: 'plain', title: 'Beliebige Datei', type: 'upload' }] }] };
 await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`,
   definition: { ...filesDef, phases: [{ title: 'x', tasks: [{ key: 'a', title: 'A', type: 'upload', files: { accept: ['exe'] } }] }] } } }), 400);
+// a payment must name a claim some step creates (a typo would only show in a running case)
+await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`, definition: { ...filesDef, finance: true,
+  phases: [{ title: 'x', tasks: [{ key: 'c', title: 'C', type: 'task', money: { claim: 'Rechnung', direction: 'payable' } }, { key: 'p', title: 'P', type: 'task', money: { payment: 'Rechung' } }] }] } } }), 400);
 // an aggregate's "not passed" value must be a value of its scale
 await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`, definition: { ...filesDef,
   scales: { n: { label: 'Note', range: [1, 4], step: 0.1, pass: { max: 4 } } }, phases: [{ title: 'x', tasks: [{ key: 'g', title: 'G', type: 'review', assess: 'n' }] }],

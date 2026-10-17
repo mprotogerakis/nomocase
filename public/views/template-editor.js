@@ -1,11 +1,12 @@
 // Template editor: roles, Angaben, document types, phases and steps, assessments, PDF forms and rules as a form instead
 // of JSON. It works on a copy of the latest version; saving creates the next version (the server checks it like any other).
-// Everything the editor does not show (money steps) stays in the definition untouched – the JSON view edits those.
+// The JSON view shows the same definition as text (for copying, or what the editor does not offer).
 import { parseScore } from '../shared/assess.js';
 import { ACCESS, DECISIONS, FILE_KIND_LABELS, NEEDS_FILE, RULE_ACTION_LABELS, RULE_FIELD_LABELS, RULE_MONEY_FIELDS, RULE_OP_LABELS, RULE_TRIGGER_LABELS } from '../shared/vocab.js';
 import { change, input, me, on } from '../state.js';
 import { ACCESS_LABELS, api, DECISION_LABELS, go, html, page, plainEur, toCents, TYPES } from '../lib.js';
 import { previewForm } from './admin.js';
+import { MONEY_WORDS } from './finance.js';
 
 let tpl = null, draft = null, wsTemplates = [];
 const fresh = new WeakSet(); // items created here: their key follows their name until something refers to it
@@ -50,7 +51,7 @@ const render = () => { const y = scrollY; page(editor()); scrollTo(0, y); };
 const text = (path, value, attrs = html``) => html`<input value="${value ?? ''}" data-input="tplSet" data-change="tplNamed" data-path="${path}" ${attrs}>`;
 // Names show up in other lists (a role at the steps, a step in "startet nach" and rules …); typing leaves the page alone
 // so the cursor stays, leaving the field brings every list up to date (also a new item's key, which follows its name).
-change.tplNamed = el => { if (/\.(label|title)$/.test(el.dataset.path)) render(); };
+change.tplNamed = el => { if (/\.(label|title|claim)$/.test(el.dataset.path)) render(); };
 // `label`: the name screen readers announce, where no visible label wraps the list
 const select = (path, value, options, handler = 'tplSet', label = '') => html`<select data-change="${handler}" data-path="${path}" ${label ? html`aria-label="${label}"` : ''}>${options.map(([v, label]) =>
   html`<option value="${v}" ${String(value ?? '') === v ? 'selected' : ''}>${label}</option>`)}</select>`;
@@ -91,14 +92,14 @@ function editor() {
       ${shareable.length ? html`<div class="row small">auch sichtbar für: ${shareable.map(r => html`<label><input type="checkbox" data-change="tplShare"
         data-path="${path}" value="${r.key}" ${seen(r.key) ? 'checked' : ''}> ${r.label}</label>`)} <span class="muted">(Team und zuständige Rolle immer)</span></div>` : ''}
       <textarea rows="2" placeholder="Beschreibung für die Beteiligten (optional)" aria-label="Beschreibung" data-input="tplSet" data-path="${path}.description">${t.description ?? ''}</textarea>
-      <div class="muted small">Schlüssel: <code>${t.key}</code>${t.money ? ' · Geld-Einstellungen in der JSON-Ansicht' : ''}</div>
+      ${draft.finance ? moneyRow(t, path) : ''}
+      <div class="muted small">Schlüssel: <code>${t.key}</code></div>
     </div>`;
   };
   return html`<main class="template-editor">
     <p class="small"><a href="#/templates">← Vorlagen</a></p>
     <h1>${tpl.name} <span class="muted small">· ${tpl.workspace} · Version ${tpl.version}</span></h1>
-    <p class="muted small">Speichern legt Version ${tpl.version + 1} an; laufende Vorgänge behalten ihre Version. Geldschritte
-      bearbeiten Sie weiterhin in der JSON-Ansicht – sie bleiben hier unverändert erhalten.</p>
+    <p class="muted small">Speichern legt Version ${tpl.version + 1} an; laufende Vorgänge behalten ihre Version.</p>
 
     <h2>Rollen</h2>
     ${roles.map((r, i) => html`<div class="row">${text(`roles.${i}.label`, r.label, html`aria-label="Rolle" required`)}
@@ -127,6 +128,8 @@ function editor() {
 
     ${assessSection()}
 
+    ${moneySection()}
+
     ${formsSection()}
 
     ${rulesSection()}
@@ -141,7 +144,11 @@ input.tplSet = change.tplSet = el => {
   const [obj, prop] = parentOf(el.dataset.path);
   const value = el.value;
   // emptied texts stay (the server names what is missing); a form item keeps its kind
-  if (value === '' && !['title', 'label', 'name', 'text', 'heading', 'sign'].includes(prop)) delete obj[prop]; else obj[prop] = value;
+  if (value === '' && !['title', 'label', 'name', 'text', 'heading', 'sign', 'claim', 'counterparty'].includes(prop)) delete obj[prop]; else obj[prop] = value;
+  if (prop === 'claim') { // decisions and payments name the claim: they follow its new name
+    for (const m of draft.phases.flatMap(p => p.tasks).map(t => t.money).filter(Boolean)) for (const k of ['decision', 'payment']) if (m !== obj && m[k] === el.dataset.was) m[k] = value;
+    el.dataset.was = value;
+  }
   if (prop === 'type' && el.dataset.path.startsWith('phases.') && !DECISIONS.includes(value)) { // only decisions are assessed or labelled
     delete obj.assess; delete obj.labels; dropFromAggregates(obj.key);
   }
@@ -367,6 +374,57 @@ input.tplFailValue = el => {
   const a = at(el.dataset.path), v = parseScore(draft.scales[a.scale], el.value);
   if (v === null) delete a.fail_value; else a.fail_value = v;
   el.setCustomValidity(v === null && el.value.trim() ? 'kein Wert der Skala' : '');
+};
+
+// --- Money -------------------------------------------------------------------------------------------------------
+// A step may create a claim (amount entered when it is done), or decide on / pay a claim an earlier step created,
+// named by the claim's name. Only the team sees money. The template may bring its own words (finance.labels).
+const WORD_HINTS = { payable: 'zu zahlen', receivable: 'zu erhalten', received: 'erhalten', receivables_open: 'Summe offen',
+  balance: 'Saldo', add: 'Knopf zum Erfassen' };
+const claimNames = () => [...new Set(draft.phases.flatMap(p => p.tasks).map(t => t.money?.claim).filter(Boolean))];
+
+function moneySection() {
+  const labels = draft.finance?.labels ?? {};
+  return html`<h2>Geld</h2>
+    <label class="row small"><input type="checkbox" data-change="tplFinance" ${draft.finance ? 'checked' : ''}> Vorgänge führen Beträge
+      (Forderungen, Entscheidungen, Zahlungen; nur das Team sieht sie)</label>
+    ${draft.finance ? html`<p class="muted small">Bei einem Schritt unter „Betrag“ wählen, ob er eine Forderung anlegt, über eine entscheidet
+      oder sie bezahlt. Eigene Begriffe (leer: der übliche):</p>
+      <div class="row small">${Object.entries(MONEY_WORDS).map(([k, w]) => html`<label class="row">${WORD_HINTS[k]}
+        <input value="${labels[k] ?? ''}" placeholder="${w}" data-input="tplMoneyWord" data-key="${k}" style="width:10em"></label>`)}</div>` : ''}`;
+}
+
+function moneyRow(t, path) {
+  const m = t.money, kind = m?.claim !== undefined ? 'claim' : m?.decision !== undefined ? 'decision' : m?.payment !== undefined ? 'payment' : '';
+  const claims = claimNames().filter(c => c !== m?.claim);
+  const party = m?.counterparty_field ? `field:${m.counterparty_field}` : m?.counterparty !== undefined ? 'fixed' : '';
+  return html`<div class="row small">Betrag ${select(path, kind, [['', 'keiner'], ['claim', 'legt eine Forderung an'],
+    ...(claims.length ? [['decision', 'Entscheidung über Forderung'], ['payment', 'Zahlung zu Forderung']] : [])], 'tplMoneyKind', 'Betrag')}
+    ${kind === 'claim' ? html`${text(`${path}.money.claim`, m.claim, html`aria-label="Name der Forderung" placeholder="Name, z. B. Rechnung" data-was="${m.claim}" required`)}
+      ${select(`${path}.money.direction`, m.direction, [['payable', 'zu zahlen'], ['receivable', 'zu erhalten']], 'tplSet', 'Richtung')}
+      <label class="row">Gegenüber ${select(path, party, [['', '– keins –'], ...draft.fields.map(f => [`field:${f.key}`, `aus „${f.label}“`]), ['fixed', 'fester Name …']], 'tplCounterparty')}</label>
+      ${party === 'fixed' ? text(`${path}.money.counterparty`, m.counterparty, html`aria-label="Gegenüber" placeholder="z. B. Krankenkasse"`) : ''}`
+    : kind ? select(`${path}.money.${kind}`, m[kind], claims.map(c => [c, `„${c}“`]), 'tplSet', 'Forderung') : ''}</div>`;
+}
+
+change.tplFinance = el => { if (el.checked) draft.finance ||= true; else delete draft.finance; render(); };
+input.tplMoneyWord = el => {
+  const labels = { ...draft.finance.labels };
+  if (el.value.trim()) labels[el.dataset.key] = el.value.trim(); else delete labels[el.dataset.key];
+  draft.finance = Object.keys(labels).length ? { ...(typeof draft.finance === 'object' ? draft.finance : {}), labels } : true;
+};
+change.tplMoneyKind = el => {
+  const t = at(el.dataset.path);
+  if (!el.value) delete t.money;
+  else t.money = el.value === 'claim' ? { claim: '', direction: 'payable' } : { [el.value]: claimNames().filter(c => c !== t.money?.claim)[0] };
+  render();
+};
+change.tplCounterparty = el => {
+  const m = at(el.dataset.path).money;
+  delete m.counterparty; delete m.counterparty_field;
+  if (el.value.startsWith('field:')) m.counterparty_field = el.value.slice(6);
+  if (el.value === 'fixed') m.counterparty = '';
+  render();
 };
 
 // --- PDF forms --------------------------------------------------------------------------------------------------

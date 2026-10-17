@@ -143,7 +143,10 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Vorlagen-Editor, Stufe 2c: je Schritt „auch sichtbar für“, Bewertungsskala, eigene Knopf-Beschriftungen; Verrechnungen
   als Formular (Schritte, Verfahren, Rundung, Wert bei „nicht bestanden“, Ziel-Angabe)
 - [x] Vorlagen-Editor, Stufe 2d: Skalen als Formular (Zahlenbereich mit Schrittweite und Zusatzwerten oder Auswahl mit
-  Bezeichnungen, Bestehensgrenze, Urteile, Hinweis); als JSON bleiben nur Geldschritte
+  Bezeichnungen, Bestehensgrenze, Urteile, Hinweis)
+- [x] Vorlagen-Editor, Stufe 2e: Geld (Beträge führen, eigene Begriffe; je Schritt Forderung anlegen mit Richtung und
+  Gegenüber, Entscheidung oder Zahlung zu einer Forderung). Der Editor deckt damit die ganze Vorlage ab; die
+  Vorlagenprüfung verlangt, dass Entscheidungen und Zahlungen eine Forderung nennen, die ein Schritt anlegt
 - ~~Dokumente in mehreren Vorgängen~~ – nicht gewünscht (17.10.); gebraucht wird das Verschieben ganzer Vorgänge (umgesetzt)
 - [x] Prüfung auf freie Variablen (fehlende Importe) in `npm run check` (`scripts/freevars.mjs`); esbuild meldet sie nicht
 - [x] Workspace-Änderungen protokollieren (`workspace_events`, nur ergänzbar): Name, Mitglieder, Rollen, Einladungen,

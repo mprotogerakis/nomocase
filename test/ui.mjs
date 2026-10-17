@@ -194,6 +194,25 @@ try {
   await b.click('[data-on="tplAdd"][data-path="scales.skala-2.options"]');
   await waitFor(`!!document.querySelector('[data-path="scales.skala-2.options.2.label"]')`, 'dritter Wert');
   await typeInto('scales.skala-2.options.2.label', 'sehr gut');
+  // money: on, an own word, a step that creates a claim (renamed later: the payment follows) and one that pays it
+  await evaluate(`(() => { const c = document.querySelector('[data-change="tplFinance"]'); c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await waitFor(`!!document.querySelector('[data-input="tplMoneyWord"][data-key="receivable"]')`, 'Geld an');
+  await evaluate(`(() => { const i = document.querySelector('[data-input="tplMoneyWord"][data-key="receivable"]'); i.value = 'zu bekommen'; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  for (const title of ['Honorar erfassen', 'Honorar bezahlt']) {
+    const n = await evaluate(`document.querySelectorAll('[data-path^="phases.1.tasks."][data-path$=".title"]').length`);
+    await b.click('[data-on="tplAdd"][data-path="phases.1.tasks"]');
+    await waitFor(`!!document.querySelector('[data-path="phases.1.tasks.${n}.title"]')`, title);
+    await typeInto(`phases.1.tasks.${n}.title`, title);
+  }
+  await change('[data-change="tplMoneyKind"][data-path="phases.1.tasks.2"]', 'claim');
+  await waitFor(`!!document.querySelector('[data-path="phases.1.tasks.2.money.claim"]')`, 'Forderung');
+  await typeInto('phases.1.tasks.2.money.claim', 'Honorar');
+  await change('[data-path="phases.1.tasks.2.money.direction"]', 'receivable');
+  await change('[data-change="tplCounterparty"][data-path="phases.1.tasks.2"]', 'fixed');
+  await waitFor(`!!document.querySelector('[data-path="phases.1.tasks.2.money.counterparty"]')`, 'Gegenüber');
+  await typeInto('phases.1.tasks.2.money.counterparty', 'Firma X');
+  await change('[data-change="tplMoneyKind"][data-path="phases.1.tasks.3"]', 'payment');
+  await typeInto('phases.1.tasks.2.money.claim', 'Honorar Firma');
   // a PDF form, built from lists, offered at "Beginn"; its preview is a real PDF with the placeholder's name in the field
   await b.click('[data-on="tplAdd"][data-path="forms"]');
   await waitFor(`!!document.querySelector('[data-path="forms.0.title"]')`, 'neues Formular');
@@ -250,7 +269,10 @@ try {
   assert.equal(saved.definition.phases[0].tasks[0].form, 'bestatigung');
   assert.deepEqual(saved.definition.phases[0].tasks[1].visible_to, ['student']);
   assert.deepEqual(saved.definition.phases[1].tasks, [{ key: 'g2', title: 'Gutachten 2', type: 'review', assess: 'note' },
-    { key: 'g3', title: 'Freigabe', type: 'approval', labels: ['Passt', 'Ablehnen'] }]);
+    { key: 'g3', title: 'Freigabe', type: 'approval', labels: ['Passt', 'Ablehnen'] },
+    { key: 'honorar-erfassen', title: 'Honorar erfassen', type: 'task', money: { claim: 'Honorar Firma', direction: 'receivable', counterparty: 'Firma X' } },
+    { key: 'honorar-bezahlt', title: 'Honorar bezahlt', type: 'task', money: { payment: 'Honorar Firma' } }]);
+  assert.deepEqual(saved.definition.finance, { labels: { receivable: 'zu bekommen' } });
   assert.deepEqual([saved.definition.scales.skala, saved.definition.scales['skala-2']], [
     { label: 'Punkte', range: [0, 60.5], step: 0.5, pass: { min: 50 }, verdicts: ['erfüllt', 'Nicht bestanden'] },
     { label: 'Stufe', options: [{ value: 1, label: 'bestanden' }, { value: 0, label: 'nicht bestanden' }, { value: 2, label: 'sehr gut' }], pass: { min: 1 } }]);

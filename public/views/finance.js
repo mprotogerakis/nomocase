@@ -4,7 +4,7 @@ import { api, date, eur, html, plainEur, reload, toCents } from '../lib.js';
 import { caseApi } from './case.js';
 
 // Words for money in a case: neutral by default; a template can bring its own (finance.labels, e.g. "Erstattung").
-const MONEY_WORDS = { payable: 'zu zahlen', receivable: 'zu erhalten', received: 'Erhalten', receivables_open: 'Offen zu erhalten',
+export const MONEY_WORDS = { payable: 'zu zahlen', receivable: 'zu erhalten', received: 'Erhalten', receivables_open: 'Offen zu erhalten',
   balance: 'Saldo bisher', add: 'Betrag erfassen' };
 export const moneyWord = (d, key) => d.definition.finance?.labels?.[key] ?? MONEY_WORDS[key];
 
