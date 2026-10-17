@@ -211,10 +211,11 @@ function pdfDate(s) {
 const MAX_SIGNATURES = 20;
 
 // All signatures of a PDF, in file order. A signature "covers all" when nothing was appended after it.
-// `trusted`: DER certificates of issuers the workspace trusts.
-export async function readSignatures(bytes, trusted = []) {
+// `trusted`: DER certificates of issuers the workspace trusts. `s`: the PDF's dictionaries from the upload check
+// (validate.js), so a 15 MB file is not decoded a second time; signature dictionaries are never inside stream bodies.
+export async function readSignatures(bytes, trusted = [], s = latin1(bytes)) {
   const anchors = trusted.map(parseCertificate);
-  const s = latin1(bytes), out = [];
+  const out = [];
   for (const m of s.matchAll(/\/ByteRange\s*\[\s*(\d{1,12})\s+(\d{1,12})\s+(\d{1,12})\s+(\d{1,12})\s*\]/g)) {
     if (out.length >= MAX_SIGNATURES) break; // each one hashes up to the whole file
     const [a0, a1, b0, b1] = m.slice(1).map(Number);
@@ -226,7 +227,7 @@ export async function readSignatures(bytes, trusted = []) {
     if (a0 !== 0 || b0 + b1 > bytes.length || a1 >= b0) { out.push({ ...base, status: 'invalid', detail: 'ByteRange ungültig' }); continue; }
     if (!['adbe.pkcs7.detached', 'ETSI.CAdES.detached'].includes(sub)) { out.push({ ...base, status: 'unsupported', detail: `Format ${sub ?? '?'} wird nicht geprüft` }); continue; }
     try {
-      const gap = s.slice(a1, b0).trim();
+      const gap = latin1(bytes.subarray(a1, b0)).trim();
       const cms = Uint8Array.from(gap.slice(1, -1).match(/[0-9a-fA-F]{2}/g) ?? [], h => parseInt(h, 16));
       const signed = new Uint8Array(a1 + b1);
       signed.set(bytes.subarray(0, a1), 0);

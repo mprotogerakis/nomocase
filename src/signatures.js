@@ -110,7 +110,7 @@ export async function addSigningKey({ user, req }) {
   const form = await req.formData();
   const f = await readUpload(form.get('file'), true);
   if (f.problem) fail(422, f.problem);
-  const mine = (await readSignatures(f.bytes)).map(asRow).filter(s => s.status === 'valid' && sameEmail(s, user));
+  const mine = (await readSignatures(f.bytes, [], f.pdf)).map(asRow).filter(s => s.status === 'valid' && sameEmail(s, user));
   if (!mine.length) fail(400, 'In dieser PDF ist keine gültige Signatur, deren Zertifikat Ihre E-Mail-Adresse nennt. Die Verantwortlichen eines Vorgangs können Ihre Signatur dort zuordnen.');
   if (new Set(mine.map(s => s.key_fingerprint)).size > 1) fail(409, 'Die PDF enthält mehrere Schlüssel mit Ihrer E-Mail-Adresse. Bitte eine PDF mit nur Ihrer Signatur verwenden.');
   await bind(mine[0], user.id, null);

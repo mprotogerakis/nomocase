@@ -59,7 +59,7 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
   const key = `${c.workspace_id}/${c.id}/${doc.id}/${versionId}`;
   const completes = complete && task && task.status === 'open' && !task.blocked && !DECISIONS.includes(task.type);
   // Digital signatures inside PDFs: stored with the version; a signer who used another key before is logged.
-  const sigs = f.contentType === 'application/pdf' ? await readSignatures(f.bytes) : [];
+  const sigs = f.contentType === 'application/pdf' ? await readSignatures(f.bytes, [], f.pdf) : [];
   // One of the case's forms, filled in: remembered with the version and compared with the case's fields. Values for
   // fields that are still empty go in directly when the team uploads; from anyone else they wait for the team (a grade
   // must not come from whoever filled in the PDF). Differences are logged and can trigger rules.

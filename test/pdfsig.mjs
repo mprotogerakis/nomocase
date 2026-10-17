@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { readSignatures, trustedIssuer } from '../src/pdfsig.js';
+import { pdfDictionaries } from '../src/validate.js';
 
 const load = name => new Uint8Array(readFileSync(new URL(`./fixtures/signed/${name}`, import.meta.url)));
 const ca = load('test-ca.der');
@@ -25,6 +26,10 @@ const [other] = await read('other-key.pdf', [ca]);
 assert.equal(other.subject.email, one.subject.email);
 assert.notEqual(other.key_fingerprint, one.key_fingerprint, 'same name, different key');
 assert.deepEqual(await readSignatures(new TextEncoder().encode('%PDF-1.4\n%%EOF\n')), [], 'unsigned PDF');
+const viaDicts = async name => { const b = load(name); return readSignatures(b, [ca], (await pdfDictionaries(b, true)).text); };
+for (const name of ['one.pdf', 'two.pdf', 'tampered.pdf']) {
+  assert.deepEqual(await viaDicts(name), await read(name, [ca]), `${name}: the upload check's dictionaries give the same result`);
+}
 
 // A user certificate of a trusted CA "issuing" a certificate in someone else's name is no trust (it is no CA).
 const [forged] = await read('forged-chain.pdf', [ca]);
