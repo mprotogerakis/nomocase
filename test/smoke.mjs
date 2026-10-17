@@ -488,6 +488,15 @@ assert.equal(kc.tasks.find(t => t.title === 'Beihilfe-Erstattung eingegangen').s
 await expect(prof(`/tasks/${kt('Beihilfe-Erstattung eingegangen')}/money`, { body: { amount_cents: 12000 } }));
 assert.equal((await expect(prof(`/cases/${viaTasks}`))).finance.totals.open_receivable_cents, 0);
 await expect(student(`/tasks/${kt('Beihilfe-Erstattung eingegangen')}/money`, { body: { amount_cents: 1 } }), 404);
+// A claim added by hand with the same title does not catch the step's payment: that goes to the claim the step made.
+const { id: twin } = await expect(prof('/cases', { body: { template_id: med.id, title: 'Arztrechnung Zwilling', fields: { doctor: 'Dr. Zwei' } } }));
+const twinTask = async title => (await expect(prof(`/cases/${twin}`))).tasks.find(t => t.title === title).id;
+await expect(prof(`/cases/${twin}/documents`, { form: file('Rechnung-Zwei.pdf', PDF, { task_id: await twinTask('Rechnung erfassen'), amount_cents: '20000' }) }));
+await expect(prof(`/cases/${twin}/claims`, { body: { title: 'Rechnung', direction: 'payable', amount_cents: 999 } }));
+await expect(prof(`/tasks/${await twinTask('Rechnung bezahlen')}/action`, { body: { action: 'complete', amount_cents: 20000 } }));
+assert.deepEqual((await expect(prof(`/cases/${twin}`))).finance.claims.filter(c => c.title === 'Rechnung').map(c => [c.amount_cents, c.settled_cents]),
+  [[20000, 20000], [999, 0]]);
+await expect(prof(`/cases/${twin}`, { method: 'DELETE' }));
 
 // Upload links: someone without an account hands in one file for one task, and gets nothing else.
 const { id: linked } = await expect(prof('/cases', { body: { template_id: med.id, title: 'Arztrechnung Upload-Link', fields: { doctor: 'Dr. Link' } } }));
@@ -607,6 +616,9 @@ await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads 
 // a payment must name a claim some step creates (a typo would only show in a running case)
 await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`, definition: { ...filesDef, finance: true,
   phases: [{ title: 'x', tasks: [{ key: 'c', title: 'C', type: 'task', money: { claim: 'Rechnung', direction: 'payable' } }, { key: 'p', title: 'P', type: 'task', money: { payment: 'Rechung' } }] }] } } }), 400);
+// two steps creating a claim of the same name: decisions and payments could not tell them apart
+await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`, definition: { ...filesDef, finance: true,
+  phases: [{ title: 'x', tasks: [{ key: 'a', title: 'A', type: 'task', money: { claim: 'Rechnung', direction: 'payable' } }, { key: 'b', title: 'B', type: 'task', money: { claim: 'Rechnung', direction: 'receivable' } }] }] } } }), 400);
 // an aggregate's "not passed" value must be a value of its scale
 await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`, definition: { ...filesDef,
   scales: { n: { label: 'Note', range: [1, 4], step: 0.1, pass: { max: 4 } } }, phases: [{ title: 'x', tasks: [{ key: 'g', title: 'G', type: 'review', assess: 'n' }] }],

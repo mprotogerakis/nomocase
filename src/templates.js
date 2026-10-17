@@ -56,7 +56,9 @@ export function checkDef(d) {
   }
   for (const p of d.phases) for (const t of p.tasks) for (const k of t.after ?? []) ok(keys.has(k), `after: "${k}" unbekannt`);
   // a decision or payment refers to a claim by name: a typo would only show in a running case
-  const claims = new Set(d.phases.flatMap(p => p.tasks).map(t => t.money?.claim).filter(Boolean));
+  const claimSteps = d.phases.flatMap(p => p.tasks).filter(t => t.money?.claim);
+  const claims = new Set(claimSteps.map(t => t.money.claim));
+  ok(claims.size === claimSteps.length, 'money: jeder Forderungsname nur bei einem Schritt (Entscheidungen und Zahlungen nennen die Forderung beim Namen)');
   for (const t of d.phases.flatMap(p => p.tasks).filter(t => t.money?.decision ?? t.money?.payment)) {
     ok(claims.has(t.money.decision ?? t.money.payment), `money bei "${t.key}": eine Forderung „${t.money.decision ?? t.money.payment}“ legt kein Schritt an`);
   }

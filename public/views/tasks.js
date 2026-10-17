@@ -102,7 +102,11 @@ function sharedWith(t, d) {
 }
 
 // Money steps (template "money"): the claim a task creates, decides on or pays. Only the team sees money.
-const claimFor = (t, d) => d.finance?.claims.filter(c => c.title === (t.money.claim ?? t.money.decision ?? t.money.payment)).at(-1);
+// the latest claim made by the step that creates the named claim (a claim added by hand with the same title is not it)
+const claimFor = (t, d) => {
+  const name = t.money.claim ?? t.money.decision ?? t.money.payment, steps = d.tasks.filter(x => x.money?.claim === name).map(x => x.id);
+  return d.finance?.claims.filter(c => steps.includes(c.task_id)).at(-1);
+};
 
 const hasMoney = (t, d) => t.money && d.finance && d.definition.finance;
 

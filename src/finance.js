@@ -64,10 +64,11 @@ async function loadClaim(user, claimId) {
 }
 
 // Statement builders, shared by the finance panel and by tasks with a money step.
-function claimStmts(ctx, user, { id = uid(), title, direction, amount, counterparty }) {
+// `taskId`: the step that created the claim (money steps); claims added by hand have none.
+function claimStmts(ctx, user, { id = uid(), title, direction, amount, counterparty, taskId = null }) {
   return [
-    q('INSERT INTO financial_claims (id, case_id, title, counterparty, direction, amount_cents, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      id, ctx.c.id, title, counterparty || null, direction, amount, user.id, now()),
+    q('INSERT INTO financial_claims (id, case_id, title, counterparty, direction, amount_cents, created_by, created_at, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      id, ctx.c.id, title, counterparty || null, direction, amount, user.id, now(), taskId),
     ev(ctx.c.id, user.id, 'claim.added', { claim: title, claim_id: id, direction, amount_cents: amount }, []),
   ];
 }
@@ -100,10 +101,12 @@ export async function moneyStmts(ctx, user, t, amount) {
   const cts = cents(Number(amount));
   if (m.claim) {
     const counterparty = m.counterparty_field ? JSON.parse(ctx.c.fields)[m.counterparty_field] : m.counterparty;
-    return claimStmts(ctx, user, { title: m.claim, direction: m.direction, amount: cts, counterparty });
+    return claimStmts(ctx, user, { title: m.claim, direction: m.direction, amount: cts, counterparty, taskId: t.id });
   }
+  // the claim of the step that creates "<name>" (one per template), not just any claim with that title
   const name = m.decision ?? m.payment;
-  const c = (await row('SELECT * FROM financial_claims WHERE case_id = ? AND title = ? ORDER BY created_at DESC LIMIT 1', ctx.c.id, name))
+  const c = (await row(`SELECT fc.* FROM financial_claims fc JOIN tasks t ON t.id = fc.task_id
+    WHERE fc.case_id = ? AND json_extract(t.money, '$.claim') = ? ORDER BY fc.created_at DESC, fc.rowid DESC LIMIT 1`, ctx.c.id, name))
     ?? fail(409, `Es gibt noch keine Forderung „${name}“. Bitte zuerst die vorherige Aufgabe mit Betrag erledigen.`);
   return m.decision ? decisionStmts(ctx, user, c, cts) : transactionStmts(ctx, user, c, cts || fail(400, 'Betrag muss größer als 0 sein'));
 }
