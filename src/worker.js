@@ -146,23 +146,26 @@ export default {
     }
   },
 
+  // Independent steps: one that fails is logged and the others still run; the run then counts as failed.
   async scheduled(controller, env) {
     init(env);
-    await processRules(); // catch-up, e.g. after a request that failed midway
+    const failed = [];
+    const step = async (name, fn) => { try { await fn(); } catch (e) { console.error(`cron ${name}`, e.message); failed.push(name); } };
+    await step('rules', processRules); // catch-up, e.g. after a request that failed midway
     if (controller.cron === DAILY_CRON) {
-      await applyRetention();
-      await sendDigests();
+      await step('retention', applyRetention);
+      await step('digests', sendDigests);
       // housekeeping: old mail log, expired sessions, login links and passkey challenges
-      const t = now();
-      await DB.batch([
+      await step('housekeeping', () => DB.batch([
         q('DELETE FROM mail_log WHERE sent_at < ?', new Date(Date.now() - 3 * 864e5).toISOString()),
-        q('DELETE FROM sessions WHERE expires_at < ?', t),
-        q('DELETE FROM login_links WHERE expires_at < ?', t),
-        q('DELETE FROM challenges WHERE expires_at < ?', t),
-      ]);
-      await sweepOrphanFiles().catch(e => console.error('file sweep', e.message));
+        q('DELETE FROM sessions WHERE expires_at < ?', now()),
+        q('DELETE FROM login_links WHERE expires_at < ?', now()),
+        q('DELETE FROM challenges WHERE expires_at < ?', now()),
+      ]));
+      await step('file sweep', sweepOrphanFiles);
     } else {
-      await sendProgress();
+      await step('progress', sendProgress);
     }
+    if (failed.length) throw new Error(`cron steps failed: ${failed.join(', ')}`);
   },
 };

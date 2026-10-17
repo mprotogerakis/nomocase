@@ -4,7 +4,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { BASE, run, PDF, fetchOnce, client, expect, file, freshMailQuota, tokenOf, sql } from './lib.mjs';
 import { checkDef } from '../src/templates.js';
 
@@ -536,6 +537,8 @@ await expect(prof(`/documents/${invoiceDoc}`, { method: 'PATCH', body: { final: 
 await expect(anon('/upload-links', { form: file('korrektur.pdf', `${PDF}% fix ${run}\n`, { token: fixToken, consent: 'yes' }) }), 410);
 await expect(prof(`/documents/${invoiceDoc}`, { method: 'PATCH', body: { final: false } }));
 await expect(anon('/upload-links', { form: file('korrektur.pdf', `${PDF}% fix ${run}\n`, { token: fixToken, consent: 'yes' }) }), 200, 'not used up by the refusal');
+// A request larger than one upload is refused before it is read (the token is in the body, checked only afterwards)
+assert.equal((await expect(anon('/upload-links', { form: file('gross.pdf', new Uint8Array(21 * 1024 * 1024), { token: 'x' }) }), 413)).error, 'Datei zu groß (max. 20 MB)');
 // Public writes are limited per client address (Cloudflare sets CF-Connecting-IP; here a test address, locally none = no limit)
 const probeIp = `198.51.100.${Date.now() % 250}`, limited = [];
 for (let i = 0; i < 31; i++) limited.push((await fetchOnce(`${BASE}/api/passkeys/login/options`, { method: 'POST', headers: { origin: BASE, 'cf-connecting-ip': probeIp } })).status);
@@ -643,7 +646,19 @@ await expect(student(`/claims/${aid}/transactions`, { body: { amount_cents: 1 } 
 if (new URL(BASE).hostname === 'localhost') {
   const digestOf = email => sql(`SELECT u.last_digest_at, (SELECT COUNT(*) FROM notifications n WHERE n.user_id = u.id) AS n FROM users u WHERE u.email = '${email}'`)[0];
   const runDigest = async () => assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=0+5+*+*+*`)).status, 200);
+  // Files in R2 without a version (a delete that failed, an upload whose DB write never happened) go in the daily run
+  // once they are a day old; a younger one may belong to an upload in progress. (Local R2: miniflare's SQLite file.)
+  const r2dir = '.wrangler/state/v3/r2/miniflare-R2BucketObject';
+  const r2db = `${r2dir}/${readdirSync(r2dir).find(f => f.endsWith('.sqlite') && f !== 'metadata.sqlite')}`;
+  const r2sql = query => execFileSync('sqlite3', [r2db, query], { encoding: 'utf8' }).trim();
+  const blob = `${mkdtempSync(`${tmpdir()}/nomocase-`)}/orphan.txt`;
+  writeFileSync(blob, 'verwaist');
+  for (const age of ['old', 'young']) execFileSync('npx', ['wrangler', 'r2', 'object', 'put', `nomocase-files/orphan-${run}/${age}`, '--local', '--file', blob], { stdio: 'ignore' });
+  r2sql(`UPDATE _mf_objects SET uploaded = uploaded - 2 * 864e5 WHERE key = 'orphan-${run}/old'`);
   await runDigest();
+  assert.equal(r2sql(`SELECT group_concat(key) FROM _mf_objects WHERE key LIKE 'orphan-${run}/%'`), `orphan-${run}/young`, 'the old orphan is gone, the young one stays');
+  assert.ok(+r2sql('SELECT COUNT(*) FROM _mf_objects') >= sql('SELECT COUNT(*) AS n FROM document_versions')[0].n, 'files of versions stay');
+  r2sql(`DELETE FROM _mf_objects WHERE key = 'orphan-${run}/young'`);
   const profFirst = digestOf('prof@example.org');
   assert.ok(profFirst.n > 0 && profFirst.last_digest_at, 'owner gets a digest with tasks');
   assert.equal(digestOf(`max.${run}@example.org`).last_digest_at, null, 'messages go out as progress mails, not in the digest');

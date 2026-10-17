@@ -4,7 +4,7 @@
 import { DB, ev, fail, now, q, row, rows, wsEv } from './core.js';
 import { canSee, caseCtx, requireWsOwner } from './access.js';
 import { parseCertificate, readSignatures, trustedIssuer } from './pdfsig.js';
-import { readUpload } from './documents.js';
+import { readUpload, uploadForm } from './documents.js';
 
 const der = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 const anchors = async wsId => (await rows('SELECT certificate FROM trusted_issuers WHERE workspace_id = ?', wsId)).map(r => der(r.certificate));
@@ -107,7 +107,7 @@ export async function mySigningKeys({ user }) {
 
 // Account page: register the own key from a signed sample PDF (nothing is stored but the key binding).
 export async function addSigningKey({ user, req }) {
-  const form = await req.formData();
+  const form = await uploadForm(req);
   const f = await readUpload(form.get('file'), true);
   if (f.problem) fail(422, f.problem);
   const mine = (await readSignatures(f.bytes, [], f.pdf)).map(asRow).filter(s => s.status === 'valid' && sameEmail(s, user));

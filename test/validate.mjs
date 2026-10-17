@@ -1,6 +1,7 @@
 // Unit check for src/validate.js with hand-built fixtures (no server needed).
 import assert from 'node:assert/strict';
 import { checkContent } from '../src/validate.js';
+import { uploadForm } from '../src/documents.js';
 
 const enc = s => new TextEncoder().encode(s);
 const deflate = async (bytes, format) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream(format))).arrayBuffer());
@@ -104,5 +105,10 @@ const quick = async (label, bytes, pattern) => {
 };
 await quick('long number in a formatting call', enc(`%PDF-1.4\n1 0 obj\n<< /AA << /F << /S /JavaScript /JS (AFNumber_Format(${'1'.repeat(400)}x) >> >> >>\nendobj\n`), /aktive Inhalte/);
 await quick('long digit run after /Length', enc(`%PDF-1.4\n1 0 obj\n<< /Length ${'1'.repeat(60000)} R >>\nstream\nabc\nendstream\nendobj\n`));
+
+// An upload request is limited while it is read, also without Content-Length: an endless body stops after 20 MB.
+const endless = new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(1 << 20)); } });
+await assert.rejects(uploadForm(new Request('http://x/', { method: 'POST', body: endless, duplex: 'half', headers: { 'content-type': 'multipart/form-data; boundary=x' } })),
+  e => e.status === 413, 'endless upload body');
 
 console.log('ok – validate test passed');

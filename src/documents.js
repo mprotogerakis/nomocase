@@ -33,6 +33,21 @@ const INLINE = ['application/pdf', 'image/png', 'image/jpeg'];
 // Checks a file before anything is stored: type, size, magic bytes and content (strict outside the team).
 // `given`: SHA-256 as the browser read the file (app.js sends it). R2 checks it on put, so the stored bytes provably
 // match what left the uploader's disk. Without one the Worker computes it (ponytail: Worker CPU, ~1 ms per MB).
+// The request as a form, limited while it is read: formData() alone would take a body of any size first. One file per
+// request plus a few fields; a missing or false Content-Length is caught by counting.
+export async function uploadForm(req) {
+  const max = MAX_UPLOAD + 64 * 1024, tooBig = () => fail(413, 'Datei zu groß (max. 20 MB)');
+  if (Number(req.headers.get('content-length')) > max) tooBig();
+  const reader = req.body?.getReader() ?? fail(400, 'Keine Datei');
+  const chunks = [];
+  for (let n = 0, r = await reader.read(); !r.done; r = await reader.read()) {
+    if ((n += r.value.length) > max) { await reader.cancel(); tooBig(); }
+    chunks.push(r.value);
+  }
+  return new Response(new Blob(chunks), { headers: { 'content-type': req.headers.get('content-type') ?? '' } }).formData()
+    .catch(() => fail(400, 'Ungültige Anfrage'));
+}
+
 export async function readUpload(file, strict, given) {
   if (!(file instanceof File) || !file.size) fail(400, 'Keine Datei');
   if (file.size > MAX_UPLOAD) fail(413, 'Datei zu groß (max. 20 MB)');
@@ -115,7 +130,7 @@ async function taskDocument(ctx, task, title, filename) {
 export async function upload({ req, user, params }) {
   const ctx = await caseCtx(user, params.id);
   if (ctx.access === 'guest_viewer') fail(403, 'Keine Upload-Berechtigung');
-  const form = await req.formData();
+  const form = await uploadForm(req);
   const f = await readUpload(form.get('file'), !ctx.staff, form.get('sha256'));
   if (f.problem) {
     await ev(ctx.c.id, user.id, 'upload.rejected', { filename: f.filename, note: f.problem }, []).run();
@@ -209,7 +224,7 @@ export async function getUploadLink({ body }) {
 }
 
 export async function useUploadLink({ req }) {
-  const form = await req.formData();
+  const form = await uploadForm(req);
   const l = await loadUploadLink(form.get('token'));
   if (form.get('consent') !== 'yes') fail(400, 'Bitte stimmen Sie der Verarbeitung zu – oder schicken Sie die Datei auf dem bisherigen Weg per E-Mail.');
   const f = await readUpload(form.get('file'), true, form.get('sha256'));
