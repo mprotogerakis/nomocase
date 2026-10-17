@@ -1,7 +1,6 @@
 // Finance: claims, decisions and transactions (immutable, cents), money steps on tasks.
 import { fail, isDate, uid } from './core.js';
 import { caseCtx } from './access.js';
-import { loadTask } from './tasks.js';
 
 // Staff only. The overview is always computed from claims, decisions and transactions, never stored.
 
@@ -121,16 +120,6 @@ export async function moneyStmts(rq, ctx, user, t, amount) {
     ORDER BY created_at DESC, rowid DESC LIMIT 1`, ctx.c.id, name))
     ?? fail(409, `Es gibt noch keine Forderung „${name}“ aus der Aufgabe davor. Bitte dort zuerst den Betrag eintragen – oder direkt bei der Forderung buchen.`);
   return m.decision ? decisionStmts(rq, ctx, user, c, cts, { taskId: t.id }) : transactionStmts(rq, ctx, user, c, cts || fail(400, 'Betrag muss größer als 0 sein'), { taskId: t.id });
-}
-
-// Book the money step of a task afterwards (e.g. the task was done before the amount was known).
-export async function taskMoney(rq) {
-  const { user, params, body, batch } = rq;
-  const { ctx, t } = await loadTask(rq, user, params.id);
-  if (!ctx.staff) fail(403, 'Nur das Team bucht Beträge');
-  if (!t.money || !ctx.def.finance) fail(400, 'Diese Aufgabe hat keinen Geldschritt');
-  if (body.amount_cents == null) fail(400, 'Betrag fehlt');
-  await batch(await moneyStmts(rq, ctx, user, t, body.amount_cents));
 }
 
 export async function addClaim(rq) {

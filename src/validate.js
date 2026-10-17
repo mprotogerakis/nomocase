@@ -1,8 +1,49 @@
-// Content checks for uploads. They run before a file is stored, so nothing with active content gets in.
+// Upload checks: type, size, magic bytes and content. They run before a file is stored, so nothing with active content gets in.
 // Returns null when the file is fine, otherwise a reason the uploader can act on. Fails closed.
 // `strict` is for guest uploads: they also may not carry embedded files or be encrypted (= uncheckable).
 // ponytail: structural checks, not a signature virus scanner. Upgrade path: ClamAV in a Cloudflare
 // Container behind a queue, plus a "pending" state on document versions until the scan is done.
+
+import { fail, hex, readBody } from './core.js';
+
+// Uploads: the request as a form, then each file checked before anything is stored (documents.js, signatures.js).
+export const MAX_UPLOAD = 20 * 1024 * 1024;
+
+const ZIP = [0x50, 0x4b, 0x03, 0x04];
+
+// extension → [content type, magic bytes]; the content checks follow below.
+const FILE_TYPES = {
+  pdf: ['application/pdf', [0x25, 0x50, 0x44, 0x46]],
+  png: ['image/png', [0x89, 0x50, 0x4e, 0x47]],
+  jpg: ['image/jpeg', [0xff, 0xd8, 0xff]],
+  jpeg: ['image/jpeg', [0xff, 0xd8, 0xff]],
+  docx: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', ZIP],
+  xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ZIP],
+  odt: ['application/vnd.oasis.opendocument.text', ZIP],
+  txt: ['text/plain; charset=utf-8', []],
+};
+
+// The request as a form, limited while it is read (one file per request plus a few fields).
+export async function uploadForm(req) {
+  const body = await readBody(req, MAX_UPLOAD + 64 * 1024, 'Datei zu groß (max. 20 MB)');
+  return new Response(body, { headers: { 'content-type': req.headers.get('content-type') ?? '' } }).formData()
+    .catch(() => fail(400, 'Ungültige Anfrage'));
+}
+
+// Checks a file before anything is stored: type, size, magic bytes and content (strict outside the team).
+// `given`: SHA-256 as the browser read the file (app.js sends it). R2 checks it on put, so the stored bytes provably
+// match what left the uploader's disk. Without one the Worker computes it (ponytail: Worker CPU, ~1 ms per MB).
+export async function readUpload(file, strict, given) {
+  if (!(file instanceof File) || !file.size) fail(400, 'Keine Datei');
+  if (file.size > MAX_UPLOAD) fail(413, 'Datei zu groß (max. 20 MB)');
+  const ext = file.name.split('.').pop().toLowerCase();
+  const [contentType, magic] = FILE_TYPES[ext] ?? fail(415, 'Dateityp nicht erlaubt');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const keep = {}; // the PDF's dictionaries, for reading a form without walking the file again
+  const problem = magic.some((b, i) => bytes[i] !== b) ? 'Der Dateiinhalt passt nicht zur Dateiendung.' : await checkContent(ext, bytes, { strict, keep });
+  const sha256 = given ? (/^[0-9a-f]{64}$/.test(given) ? given : fail(400, 'Prüfsumme ungültig')) : hex(await crypto.subtle.digest('SHA-256', bytes));
+  return { bytes, contentType, problem, filename: file.name.slice(0, 200), size: file.size, sha256, pdf: keep.pdf };
+}
 
 const latin1 = bytes => new TextDecoder('latin1').decode(bytes);
 const END = '(?=[\\s()<>[\\]{}/%]|$)'; // a PDF name ends at whitespace or a delimiter

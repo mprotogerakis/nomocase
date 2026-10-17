@@ -1,56 +1,17 @@
 // Documents: upload checks, versions in R2, upload links, downloads.
-import { checkContent } from './validate.js';
+import { readUpload, uploadForm } from './validate.js';
 import { readSignatures } from './pdfsig.js';
 import { signatureEvents, signatureStmts } from './signatures.js';
-import { acceptedExtensions, arr, CASE_CLOSED, DECISIONS, fail, FILE_KIND_LABELS, hex, NEEDS_FILE, readBody, roleList, sha256, token, uid } from './core.js';
-import { canSee, canWork, caseCtx, taskAudience } from './access.js';
+import { acceptedExtensions, arr, CASE_CLOSED, DECISIONS, fail, FILE_KIND_LABELS, NEEDS_FILE, roleList, sha256, token, uid } from './core.js';
+import { canSee, canWork, caseCtx } from './access.js';
 import { originOf } from './auth.js';
 import { loadTask, markBlocked } from './tasks.js';
 import { moneyStmts } from './finance.js';
 import { sendMail } from './notify.js';
 import { CONSENT_VERSION } from '../public/shared/consent.js';
-import { compareForm, readUploadedForm } from './forms.js';
-import { fieldStmts } from './cases.js';
-
-export const MAX_UPLOAD = 20 * 1024 * 1024;
-
-const ZIP = [0x50, 0x4b, 0x03, 0x04];
-
-// extension → [content type, magic bytes]; deeper content checks live in validate.js.
-const FILE_TYPES = {
-  pdf: ['application/pdf', [0x25, 0x50, 0x44, 0x46]],
-  png: ['image/png', [0x89, 0x50, 0x4e, 0x47]],
-  jpg: ['image/jpeg', [0xff, 0xd8, 0xff]],
-  jpeg: ['image/jpeg', [0xff, 0xd8, 0xff]],
-  docx: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', ZIP],
-  xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ZIP],
-  odt: ['application/vnd.oasis.opendocument.text', ZIP],
-  txt: ['text/plain; charset=utf-8', []],
-};
+import { compareForm, fieldStmts, readUploadedForm } from './forms.js';
 
 const INLINE = ['application/pdf', 'image/png', 'image/jpeg'];
-
-// Checks a file before anything is stored: type, size, magic bytes and content (strict outside the team).
-// `given`: SHA-256 as the browser read the file (app.js sends it). R2 checks it on put, so the stored bytes provably
-// match what left the uploader's disk. Without one the Worker computes it (ponytail: Worker CPU, ~1 ms per MB).
-// The request as a form, limited while it is read (one file per request plus a few fields).
-export async function uploadForm(req) {
-  const body = await readBody(req, MAX_UPLOAD + 64 * 1024, 'Datei zu groß (max. 20 MB)');
-  return new Response(body, { headers: { 'content-type': req.headers.get('content-type') ?? '' } }).formData()
-    .catch(() => fail(400, 'Ungültige Anfrage'));
-}
-
-export async function readUpload(file, strict, given) {
-  if (!(file instanceof File) || !file.size) fail(400, 'Keine Datei');
-  if (file.size > MAX_UPLOAD) fail(413, 'Datei zu groß (max. 20 MB)');
-  const ext = file.name.split('.').pop().toLowerCase();
-  const [contentType, magic] = FILE_TYPES[ext] ?? fail(415, 'Dateityp nicht erlaubt');
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const keep = {}; // the PDF's dictionaries, for reading a form without walking the file again
-  const problem = magic.some((b, i) => bytes[i] !== b) ? 'Der Dateiinhalt passt nicht zur Dateiendung.' : await checkContent(ext, bytes, { strict, keep });
-  const sha256 = given ? (/^[0-9a-f]{64}$/.test(given) ? given : fail(400, 'Prüfsumme ungültig')) : hex(await crypto.subtle.digest('SHA-256', bytes));
-  return { bytes, contentType, problem, filename: file.name.slice(0, 200), size: file.size, sha256, pdf: keep.pdf };
-}
 
 // Stores a checked file as the next version of `doc` (a row, or a new document to create) and completes the task
 // it belongs to (decisions only get it attached). `actorId` is null and `label` set for uploads through a link or

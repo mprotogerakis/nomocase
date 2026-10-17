@@ -156,3 +156,13 @@ export async function taskAction(rq) {
     ...(score !== null && { score, score_label: formatScore(scale, score), verdict: t.labels?.[action === 'approve' ? 0 : 1] ?? verdict(scale, score) }) }, audience));
   await batch(stmts);
 }
+
+// Book the money step of a task afterwards (e.g. the task was done before the amount was known).
+export async function taskMoney(rq) {
+  const { user, params, body, batch } = rq;
+  const { ctx, t } = await loadTask(rq, user, params.id);
+  if (!ctx.staff) fail(403, 'Nur das Team bucht Beträge');
+  if (!t.money || !ctx.def.finance) fail(400, 'Diese Aufgabe hat keinen Geldschritt');
+  if (body.amount_cents == null) fail(400, 'Betrag fehlt');
+  await batch(await moneyStmts(rq, ctx, user, t, body.amount_cents));
+}

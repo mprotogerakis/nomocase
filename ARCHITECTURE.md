@@ -31,24 +31,24 @@ Widerspruch ist, weiß nur die jeweilige Vorlage – nicht der Code.
 | `core.js` | Anfragekontext (`context()`: D1-Helfer, Ereignis-Anweisungen, `env`, Anfragezeit), Fehler, JSON-Antworten – kein Modulzustand |
 | `access.js` | Vorgangskontext, wer was sehen und tun darf |
 | `auth.js` | Sitzungen, Passkeys, Anmeldelinks, eigenes Konto |
-| `templates.js` | Vorlagenprüfung (`checkDef`), Versionen, Vorgang anlegen, Vorgang → Vorlage |
+| `templates.js` | Vorlagenprüfung (`checkDef`, auch was eine Regel nennen darf), Versionen, Vorgang anlegen, Vorgang → Vorlage |
 | `cases.js` | Übersicht, Vorgangsansicht, Angaben, Status, Nachrichten, Phasen, Teilvorgänge, Löschen, Änderungsstand |
-| `tasks.js` | Blockierung, Bearbeiten, Aktionen (erledigen, entscheiden, bewerten, Rückfrage, überspringen) |
+| `tasks.js` | Blockierung, Bearbeiten, Aktionen (erledigen, entscheiden, bewerten, Rückfrage, überspringen), Betrag nachbuchen |
 | `finance.js` | Forderungen, Entscheidungen, Buchungen; Geldschritte |
 | `rules.js` | Regel-Engine: Auslöser, Bedingungen, Aktionen; idempotent je Ereignis |
-| `documents.js` | Upload-Prüfung, Fassungen in R2, Upload-Links, Downloads |
+| `documents.js` | Fassungen in R2, Upload-Links, Downloads |
 | `people.js` | Einladungen (auch die Annahme von Workspace-Einladungen), Beteiligte, Personenübersicht |
 | `workspaces.js` | Workspaces anlegen/umbenennen/löschen, Mitglieder (Owner/Mitglied), Workspace-Einladungen, Erscheinungsbild der Formulare (Logo, Farbe) |
 | `notify.js` | Mail über Resend, Tageskontingente, Tagesübersicht, gebündelte Fortschrittsmails, Testmail |
 | `inbox.js` | Mail in einen Vorgang: Adresse je Vorgang, Empfang über Cloudflare Email Routing, Ablage als `.eml` |
-| `validate.js` | Inhaltsprüfung hochgeladener Dateien (aktive Inhalte in PDF/Office) |
+| `validate.js` | Upload-Prüfung: Formular lesen, Typ, Größe, Magic Bytes, Inhalt (aktive Inhalte in PDF/Office) |
 | `pdfsig.js` | Digitale Signaturen in PDFs lesen und prüfen (CMS/PAdES, RSA/ECDSA, Kette zu vertrauenswürdigen Ausstellern) – rein, ohne DB |
 | `signatures.js` | Signaturen speichern und deuten: bekannter Schlüssel, vertrauenswürdiger Aussteller, „andere Signatur als bisher“; Zuordnen |
-| `forms.js` | Formular eines Schritts mit den Werten des Vorgangs füllen (nur wer den Schritt sieht, nur was im Formular steht); hochgeladene Formulare erkennen und mit den Angaben abgleichen |
+| `forms.js` | Formular eines Schritts mit den Werten des Vorgangs füllen (nur wer den Schritt sieht, nur was im Formular steht); hochgeladene Formulare erkennen und mit den Angaben abgleichen; Angaben setzen (`fieldStmts`) |
 | `pdfform.js` | Feldwerte ausgefüllter PDF-Formulare lesen (AcroForm, auch Objekt-Streams und angehängte Änderungen) – rein, ohne DB |
 
-Abhängigkeiten zeigen nach innen: `worker` → Fachmodule → `access` → `core`. Zwischen Fachmodulen gibt es
-Aufrufe in beide Richtungen, aber nur zur Laufzeit (keine Auswertung beim Laden).
+Abhängigkeiten zeigen nach innen: `worker` → Fachmodule → `access` → `core`, und auch zwischen Fachmodulen nur in
+eine Richtung: keine Importzyklen (`scripts/cycles.mjs` in `npm run check`, für `src/` und `public/`).
 
 ### Oberfläche (`public/`)
 
@@ -57,7 +57,7 @@ Aufrufe in beide Richtungen, aber nur zur Laufzeit (keine Auswertung beim Laden)
 | `app.js` | Einstieg: Hash-Router, Live-Aktualisierung, Event-Delegation (`data-on`, `data-submit`, `data-change`) |
 | `state.js` | Gemeinsamer Zustand (`me`, `cur`, `stamp`, `templates`) mit `set()`, Handler-Register |
 | `lib.js` | Sicheres HTML (`html`/`esc`), Formatierung, Beschriftungen, API-Client, Navigation, Seitenrahmen |
-| `views/*.js` | Ansichten: `account`, `dashboard`, `admin`, `workspaces`, `case`, `tasks`, `documents`, `finance`, `template-editor` (Vorlage als Formular statt JSON) |
+| `views/*.js` | Ansichten: `account`, `dashboard`, `admin`, `workspaces`, `case`, `tasks`, `documents`, `finance`, `template-editor` (Vorlage als Formular statt JSON); `case-base` hält, was die Vorgangsseite und ihre Abschnitte teilen |
 | `shared/vocab.js` | Begriffe, die Server und Oberfläche teilen (Zugriffsstufen, Aufgabentypen) |
 | `shared/forms.js` | Formulare der Vorlage: Prüfung, Platzhalter füllen (Server: echte Werte, Vorschau: Platzhalternamen) |
 | `formpdf.js` | Formular als ausfüllbare PDF mit Signaturfeldern; lädt `vendor/pdf-lib` erst bei Bedarf (nichts von Fremdservern) |
@@ -152,7 +152,10 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   `row`, `rows`, `sql`, `batch`, `event`, `wsEvent`, `env`, `time`, `rpId` aus ihrem Argument, Hilfsfunktionen bekommen ihn
   als ersten Parameter `rq`. Kein Modul hält mehr veränderlichen Zustand (einzig ein Cache des festen Passkey-Schlüssels).
   Lange Namen, damit die Prüfung auf freie Variablen ein vergessenes Holen bemerkt; sie wertet `? name :` jetzt als Gebrauch.
-- [ ] Danach aus dem Review: Importzyklen auflösen (+ Prüfung); Testisolation je Lauf
+- [x] Keine Importzyklen: Regel-Vokabular zur Vorlagenprüfung, Upload-Prüfung nach `validate.js`, Angaben setzen nach
+  `forms.js`, Betrag nachbuchen nach `tasks.js`; in der Oberfläche teilen die Vorgangsabschnitte `views/case-base.js`.
+  `scripts/cycles.mjs` in `npm run check` lässt keinen neuen zu
+- [ ] Danach aus dem Review: Testisolation je Lauf
 - [x] Passkey-Anmeldung ohne Schreibzugriff für Anonyme: Challenges sind signiert („Ablauf.Nonce.HMAC“, Schlüssel in
   `app_secrets`, beim ersten Gebrauch erzeugt); erst eine erfolgreiche Anmeldung verbraucht ihre Challenge (kein Replay)
 - [x] Vorlagen-Editor, Stufe 1: Rollen, Angaben, Dokumenttypen, Phasen und Schritte (Typ, Rolle, Reihenfolge, Frist,

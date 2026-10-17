@@ -1,7 +1,7 @@
 // Finance section of a case: claims, decisions, transactions.
 import { on, submit } from '../state.js';
 import { api, date, eur, html, plainEur, reload, toCents } from '../lib.js';
-import { caseApi } from './case.js';
+import { caseApi } from './case-base.js';
 
 // Words for money in a case: neutral by default; a template can bring its own (finance.labels, e.g. "Erstattung").
 export const MONEY_WORDS = { payable: 'zu zahlen', receivable: 'zu erhalten', received: 'Erhalten', receivables_open: 'Offen zu erhalten',

@@ -4,7 +4,7 @@
 import { fail } from './core.js';
 import { canSee, caseCtx, requireWsOwner } from './access.js';
 import { parseCertificate, readSignatures, trustedIssuer } from './pdfsig.js';
-import { readUpload, uploadForm } from './documents.js';
+import { readUpload, uploadForm } from './validate.js';
 
 const der = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 const anchors = async (rq, wsId) => (await rq.rows('SELECT certificate FROM trusted_issuers WHERE workspace_id = ?', wsId)).map(r => der(r.certificate));

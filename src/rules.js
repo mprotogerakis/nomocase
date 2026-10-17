@@ -1,7 +1,7 @@
 // Rule engine: triggers, conditions, actions; processed after writes and by cron, idempotent per event.
 import { fail, uid } from './core.js';
 import { caseCtx, taskAudience } from './access.js';
-import { instantiate } from './templates.js';
+import { instantiate, RULE_OPS } from './templates.js';
 import { eur, loadFinance, sum } from './finance.js';
 import { deDate } from './notify.js';
 
@@ -9,20 +9,6 @@ import { deDate } from './notify.js';
 // They run right after the request that wrote the triggering event (and again from the cron as a catch-up).
 // Safety: the (event, rule) key in automation_runs makes each rule run once per event; events caused by a rule
 // carry payload.rule and never trigger rules themselves, so rules cannot loop.
-
-export const RULE_TRIGGERS = ['signature.changed', 'form.mismatch', 'document.uploaded', 'task.complete', 'task.approve', 'task.reject', 'task.question', 'request.created',
-  'comment', 'claim.added', 'decision.added', 'transaction.booked', 'case.closed', 'participant.joined', 'subcase.closed'];
-
-export const RULE_OPS = {
-  equals: (a, b) => String(a) === String(b),
-  not_equals: (a, b) => String(a) !== String(b),
-  greater_than: (a, b) => Number(a) > Number(b),
-  less_than: (a, b) => Number(a) < Number(b),
-  contains: (a, b) => String(a ?? '').toLowerCase().includes(String(b).toLowerCase()),
-  in: (a, b) => Array.isArray(b) && b.map(String).includes(String(a)),
-};
-
-export const RULE_ACTIONS = ['create_task', 'complete_tasks', 'add_comment', 'create_subcase'];
 
 // Amounts are cents in conditions and euros in texts.
 const MONEY_FACTS = ['claim.amount', 'claim.recognized', 'claim.cut', 'claim.settled', 'claim.open', 'case.payables_open', 'case.receivables_open'];

@@ -1,7 +1,6 @@
 // Unit check for src/validate.js with hand-built fixtures (no server needed).
 import assert from 'node:assert/strict';
-import { checkContent } from '../src/validate.js';
-import { uploadForm } from '../src/documents.js';
+import { checkContent, uploadForm } from '../src/validate.js';
 
 const enc = s => new TextEncoder().encode(s);
 const deflate = async (bytes, format) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream(format))).arrayBuffer());

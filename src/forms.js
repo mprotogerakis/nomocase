@@ -60,3 +60,28 @@ export function compareForm(def, caseFields, read) {
       && (def.fields.find(f => f.key === k)?.type !== 'date' || isDate(v)))),
   };
 }
+
+// Statements that set field values (checked like the Angaben form) and move open deadlines that come from a changed
+// date field: those of steps that remember the field, and older ones still on the old date.
+// The log names the changed fields, not their values (personal data stays out of the trail).
+export function fieldStmts(rq, c, def, input, actorId, extra = {}) {
+  const { sql, event } = rq;
+  const old = JSON.parse(c.fields);
+  const next = { ...old };
+  const changed = [];
+  for (const [key, value] of Object.entries(input)) {
+    const f = def.fields.find(x => x.key === key) ?? fail(400, `Unbekanntes Feld „${key}“`);
+    const v = String(value ?? '').trim().slice(0, 500);
+    if (f.type === 'date' && v && !isDate(v)) fail(400, `${f.label}: Datum ungültig`);
+    if ((old[key] ?? '') !== v) { next[key] = v; changed.push(f); }
+  }
+  if (!changed.length) return { changed, stmts: [] };
+  const moves = changed.filter(f => f.type === 'date')
+    .map(f => sql("UPDATE tasks SET due_date = ? WHERE case_id = ? AND status = 'open' AND (due_field = ? OR (due_date IS NOT NULL AND due_date = ?))",
+      isDate(next[f.key]) ? next[f.key] : null, c.id, f.key, old[f.key] ?? ''));
+  return { changed, stmts: [
+    sql('UPDATE cases SET fields = ? WHERE id = ?', JSON.stringify(next), c.id),
+    ...moves,
+    event(c.id, actorId, 'case.fields_updated', { fields: changed.map(f => f.label), ...extra }, []),
+  ] };
+}

@@ -2,17 +2,10 @@
 import { acceptAttr, DECISIONS, FILE_KIND_LABELS, filesHint, NEEDS_FILE } from '../shared/vocab.js';
 import { change, on, submit } from '../state.js';
 import { api, date, DECISION_LABELS, due, eur, html, linkify, OUTCOME, plainEur, reload, TYPES } from '../lib.js';
-import { caseApi, guestRoles, holders, roleLabel } from './case.js';
 import { fileLink, formCheck, uploadFiles } from './documents.js';
 import { amountOf } from './finance.js';
 import { aggregate, formatScore } from '../shared/assess.js';
-
-export const canWork = (t, d) => t.status === 'open' && !t.blocked && (d.me.staff || (t.role === d.me.role && d.me.access !== 'guest_viewer'));
-
-export const taskTitle = (id, d) => (id ? d.tasks.find(t => t.id === id)?.title : null);
-
-// While an external has an open task for this document type, the task is the one way to hand in a new version.
-export const openTaskFor = (doc, d) => !d.me.staff && d.tasks.some(t => t.doc_type && t.doc_type === doc.doc_type && canWork(t, d));
+import { canWork, caseApi, guestRoles, holders, roleLabel } from './case-base.js';
 
 // Versions uploaded through a task (oldest first), each with its document.
 export const resultsOf = (t, d) => d.documents.flatMap(doc => doc.versions.filter(v => v.task_id === t.id).map(v => ({ v, doc })))

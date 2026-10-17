@@ -1,10 +1,24 @@
 // Templates: definition check, versions, instantiating a case, turning a case back into a template.
 import { ACCESS, arr, DECISIONS, fail, FILE_KINDS, isDate, TASK_TYPES, uid, validFiles } from './core.js';
 import { caseCtx, requireWsOwner } from './access.js';
-import { RULE_ACTIONS, RULE_OPS, RULE_TRIGGERS } from './rules.js';
 import { parseScore, scaleProblem } from '../public/shared/assess.js';
 import { newInbox } from './inbox.js';
 import { formProblems } from '../public/shared/forms.js';
+
+// What a rule in a definition may name (the engine in rules.js runs them).
+export const RULE_TRIGGERS = ['signature.changed', 'form.mismatch', 'document.uploaded', 'task.complete', 'task.approve', 'task.reject', 'task.question', 'request.created',
+  'comment', 'claim.added', 'decision.added', 'transaction.booked', 'case.closed', 'participant.joined', 'subcase.closed'];
+
+export const RULE_OPS = {
+  equals: (a, b) => String(a) === String(b),
+  not_equals: (a, b) => String(a) !== String(b),
+  greater_than: (a, b) => Number(a) > Number(b),
+  less_than: (a, b) => Number(a) < Number(b),
+  contains: (a, b) => String(a ?? '').toLowerCase().includes(String(b).toLowerCase()),
+  in: (a, b) => Array.isArray(b) && b.map(String).includes(String(a)),
+};
+
+export const RULE_ACTIONS = ['create_task', 'complete_tasks', 'add_comment', 'create_subcase'];
 
 export function checkDef(d) {
   const ok = (cond, msg) => cond || fail(400, `Vorlage ungültig: ${msg}`);

@@ -1,10 +1,9 @@
 // Documents in a case: versions, sharing, upload, SHA-256 check.
 import { change, cur, me, on, submit } from '../state.js';
 import { api, date, dateTime, html, reload, sha256, shortHash } from '../lib.js';
-import { caseApi, docTypeLabel, guestRoles, holders } from './case.js';
-import { openTaskFor, taskTitle } from './tasks.js';
 import { amountOf } from './finance.js';
 import { mailAttachments } from '../shared/mime.js';
+import { caseApi, docTypeLabel, guestRoles, holders, openTaskFor, taskTitle } from './case-base.js';
 
 on.copyHash = async ({ hash }, el) => { await navigator.clipboard.writeText(hash); el.textContent = 'SHA-256 kopiert'; };
 

@@ -2,9 +2,10 @@
 import { filesHint, RULE_FIELD_LABELS, RULE_OP_LABELS, RULE_TRIGGER_LABELS, STAFF } from '../shared/vocab.js';
 import { change, cur, me, on, set, submit } from '../state.js';
 import { ACCESS_LABELS, api, CAN, count, date, dateTime, due, eur, go, html, linkify, mailNotice, page, reload, shortHash, today, TYPES, VERDICT } from '../lib.js';
-import { addTaskForm, aggregatesSummary, canWork, questionsTo, resultsOf, taskActions, taskItem, taskResult } from './tasks.js';
+import { addTaskForm, aggregatesSummary, questionsTo, resultsOf, taskActions, taskItem, taskResult } from './tasks.js';
 import { documents, verifyFile } from './documents.js';
 import { financeSection, moneyWord } from './finance.js';
+import { active, canWork, caseApi, docTypeLabel, guestRoles, holders, roleLabel } from './case-base.js';
 
 const EVENTS = {
   'case.created': p => `hat den Vorgang angelegt (Vorlage ${p.template} v${p.version})`,
@@ -51,12 +52,6 @@ const EVENTS = {
   'transaction.reversed': p => `hat die Buchung über ${eur(p.amount_cents)} auf „${p.claim}“ storniert`,
 };
 
-export const roleLabel = k => cur?.definition.roles.find(r => r.key === k)?.label ?? k ?? '–';
-
-export const docTypeLabel = k => cur?.definition.document_types.find(t => t.key === k)?.label ?? '';
-
-export const guestRoles = d => d.definition.roles.filter(r => !STAFF.includes(r.access));
-
 const statusText = d => (d.case.status === 'closed' ? 'Abgeschlossen' : d.case.phase ?? 'Alle Aufgaben erledigt');
 // A closed case is read-only (the server refuses every change): <main class="readonly"> hides its editing controls
 // (index.html), and this says why. Access, moving and saving as a template stay ("case-admin").
@@ -70,12 +65,6 @@ export async function caseView(id) {
   set({ stamp: cur.stamp });
   page(cur.me.staff ? staffCase(cur) : guestCase(cur));
 }
-
-// A role is a seat in the case. People are invited into a role; tasks and sharing go to the role,
-// so everyone holding it sees the same and one of them is enough to do a task.
-const active = p => !p.revoked_at && !(p.expires_at && p.expires_at < new Date().toISOString());
-
-export const holders = (d, role) => d.participants.filter(p => p.role === role && active(p)).map(p => p.name);
 
 // Who sees an entry. Only worth showing when the case has external roles at all.
 function audienceTag(v, d) {
@@ -392,8 +381,6 @@ function retentionText(d) {
   if (d.case.status !== 'closed' || !d.case.closed_at) return `Aufbewahrung: wird ${days} Tage nach dem Abschluss automatisch gelöscht.`;
   return `Wird am ${date(new Date(Date.parse(d.case.closed_at) + days * 864e5).toISOString())} automatisch gelöscht (Aufbewahrungsfrist). Wieder öffnen hält ihn.`;
 }
-
-export const caseApi = path => `/cases/${cur.case.id}${path}`;
 
 const rerender = () => page(cur.me.staff ? staffCase(cur) : guestCase(cur));
 

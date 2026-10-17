@@ -3,7 +3,8 @@
 // Attachments are only listed here (unpacking a large mail would cost the Worker too much CPU); the team takes them
 // into the case as checked documents from the browser (public/shared/mime.js, documents view).
 import { hex, uid } from './core.js';
-import { MAX_UPLOAD, storeVersion } from './documents.js';
+import { storeVersion } from './documents.js';
+import { MAX_UPLOAD } from './validate.js';
 import { decodeHeader } from '../public/shared/mime.js';
 
 export { decodeHeader };

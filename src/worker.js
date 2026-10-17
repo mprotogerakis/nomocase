@@ -4,8 +4,8 @@ import { appVersion, CASE_CLOSED, context, fail, HttpError, json, readBody, viaC
 import { deletePasskey, devLogin, giveConsent, legalInfo, listPasskeys, loadUser, logout, me, originOf, passkeyLoginOptions, passkeyLoginVerify, passkeyRegisterOptions, passkeyRegisterVerify, requestLoginLink, sendParticipantLink, updateMe, useLoginLink, withdrawConsent } from './auth.js';
 import { addTemplateVersion, createTemplate, deleteTemplate, listTemplates, restoreTemplate, saveAsTemplate } from './templates.js';
 import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard, deleteCase, getCase, getChanges, moveCase, updateCase, updateFields } from './cases.js';
-import { addTask, deleteTask, taskAction, updateTask } from './tasks.js';
-import { addClaim, addDecision, addTransaction, BOOKED_ONCE, reverseTransaction, taskMoney } from './finance.js';
+import { addTask, deleteTask, taskAction, taskMoney, updateTask } from './tasks.js';
+import { addClaim, addDecision, addTransaction, BOOKED_ONCE, reverseTransaction } from './finance.js';
 import { processRules, toggleRule } from './rules.js';
 import { createUploadLink, deleteVersion, download, getUploadLink, revokeUploadLinks, sweepOrphanFiles, updateDocument, upload, useUploadLink } from './documents.js';
 import { acceptInvitation, declineInvitation, getInvitation, invite, peopleOverview, revoke, withdrawInvitation } from './people.js';
