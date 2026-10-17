@@ -137,6 +137,11 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Öffentliche Schreibanfragen (Passkey-Challenges, Anmelde-, Einladungs- und Upload-Links) pro Adresse und Endpunkt
   begrenzt (Workers Rate Limiting, 30/min); Anmeldelink-Grenzen in einer SQL-Anweisung (atomar); täglicher Abgleich
   löscht R2-Dateien ohne Fassung (älter als ein Tag) – fehlgeschlagene Löschungen und abgebrochene Uploads
+- [x] Abgeschlossene Vorgänge sind schreibgeschützt (Entscheidung 17.10.): Datenbank-Trigger in jeder Schreib-Transaktion
+  (Schritte, Phasen, Dokumente, Fassungen, Signaturen, Geld, Upload-Links, Angaben/Definition/Titel, Kommentare);
+  erlaubt bleiben Abschließen/Wiederöffnen, Zugänge, Verschieben, Löschen (Löschvermerk). Oberfläche blendet Bearbeitung aus.
+- [ ] Architektur-Review 17.10., in dieser Reihenfolge: Mail-Outbox für Einladungs-/Anmeldelinks; Regel-Wiederholung mit
+  Dauerfehler; expliziter Anfragekontext statt `DB`/`E`; Importzyklen auflösen (+ Prüfung); Testisolation je Lauf
 - [x] Passkey-Anmeldung ohne Schreibzugriff für Anonyme: Challenges sind signiert („Ablauf.Nonce.HMAC“, Schlüssel in
   `app_secrets`, beim ersten Gebrauch erzeugt); erst eine erfolgreiche Anmeldung verbraucht ihre Challenge (kein Replay)
 - [x] Vorlagen-Editor, Stufe 1: Rollen, Angaben, Dokumenttypen, Phasen und Schritte (Typ, Rolle, Reihenfolge, Frist,

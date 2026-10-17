@@ -66,7 +66,7 @@ assert.throws(() => template('a4', 'w1', 'Antrag', 1), /UNIQUE/, 'from now on on
 // (checked in the same transaction as the version row).
 const kase = (id, status) => db.prepare("INSERT INTO cases (id, workspace_id, title, definition, status, created_at) VALUES (?, 'w1', ?, '{}', ?, '2026-01-01')").run(id, id, status);
 kase('open-case', 'open');
-kase('closed-case', 'closed');
+kase('closed-case', 'open');
 task('open-step', 'open-case', null);
 task('done-step', 'open-case', null, 'done');
 task('step-of-closed', 'closed-case', null);
@@ -79,6 +79,7 @@ link('expired', null, '2000-01-01T00:00:00.000Z');
 link('step-done', null, later, 'open-case', 'done-step');
 link('case-closed', null, later, 'closed-case', 'step-of-closed');
 link('step-gone', null, later, 'open-case', 'deleted-step');
+db.prepare("UPDATE cases SET status = 'closed' WHERE id = 'closed-case'").run(); // closed after its step and link were made (0042)
 const version = (id, uploadLink) => db.prepare(`INSERT INTO document_versions (id, document_id, version, filename, content_type, size, r2_key, uploaded_by, created_at, upload_link)
   VALUES (?, 'd1', ?, 'a.pdf', 'application/pdf', 1, ?, 'u', '2026-01-01', ?)`).run(id, Number(id.slice(1)), id, uploadLink);
 version('v1', 'valid');
@@ -86,5 +87,23 @@ version('v2', null); // not through a link: not affected
 for (const [n, hash] of ['revoked', 'expired', 'step-done', 'case-closed', 'step-gone'].entries()) {
   assert.throws(() => version(`v${n + 3}`, hash), /upload link no longer valid/, hash);
 }
+
+// 0042: a closed case is read-only – steps, comments, fields; other events (reopening) and deleting it still work.
+kase('shut', 'open');
+task('t-shut', 'shut', null);
+const setStatus = status => db.prepare("UPDATE cases SET status = ? WHERE id = 'shut'").run(status);
+const event = type => db.prepare("INSERT INTO events (case_id, type, created_at) VALUES ('shut', ?, '2026-01-02')").run(type);
+setStatus('closed');
+assert.throws(() => task('t-new', 'shut', null), /case closed/, 'no new step');
+assert.throws(() => db.prepare("UPDATE tasks SET status = 'done' WHERE id = 't-shut'").run(), /case closed/, 'no step done');
+assert.throws(() => event('comment'), /case closed/, 'no comment');
+assert.throws(() => db.prepare("UPDATE cases SET fields = '{\"a\":1}' WHERE id = 'shut'").run(), /case closed/, 'no field changed');
+assert.throws(() => db.prepare("DELETE FROM tasks WHERE id = 't-shut'").run(), /case closed/, 'no step removed');
+event('case.reopened');
+setStatus('open');
+db.prepare("UPDATE tasks SET status = 'done' WHERE id = 't-shut'").run(); // open again: changes work
+setStatus('closed');
+db.prepare("INSERT INTO case_deletions (case_id, workspace_id, reason, deleted_at) VALUES ('shut', 'w1', 'manual', '2026-01-03')").run();
+db.prepare("DELETE FROM tasks WHERE case_id = 'shut'").run(); // deleting the case: the tombstone lets it through
 
 console.log(`ok – migrations test passed (${files.length} migrations)`);

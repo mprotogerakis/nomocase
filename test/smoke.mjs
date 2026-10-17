@@ -614,6 +614,18 @@ const objection = await expect(prof(`/cases/${kc.subcases[0].id}`));
 assert.equal(objection.parent.id, viaTasks);
 assert.ok(objection.tasks.some(t => t.title === 'Widerspruch schreiben'));
 await expect(prof(`/cases/${objection.case.id}`, { method: 'PATCH', body: { status: 'closed' } }));
+// A closed case is read-only for everyone until it is reopened (the database refuses every change to it).
+{
+  const shut = objection.case.id, step = objection.tasks.find(t => t.status === 'open').id;
+  const refused = async (call, what) => assert.match((await expect(call, 409)).error, /abgeschlossen/, what);
+  await refused(prof(`/tasks/${step}/action`, { body: { action: 'complete' } }), 'a step');
+  await refused(prof(`/cases/${shut}/documents`, { form: file('spaet.pdf', PDF) }), 'an upload');
+  await refused(prof(`/cases/${shut}/comments`, { body: { body: 'Nachtrag', visible_to: [] } }), 'a comment');
+  await refused(prof(`/cases/${shut}/tasks`, { body: { title: 'Nachzügler', type: 'task' } }), 'a new step');
+  await expect(prof(`/cases/${shut}`, { method: 'PATCH', body: { status: 'open' } }));
+  await expect(prof(`/cases/${shut}/comments`, { body: { body: 'Nachtrag', visible_to: [] } }), 200, 'open again: changes work');
+  await expect(prof(`/cases/${shut}`, { method: 'PATCH', body: { status: 'closed' } }));
+}
 assert.ok((await expect(prof(`/cases/${viaTasks}`))).events.some(e => e.type === 'subcase.closed' && e.payload.case_id === objection.case.id));
 const closedCard = (await expect(prof('/dashboard'))).cases.find(c => c.id === objection.case.id);
 assert.equal(closedCard.next_due, null, 'a closed case has no deadlines');

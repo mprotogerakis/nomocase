@@ -25,6 +25,9 @@ export class HttpError extends Error {
 
 export const fail = (status, message) => { throw new HttpError(status, message); };
 
+// A closed case is read-only (database triggers, migration 0042); this is what users read when they run into it.
+export const CASE_CLOSED = 'Der Vorgang ist abgeschlossen und kann nicht mehr geändert werden. Zum Ändern bitte erst wieder öffnen.';
+
 // A request body, read with a byte limit – also without (or with a false) Content-Length. json() and formData() alone
 // would take a body of any size first.
 export async function readBody(req, max, tooBig) {

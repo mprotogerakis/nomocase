@@ -1,6 +1,6 @@
 // NomoCase: JSON API on Cloudflare Workers, data in D1, files in R2. The UI is static (public/) and only talks to /api/*.
 // This file: routes, request handling (origin check, session, errors) and the cron entry.
-import { appVersion, DB, fail, HttpError, init, json, now, q, readBody, viaCloudflare } from './core.js';
+import { appVersion, CASE_CLOSED, DB, fail, HttpError, init, json, now, q, readBody, viaCloudflare } from './core.js';
 import { deletePasskey, devLogin, giveConsent, legalInfo, listPasskeys, loadUser, logout, me, originOf, passkeyLoginOptions, passkeyLoginVerify, passkeyRegisterOptions, passkeyRegisterVerify, requestLoginLink, sendParticipantLink, updateMe, useLoginLink, withdrawConsent } from './auth.js';
 import { addTemplateVersion, createTemplate, deleteTemplate, listTemplates, restoreTemplate, saveAsTemplate } from './templates.js';
 import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard, deleteCase, getCase, getChanges, moveCase, updateCase, updateFields } from './cases.js';
@@ -132,6 +132,7 @@ export default {
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, e.status);
       if (/UNIQUE constraint failed: financial_/.test(e.message)) return json({ error: BOOKED_ONCE }, 409); // a step booked twice at once
+      if (/case closed/.test(e.message)) return json({ error: CASE_CLOSED }, 409); // every write into a closed case
       console.error(e);
       return json({ error: 'Interner Fehler' }, 500);
     }

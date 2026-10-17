@@ -99,6 +99,11 @@
   .sig { font-size: .82em; color: var(--muted); } .sig.known, .sig.trusted { color: inherit; } .sig.changed, .sig.invalid { color: var(--warn); }
   details.add > summary { cursor: pointer; color: var(--accent); font-size: .9em; margin: 6px 0; }
   details.add { max-width: 100%; }
+  /* a closed case is read-only (the server refuses every change): its editing controls go (views/case.js) */
+  main.readonly :is(.actions, details.menu, details.add:not(.case-admin), form[data-submit="comment"], form[data-submit^="add"],
+    [data-on="editFields"], [data-on="takeAggregate"], [data-on="takeFormValue"], [data-on="final"], [data-on="deleteVersion"],
+    [data-on="mailAttachments"], [data-on="reverse"], [data-change="share"], [data-change="rule"]) { display: none; }
+  .closed-note { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; margin: 8px 0; }
   dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
   dt { color: var(--muted); } dd { margin: 0; }
   .revoked { opacity: .5; }

@@ -1,5 +1,5 @@
 // Tasks: blocked state, editing, actions (complete, decide, assess, ask back, skip, reopen).
-import { arr, DB, DECISIONS, ev, fail, isDate, NEEDS_FILE, now, q, roleList, row, rows, TASK_TYPES, uid, validFiles } from './core.js';
+import { arr, CASE_CLOSED, DB, DECISIONS, ev, fail, isDate, NEEDS_FILE, now, q, roleList, row, rows, TASK_TYPES, uid, validFiles } from './core.js';
 import { canSeeTask, canWork, caseCtx, taskAudience } from './access.js';
 import { moneyStmts } from './finance.js';
 import { formatScore, parseScore, passes, verdict } from '../public/shared/assess.js';
@@ -104,6 +104,7 @@ export async function deleteTask({ user, params }) {
 
 export async function taskAction({ user, params, body }) {
   const { ctx, t, tasks } = await loadTask(user, params.id);
+  if (ctx.c.status === 'closed') fail(409, CASE_CLOSED); // said first: the database refuses it anyway
   let { action } = body;
   const note = String(body.note ?? '').trim().slice(0, 5000);
   // Assessed steps are decided by the value given: a value that does not pass the scale counts as a rejection.

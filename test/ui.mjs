@@ -400,6 +400,15 @@ try {
   await tick(false);
   await waitFor(`fetch('/api/cases/${caseId}').then(r => r.json()).then(c => c.tasks.find(t => t.id === '${exposeStep.id}').files === null)`, 'wieder eine Datei');
 
+  // A closed case reads only: a note says so, editing controls are gone (inviting and the reopen button stay)
+  const setStatus = status => evaluate(`fetch('/api/cases/${caseId}', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: '{"status":"${status}"}' }).then(r => r.status)`);
+  assert.equal(await setStatus('closed'), 200);
+  await go(`#/case/${caseId}`, `!!document.querySelector('.closed-note')`);
+  const onScreen = sel => evaluate(`[...document.querySelectorAll(${J(sel)})].some(e => e.getClientRects().length > 0)`);
+  assert.deepEqual(await Promise.all(['main .actions', 'main details.menu', 'form[data-submit="comment"]', '[data-on="editFields"]', '#invite', '[data-on="caseStatus"][data-status="open"]'].map(onScreen)),
+    [false, false, false, false, true, true]);
+  assert.equal(await setStatus('open'), 200);
+
   // Many cases from a pasted table: the preview marks problems, then cases are created with invitations, listed per line
   const bt = tpls.find(t => t.name === 'Bachelor-Thesis (B.Eng.)');
   await go('#/', `!!document.querySelector('form[data-submit="bulkCreate"]')`);

@@ -33,6 +33,7 @@ export async function receiveMail(message) {
   const local = message.to.split('@')[0].toLowerCase();
   const c = local.startsWith('v-') && await row('SELECT * FROM cases WHERE inbox = ?', local.slice(2));
   if (!c) return message.setReject('Unbekannte Adresse');
+  if (c.status === 'closed') return message.setReject('Der Vorgang ist abgeschlossen und nimmt keine Mails mehr an.');
   if (message.rawSize > MAX_UPLOAD) return message.setReject('Die Mail ist zu groß (höchstens 20 MB).');
   const today = now().slice(0, 10);
   if ((await row('SELECT COUNT(*) AS n FROM inbound_mail WHERE case_id = ? AND received_at >= ?', c.id, today)).n >= MAILS_PER_CASE_AND_DAY) {

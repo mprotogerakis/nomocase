@@ -2,7 +2,7 @@
 import { checkContent } from './validate.js';
 import { readSignatures } from './pdfsig.js';
 import { signatureEvents, signatureStmts } from './signatures.js';
-import { acceptedExtensions, arr, DB, DECISIONS, E, ev, fail, FILE_KIND_LABELS, hex, NEEDS_FILE, now, q, readBody, roleList, row, rows, sha256, token, uid } from './core.js';
+import { acceptedExtensions, arr, CASE_CLOSED, DB, DECISIONS, E, ev, fail, FILE_KIND_LABELS, hex, NEEDS_FILE, now, q, readBody, roleList, row, rows, sha256, token, uid } from './core.js';
 import { canSee, canWork, caseCtx, taskAudience } from './access.js';
 import { originOf } from './auth.js';
 import { loadTask, markBlocked } from './tasks.js';
@@ -124,6 +124,7 @@ async function taskDocument(ctx, task, title, filename) {
 export async function upload({ req, user, params }) {
   const ctx = await caseCtx(user, params.id);
   if (ctx.access === 'guest_viewer') fail(403, 'Keine Upload-Berechtigung');
+  if (ctx.c.status === 'closed') fail(409, CASE_CLOSED); // before the file is read; the database refuses it anyway
   const form = await uploadForm(req);
   const f = await readUpload(form.get('file'), !ctx.staff, form.get('sha256'));
   if (f.problem) {

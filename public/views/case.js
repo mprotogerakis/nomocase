@@ -58,6 +58,11 @@ export const docTypeLabel = k => cur?.definition.document_types.find(t => t.key 
 export const guestRoles = d => d.definition.roles.filter(r => !STAFF.includes(r.access));
 
 const statusText = d => (d.case.status === 'closed' ? 'Abgeschlossen' : d.case.phase ?? 'Alle Aufgaben erledigt');
+// A closed case is read-only (the server refuses every change): <main class="readonly"> hides its editing controls
+// (index.html), and this says why. Access, moving and saving as a template stay ("case-admin").
+const readonly = d => (d.case.status === 'closed' ? 'readonly' : '');
+const closedNote = d => (d.case.status === 'closed' ? html`<p class="closed-note small">Abgeschlossen – der Vorgang lässt sich nur noch lesen.${
+  d.me.owner ? ' Zum Ändern unter „Details“ wieder öffnen.' : ''}</p>` : '');
 
 export async function caseView(id) {
   if (cur?.case.id !== id) editingFields = false;
@@ -144,7 +149,7 @@ function participantsSection(d) {
 
 const inviteForm = d => {
   const roles = [...d.definition.roles].sort((a, b) => STAFF.includes(a.access) - STAFF.includes(b.access)); // externals first
-  return html`<details class="add" id="invite"><summary>+ Person einladen</summary>
+  return html`<details class="add case-admin" id="invite"><summary>+ Person einladen</summary>
     <form data-submit="invite" class="stack small">
       <input type="email" name="email" placeholder="E-Mail" required>
       <label class="stack">Rolle im Vorgang
@@ -167,9 +172,10 @@ const inviteForm = d => {
 function staffCase(d) {
   const loose = d.tasks.filter(t => !t.phase_id);
   const deadlines = d.tasks.filter(t => t.status === 'open' && t.due_date).sort((a, b) => a.due_date.localeCompare(b.due_date));
-  return html`<main>
+  return html`<main class="${readonly(d)}">
     <h1>${d.case.title}</h1>
     <div class="muted">${d.parent ? html`Teil von <a href="#/case/${d.parent.id}">${d.parent.title}</a> · ` : ''}${d.case.template_name ?? 'ohne Vorlage'} v${d.case.template_version} · <b>${statusText(d)}</b></div>
+    ${closedNote(d)}
     <nav class="tabs">${[['tasks', 'Aufgaben'], ['log', 'Verlauf'], ['info', 'Details']].map(([k, label]) =>
       html`<button class="${caseTab === k ? 'on' : ''}" data-on="caseTab" data-tab="${k}">${label}</button>`)}</nav>
     <div class="cols" style="margin-top:12px">
@@ -214,9 +220,10 @@ function guestCase(d) {
   const next = mine.find(t => t.role === d.me.role && canWork(t, d));
   const last = next && resultsOf(next, d).at(-1);
   const asked = next && questionsTo(next, d).filter(e => !last || e.created_at > last.v.created_at).at(-1);
-  return html`<main class="narrow">
+  return html`<main class="narrow ${readonly(d)}">
     <h1>${d.case.title}</h1>
     <div class="muted">${d.parent ? html`Teil von <a href="#/case/${d.parent.id}">${d.parent.title}</a> · ` : ''}Status: <b>${statusText(d)}</b> · Sie sind beteiligt als ${roleLabel(d.me.role)}</div>
+    ${closedNote(d)}
     ${d.me.access !== 'guest_viewer' ? html`<section class="card next"><h3>Nächste Aufgabe</h3>
       ${next ? html`<b>${next.title}</b>${due(next.due_date)}
         ${asked ? html`<div class="ask"><b>Rückfrage von ${asked.actor}:</b> „${asked.payload.note}“</div>` : ''}
@@ -333,7 +340,7 @@ change.rule = async el => { await api(caseApi(`/rules/${el.dataset.id}`), { meth
 // Shape a case by hand, then keep its structure as a template (only workspace owners manage templates).
 function saveTemplateForm(d) {
   if (me.workspaces.find(w => w.id === d.case.workspace_id)?.role !== 'owner') return '';
-  return html`<details class="add"><summary>Als Vorlage speichern …</summary>
+  return html`<details class="add case-admin"><summary>Als Vorlage speichern …</summary>
     <form data-submit="saveCaseTemplate" class="stack small">
       <p class="muted">Übernommen werden Rollen, Felder (ohne Inhalte), Dokumenttypen, Phasen, Aufgaben mit Reihenfolge,
         Fristen, Sichtbarkeit und Regeln. Keine Dokumente, Nachrichten, Personen und keine Anliegen.
@@ -351,7 +358,7 @@ function saveTemplateForm(d) {
 function moveForm(d) {
   const owned = me.workspaces.filter(w => w.role === 'owner');
   if (!owned.some(w => w.id === d.case.workspace_id) || owned.length < 2) return '';
-  return html`<details class="add"><summary>In anderen Workspace verschieben …</summary>
+  return html`<details class="add case-admin"><summary>In anderen Workspace verschieben …</summary>
     <form data-submit="moveCase" class="stack small">
       <p class="muted">Danach sehen die Owner des neuen Workspace den Vorgang, die des bisherigen nur noch, wenn sie beteiligt sind.
         Teilvorgänge wandern mit; Beteiligte, Dokumente und Verlauf bleiben. Logo und Farbe der Formulare kommen dann vom neuen Workspace.</p>
