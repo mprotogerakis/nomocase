@@ -32,11 +32,17 @@ export async function addSubcase({ user, params, body }) {
 }
 
 // Change stamp for live updates: moves whenever something in the case, or in the set of cases the user sees, changes.
-// Every case-relevant write appends an event; the case count covers deletions and ended access.
-const caseStamp = async caseId => String((await row('SELECT MAX(id) AS v FROM events WHERE case_id = ?', caseId)).v ?? 0);
+// Every case-relevant write appends an event; the case count covers deletions and ended access. Only events the user
+// may see count (the rule of canSee), so a guest cannot tell from the stamp that something hidden happened.
+const SEES_EVENT = `(e.actor_id = ?2 OR EXISTS (SELECT 1 FROM workspace_members m WHERE m.workspace_id = c.workspace_id AND m.user_id = ?2 AND m.role = 'owner')
+  OR EXISTS (SELECT 1 FROM case_participants p WHERE p.case_id = c.id AND p.user_id = ?2 AND p.revoked_at IS NULL
+    AND (p.access IN ('case_owner', 'case_editor') OR EXISTS (SELECT 1 FROM json_each(e.visible_to) j WHERE j.value IN ('*', p.role)))))`;
+const caseStamp = async (caseId, user) => String((await row(`SELECT MAX(e.id) AS v FROM events e JOIN cases c ON c.id = e.case_id
+  WHERE e.case_id = ?1 AND ${SEES_EVENT}`, caseId, user.id)).v ?? 0);
 
 const dashboardStamp = async user => {
-  const r = await row(`SELECT COUNT(*) AS n, MAX((SELECT MAX(id) FROM events e WHERE e.case_id = c.id)) AS v FROM cases c WHERE ${ACCESSIBLE}`, null, user.id, now());
+  const r = await row(`SELECT COUNT(*) AS n, MAX((SELECT MAX(e.id) FROM events e WHERE e.case_id = c.id AND ${SEES_EVENT})) AS v
+    FROM cases c WHERE ${ACCESSIBLE}`, null, user.id, now());
   return `${r.n}:${r.v ?? 0}`;
 };
 
@@ -45,7 +51,7 @@ export async function getChanges({ user, url }) {
   const caseId = url.searchParams.get('case');
   if (!caseId) return { stamp: await dashboardStamp(user), version: appVersion() };
   await caseCtx(user, caseId);
-  return { stamp: await caseStamp(caseId), version: appVersion() };
+  return { stamp: await caseStamp(caseId, user), version: appVersion() };
 }
 
 const currentPhase = (phases, tasks) => phases.find(p => tasks.some(t => t.phase_id === p.id && t.status === 'open'))?.title ?? null;
@@ -79,7 +85,7 @@ export async function getCase({ user, params }) {
     'SELECT * FROM document_signatures WHERE version_id IN (SELECT value FROM json_each(?)) ORDER BY version_id, position', JSON.stringify(visibleVersions))) : [];
   const canVersion = (d, vs) => ctx.staff || (ctx.access !== 'guest_viewer' && !d.final && vs.at(-1)?.uploaded_by === user.id);
   return {
-    stamp: String(events.at(-1)?.id ?? 0), // same value as caseStamp(), read in the same batch as the data
+    stamp: String(events.filter(e => canSee(ctx, e)).at(-1)?.id ?? 0), // same value as caseStamp(), read in the same batch as the data
     case: {
       id, title: ctx.c.title, status: ctx.c.status, fields: ctx.staff ? JSON.parse(ctx.c.fields) : {}, created_at: ctx.c.created_at,
       template_name: ctx.c.template_name, template_version: ctx.c.template_version, phase: currentPhase(visiblePhases, visibleTasks),
@@ -168,6 +174,8 @@ export async function moveCase({ user, params, body }) {
     SELECT id FROM tree`, ctx.c.id, ctx.c.workspace_id)).map(r => r.id);
   await DB.batch([
     q('UPDATE cases SET workspace_id = ? WHERE id IN (SELECT value FROM json_each(?))', to.id, JSON.stringify(ids)),
+    // links handed out for the old workspace end: whoever gets one for the new workspace gets it from its team
+    q('UPDATE upload_links SET revoked_at = ? WHERE case_id IN (SELECT value FROM json_each(?)) AND revoked_at IS NULL', now(), JSON.stringify(ids)),
     ...ids.map(id => ev(id, user.id, 'case.moved', { from: from.name, to: to.name }, [])),
     wsEv(ctx.c.workspace_id, user.id, 'case.moved_out', { case: ctx.c.title, to: to.name, count: ids.length }),
     wsEv(to.id, user.id, 'case.moved_in', { case: ctx.c.title, from: from.name, count: ids.length }),

@@ -3,10 +3,17 @@ export { ACCESS, acceptedExtensions, DECISIONS, FILE_KIND_LABELS, FILE_KINDS, NE
 
 // Bindings are constant per isolate; set once per request/cron run by worker.js.
 export let DB, E;
-// DEV_LOGIN only counts for a local origin, so a wrongly deployed variable cannot open a login without passkey.
-export const init = env => {
+// Came the request through Cloudflare's network? There CF-Connecting-IP is the client's real address – never a
+// loopback one, which is what wrangler dev puts there (::1) unless the client sends its own.
+export const viaCloudflare = req => { const ip = req?.headers.get('cf-connecting-ip'); return !!ip && !/^(::1$|127\.|::ffff:127\.)/.test(ip); };
+
+// DEV_LOGIN (login by e-mail, links in answers, the list of accounts) only counts for a local origin and a request
+// that did not come through Cloudflare's network. So a wrongly deployed variable, even together with a local ORIGIN,
+// opens nothing. (The request's host does not tell: wrangler dev rewrites it to the production route.)
+export const init = (env, req = null) => {
   DB = env.DB;
-  E = env.DEV_LOGIN && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(env.ORIGIN ?? '') ? { ...env, DEV_LOGIN: undefined } : env;
+  const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(env.ORIGIN ?? '') && !viaCloudflare(req);
+  E = env.DEV_LOGIN && !local ? { ...env, DEV_LOGIN: undefined } : env;
 };
 // Passkeys work only for the domain they were made on (WebAuthn RP ID): the one of ORIGIN.
 export const rpId = () => (E.ORIGIN ? new URL(E.ORIGIN).hostname : null);

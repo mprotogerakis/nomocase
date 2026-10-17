@@ -515,7 +515,7 @@ try {
   await b.cdp('Emulation.clearDeviceMetricsOverride');
 
   assert.deepEqual(errors, [], 'no script errors');
-  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|verschieben\?$|^Verschoben nach|Vorgänge aus „.*“ anlegen|^Anhänge der E-Mail|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
+  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|verschieben\?(\n|$)|^Verschoben nach|Vorgänge aus „.*“ anlegen|^Anhänge der E-Mail|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
   console.log('ok – ui test passed');
 } finally {
   if (caseId) {

@@ -173,9 +173,8 @@ export async function peopleOverview({ user }) {
     rows(`SELECT u.id, u.name, u.email, u.created_at, u.email_reminders, u.email_progress,
         (SELECT COUNT(*) FROM passkeys WHERE user_id = u.id AND rp_id IS ?3) AS passkeys,
         (SELECT accepted_at FROM consents WHERE user_id = u.id AND version = ?4 AND withdrawn_at IS NULL) AS consent_at,
-        (SELECT MAX(t) FROM (SELECT last_used_at AS t FROM passkeys WHERE user_id = u.id
-          UNION ALL SELECT used_at FROM login_links WHERE user_id = u.id
-          UNION ALL SELECT MAX(created_at) FROM events WHERE actor_id = u.id)) AS last_seen,
+        (SELECT MAX(e.created_at) FROM events e JOIN cases c ON c.id = e.case_id
+          WHERE e.actor_id = u.id AND c.workspace_id ${IN_WS}) AS last_seen, -- activity here, not the account's elsewhere
         (SELECT group_concat(w.name, ', ') FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id
           WHERE m.user_id = u.id AND m.workspace_id ${IN_WS}) AS workspaces
       FROM users u WHERE u.id IN (SELECT user_id FROM workspace_members WHERE workspace_id ${IN_WS}

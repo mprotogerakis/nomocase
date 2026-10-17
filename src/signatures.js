@@ -25,7 +25,8 @@ export const signatureStmts = (versionId, sigs) => sigs.map(asRow).map(r => q(`I
     subject_name, subject_email, issuer_name, self_signed, key_fingerprint, certs, signed_at, covers_all) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   versionId, r.position, r.status, r.detail, r.subject_name, r.subject_email, r.issuer_name, r.self_signed, r.key_fingerprint, r.certs, r.signed_at, r.covers_all));
 
-// Everyone a signature in this case could belong to: its participants and the workspace's members.
+// Everyone a signature in this case could belong to: its participants and the workspace's members. Only their keys
+// and names are used: whose a key is (and who vouched for it) stays unsaid when that person has nothing to do here.
 const peopleOf = c => rows(`SELECT u.id, u.name, u.email FROM users u WHERE u.id IN (SELECT user_id FROM case_participants WHERE case_id = ?)
   OR u.id IN (SELECT user_id FROM workspace_members WHERE workspace_id = ?)`, c.id, c.workspace_id);
 
@@ -38,15 +39,17 @@ export async function explainSignatures(c, sigs) {
   const people = await peopleOf(c);
   const keys = await rows(`SELECT k.*, u.name, v.name AS vouched_name FROM signing_keys k JOIN users u ON u.id = k.user_id
     LEFT JOIN users v ON v.id = k.vouched_by
-    WHERE k.key_fingerprint IN (SELECT value FROM json_each(?)) OR k.user_id IN (SELECT value FROM json_each(?))`,
-  JSON.stringify(sigs.map(s => s.key_fingerprint).filter(Boolean)), JSON.stringify(people.map(p => p.id)));
+    WHERE k.user_id IN (SELECT value FROM json_each(?))`, JSON.stringify(people.map(p => p.id)));
   const trusted = await anchors(c.workspace_id);
   return Promise.all(sigs.map(async s => {
     const base = { version_id: s.version_id, position: s.position, status: s.status, detail: s.detail, subject_name: s.subject_name,
       subject_email: s.subject_email, issuer_name: s.issuer_name, self_signed: !!s.self_signed, signed_at: s.signed_at, covers_all: !!s.covers_all };
     if (s.status !== 'valid') return { ...base, state: s.status };
     const known = keys.find(k => k.key_fingerprint === s.key_fingerprint);
-    if (known) return { ...base, state: 'known', signer: known.name, signer_id: known.user_id, since: known.confirmed_at, vouched_by: known.vouched_name };
+    if (known) {
+      return { ...base, state: 'known', signer: known.name, signer_id: known.user_id, since: known.confirmed_at,
+        vouched_by: people.some(p => p.id === known.vouched_by) ? known.vouched_name : null };
+    }
     const person = people.find(p => sameEmail(s, p)) ?? people.find(p => namesPerson(s, p)); // the address beats a mere name
     const issuer = await trustedIssuer(JSON.parse(s.certs ?? '[]'), trusted, s.signed_at);
     if (issuer) return { ...base, state: 'trusted', trusted_issuer: issuer, signer: person?.name ?? s.subject_name, signer_id: person?.id ?? null };

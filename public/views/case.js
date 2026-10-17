@@ -363,7 +363,7 @@ function moveForm(d) {
 
 submit.moveCase = async fd => {
   const target = me.workspaces.find(w => w.id === fd.get('workspace_id'));
-  if (!confirm(`Vorgang „${cur.case.title}“ in den Workspace „${target.name}“ verschieben?`)) return;
+  if (!confirm(`Vorgang „${cur.case.title}“ in den Workspace „${target.name}“ verschieben?\n\nOffene Upload-Links werden dabei widerrufen.`)) return;
   const r = await api(caseApi('/move'), { body: { workspace_id: target.id } });
   alert(`Verschoben nach „${r.workspace}“${r.moved > 1 ? `, zusammen mit ${count(r.moved - 1, 'Teilvorgang', 'Teilvorgängen')}` : ''}.`
     + (r.missing_templates.length ? `\nDie Regeln des Vorgangs starten Teilvorgänge aus ${r.missing_templates.map(n => `„${n}“`).join(', ')} – diese Vorlage(n) bitte nach „${r.workspace}“ kopieren.` : ''));

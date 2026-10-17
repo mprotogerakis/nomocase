@@ -228,6 +228,12 @@ if (new URL(BASE).hostname === 'localhost') {
   await expect(signer('/me/signing-keys', { form: file('one.pdf', fixture('one.pdf')) }));
   await expect(signer('/me/signing-keys', { form: file('two.pdf', fixture('tampered.pdf')) }), 400);
   assert.equal((await expect(signer('/me/signing-keys'))).length, 1);
+  // in a case of another workspace the signer has nothing to do with, the known key does not tell whose it is
+  const { id: elsewhere } = await expect(prof('/cases', { body: { template_id: med.id, title: `Fremde Signatur ${run}` } }));
+  await expect(prof(`/cases/${elsewhere}/documents`, { form: file('one.pdf', fixture('one.pdf'), { title: 'Signiert' }) }));
+  const [foreign] = (await expect(prof(`/cases/${elsewhere}`))).documents[0].versions[0].signatures;
+  assert.deepEqual([foreign.state, foreign.subject_name, foreign.signer_id ?? null, foreign.candidate_id ?? null], ['unknown', 'Max Beispiel', null, null]);
+  await expect(prof(`/cases/${elsewhere}`, { method: 'DELETE' }));
 }
 
 // Mail into a case (Cloudflare Email Routing → email handler; wrangler dev replays it via /cdn-cgi/handler/email).
@@ -564,6 +570,22 @@ await expect(prof(`/documents/${invoiceDoc}`, { method: 'PATCH', body: { final: 
 await expect(anon('/upload-links', { form: file('korrektur.pdf', `${PDF}% fix ${run}\n`, { token: fixToken, consent: 'yes' }) }), 200, 'not used up by the refusal');
 // A request larger than one upload is refused before it is read (the token is in the body, checked only afterwards)
 assert.equal((await expect(anon('/upload-links', { form: file('gross.pdf', new Uint8Array(21 * 1024 * 1024), { token: 'x' }) }), 413)).error, 'Datei zu groß (max. 20 MB)');
+// The change stamp moves only for events the user may see: a team-only note tells a guest nothing, neither in the case
+// nor on the dashboard; the case view and the polling agree.
+{
+  const stamp = async (who, query = '') => (await expect(who(`/changes${query}`))).stamp;
+  const guestBefore = [await stamp(student, `?case=${caseId}`), await stamp(student)], teamBefore = await stamp(prof, `?case=${caseId}`);
+  await expect(prof(`/cases/${caseId}/comments`, { body: { body: 'Nur fürs Team', visible_to: [] } }));
+  assert.deepEqual([await stamp(student, `?case=${caseId}`), await stamp(student)], guestBefore, 'hidden activity leaves the guest stamp alone');
+  assert.notEqual(await stamp(prof, `?case=${caseId}`), teamBefore, 'the team sees it');
+  await expect(prof(`/cases/${caseId}/comments`, { body: { body: 'Für alle', visible_to: ['*'] } }));
+  assert.notEqual(await stamp(student, `?case=${caseId}`), guestBefore[0]);
+  assert.equal((await expect(student(`/cases/${caseId}`))).stamp, await stamp(student, `?case=${caseId}`), 'case view and polling agree');
+}
+// The development login (and its links in answers, the list of accounts) never works through Cloudflare's network
+assert.equal((await fetchOnce(`${BASE}/api/dev-login`, { method: 'POST', headers: { origin: BASE, 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.7' },
+  body: JSON.stringify({ email: 'prof@example.org' }) })).status, 404);
+assert.equal((await (await fetchOnce(`${BASE}/api/me`, { headers: { 'cf-connecting-ip': '203.0.113.7' } })).json()).dev_users, null);
 // JSON bodies too: at most 1 MB, also for anonymous requests
 assert.equal((await fetchOnce(`${BASE}/api/passkeys/login/options`, { method: 'POST', headers: { origin: BASE, 'content-type': 'application/json' },
   body: JSON.stringify({ x: 'x'.repeat(2 * 1024 * 1024) }) })).status, 413);
@@ -617,7 +639,10 @@ const [movedParent, movedChild] = [await expect(prof(`/cases/${parentToGo}`)), a
 assert.deepEqual([movedParent.case.workspace_id, movedChild.case.workspace_id], ['ws_priv', 'ws_priv'], 'sub-case moved along');
 assert.ok(movedParent.events.some(e => e.type === 'case.moved' && e.payload.to === moved.workspace));
 const { id: toMove } = await expect(prof(`/cases`, { body: { template_id: med.id, title: "Rechnung zum Verschieben" } }));
+const moveTask = (await expect(prof(`/cases/${toMove}`))).tasks.find(t => t.title === 'Rechnung erfassen').id;
+const moveToken = (await expect(prof(`/tasks/${moveTask}/upload-links`, { body: { label: 'Praxis' } }))).link.split('/#/upload/')[1];
 assert.deepEqual((await expect(prof(`/cases/${toMove}/move`, { body: { workspace_id: 'ws_hs' } }))).missing_templates, ['Widerspruch'], 'sub-case template missing there');
+await expect(client()('/upload-links/lookup', { body: { token: moveToken } }), 404, 'links handed out for the old workspace end with the move');
 await expect(prof(`/cases/${toMove}`, { method: 'DELETE' }));
 
 // Guests see the phases of the steps they may see, and the current phase among those: the title of a phase with only

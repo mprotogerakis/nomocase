@@ -55,8 +55,9 @@ export async function readUpload(file, strict, given) {
 // Stores a checked file as the next version of `doc` (a row, or a new document to create) and completes the task
 // it belongs to (decisions only get it attached). `actorId` is null and `label` set for uploads through a link or
 // mails into the case (`channel: 'mail'`, `extra`: subject and attachment names for the log). `byTeam`: uploaded by the team.
-// `complete: false` keeps the task open (more files of a multi-file step follow).
-export async function storeVersion({ c, actorId, uploadedBy, label = null, channel = null, extra = {}, f, task, doc, stmts = [], byTeam = false, complete = true }) {
+// `complete: false` keeps the task open (more files of a multi-file step follow). `uploadLink`: the link's token hash
+// – the database stores the version only while that link is still valid (trigger, migration 0040).
+export async function storeVersion({ c, actorId, uploadedBy, label = null, channel = null, extra = {}, f, task, doc, stmts = [], byTeam = false, complete = true, uploadLink = null }) {
   if (doc.isNew) {
     stmts.unshift(q('INSERT INTO documents (id, case_id, title, doc_type, visible_to, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       doc.id, c.id, doc.title, doc.doc_type, JSON.stringify(doc.visible_to), uploadedBy, now()));
@@ -82,8 +83,8 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
     throw e;
   });
   stmts.push(
-    q('INSERT INTO document_versions (id, document_id, version, filename, content_type, size, r2_key, uploaded_by, created_at, task_id, uploader_label, sha256, form_values) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      versionId, doc.id, n, f.filename, f.contentType, f.size, key, uploadedBy, now(), task?.id ?? null, label, f.sha256, form ? JSON.stringify(form) : null),
+    q('INSERT INTO document_versions (id, document_id, version, filename, content_type, size, r2_key, uploaded_by, created_at, task_id, uploader_label, sha256, form_values, upload_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      versionId, doc.id, n, f.filename, f.contentType, f.size, key, uploadedBy, now(), task?.id ?? null, label, f.sha256, form ? JSON.stringify(form) : null, uploadLink),
     ev(c.id, actorId, 'document.uploaded',
       { document: doc.title, version: n, filename: f.filename, version_id: versionId, sha256: f.sha256, ...(label && { via: label }), ...(channel && { channel }), ...extra,
         ...(task && { task: task.title, task_id: task.id, completed: completes }) },
@@ -98,6 +99,7 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
   await DB.batch(stmts).catch(async e => {
     await E.FILES.delete(key).catch(e2 => console.error('R2 delete failed (the daily sweep retries)', key, e2.message));
     if (/UNIQUE constraint failed: document_versions/.test(e.message)) fail(409, 'Gerade kam eine andere Fassung dieses Dokuments an. Bitte noch einmal hochladen.');
+    if (/upload link no longer valid/.test(e.message)) fail(410, 'Dieser Upload-Link wurde inzwischen widerrufen oder ist abgelaufen.');
     throw e;
   });
   return { document_id: doc.id, version: n, ...(form && { form: { title: form.title, differs: check.differs, taken: taken.changed.map(x => x.label) } }) };
@@ -236,7 +238,7 @@ export async function useUploadLink({ req }) {
     fail(404, 'Dieser Upload-Link wurde gerade schon benutzt.');
   }
   try {
-    await storeVersion({ c, actorId: null, uploadedBy: l.created_by, label: l.label, f, task, doc, extra: { consent: CONSENT_VERSION } });
+    await storeVersion({ c, actorId: null, uploadedBy: l.created_by, label: l.label, f, task, doc, extra: { consent: CONSENT_VERSION }, uploadLink: l.token_hash });
   } catch (e) { // nothing was stored: a single-use link stays usable for another try
     if (l.single_use) await q('UPDATE upload_links SET used_at = NULL WHERE token_hash = ?', l.token_hash).run();
     throw e;

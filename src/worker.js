@@ -1,6 +1,6 @@
 // NomoCase: JSON API on Cloudflare Workers, data in D1, files in R2. The UI is static (public/) and only talks to /api/*.
 // This file: routes, request handling (origin check, session, errors) and the cron entry.
-import { appVersion, DB, fail, HttpError, init, json, now, q, readBody } from './core.js';
+import { appVersion, DB, fail, HttpError, init, json, now, q, readBody, viaCloudflare } from './core.js';
 import { deletePasskey, devLogin, giveConsent, legalInfo, listPasskeys, loadUser, logout, me, originOf, passkeyLoginOptions, passkeyLoginVerify, passkeyRegisterOptions, passkeyRegisterVerify, requestLoginLink, sendParticipantLink, updateMe, useLoginLink, withdrawConsent } from './auth.js';
 import { addTemplateVersion, createTemplate, deleteTemplate, listTemplates, restoreTemplate, saveAsTemplate } from './templates.js';
 import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard, deleteCase, getCase, getChanges, moveCase, updateCase, updateFields } from './cases.js';
@@ -102,7 +102,7 @@ const ROUTES = [
 
 export default {
   async fetch(req, env, exec) {
-    init(env);
+    init(env, req);
     const url = new URL(req.url);
     // A former domain: permanent redirect to the canonical origin (the #fragment of the old link survives in the browser).
     if ((env.REDIRECT_HOSTS ?? '').split(',').filter(Boolean).includes(url.hostname)) return Response.redirect(`${env.ORIGIN}${url.pathname}${url.search}`, 301);
@@ -116,10 +116,9 @@ export default {
       const origin = req.headers.get('origin');
       if (req.method !== 'GET' && origin !== url.origin && origin !== originOf(url)) fail(403, 'Anfrage von fremder Seite');
       // Public writes (passkey challenges, login, invitation and upload links) per client address and endpoint, so one
-      // machine cannot flood D1 or the mail quota. Cloudflare sets CF-Connecting-IP; locally it is missing (no limit).
-      const ip = req.headers.get('cf-connecting-ip');
-      if (isPublic && req.method !== 'GET' && ip && handler !== logout && env.PUBLIC_LIMIT
-        && !(await env.PUBLIC_LIMIT.limit({ key: `${ip} ${url.pathname}` })).success) fail(429, 'Zu viele Anfragen. Bitte in einer Minute noch einmal versuchen.');
+      // machine cannot flood D1 or the mail quota. Local requests (the tests) are not limited.
+      if (isPublic && req.method !== 'GET' && viaCloudflare(req) && handler !== logout && env.PUBLIC_LIMIT
+        && !(await env.PUBLIC_LIMIT.limit({ key: `${req.headers.get('cf-connecting-ip')} ${url.pathname}` })).success) fail(429, 'Zu viele Anfragen. Bitte in einer Minute noch einmal versuchen.');
       const user = await loadUser(req);
       if (!user && !isPublic) fail(401, 'Nicht angemeldet');
       if (user && !isPublic && !user.consented && !CONSENT_FREE.has(handler)) fail(403, 'Bitte stimmen Sie zuerst der Nutzung zu.');
