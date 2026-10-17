@@ -16,6 +16,19 @@ const stepKeys = () => draft.phases.flatMap(p => p.tasks.map(t => t.key));
 // steps a rule creates share the key space with the template's steps
 const ruleTaskKeys = () => draft.rules.flatMap(r => r.actions).filter(a => a.type === 'create_task' && a.key).map(a => a.key);
 const guestKeys = () => draft.roles.filter(r => r.access.startsWith('guest_')).map(r => r.key);
+// Rules name steps by key: in a "Schritt" condition and in "Aufgabe abhaken".
+const rulesUsing = key => draft.rules.filter(r => r.conditions.some(c => c.field === 'task.key' && [c.value].flat().includes(key))
+  || r.actions.some(a => a.type === 'complete_tasks' && a.key === key));
+// A new step's key follows its title; everything that refers to the step follows the key.
+function renameStep(old, key) {
+  const swap = k => (k === old ? key : k);
+  for (const t of draft.phases.flatMap(p => p.tasks)) if (t.after) t.after = t.after.map(swap);
+  for (const a of draft.aggregates) a.from = a.from.map(swap);
+  for (const r of draft.rules) {
+    for (const c of r.conditions) if (c.field === 'task.key') c.value = Array.isArray(c.value) ? c.value.map(swap) : swap(c.value);
+    for (const a of r.actions) if (a.type === 'complete_tasks') a.key = swap(a.key);
+  }
+}
 // a step that is no longer assessed on an aggregate's scale (or gone) leaves that aggregate
 const dropFromAggregates = (key, keepScale) => { for (const a of draft.aggregates) if (a.scale !== keepScale) a.from = a.from.filter(k => k !== key); };
 
@@ -150,8 +163,7 @@ input.tplSet = change.tplSet = el => {
       : el.dataset.path.startsWith('fields.') ? draft.fields : el.dataset.path.startsWith('aggregates.') ? draft.aggregates : draft.document_types).map(x => x.key);
     const old = obj.key;
     obj.key = uniqueKey(value, list.filter(k => k !== old));
-    if (isStep) for (const t of draft.phases.flatMap(ph => ph.tasks)) if (t.after?.includes(old)) t.after = t.after.map(k => (k === old ? obj.key : k));
-    if (isStep) for (const a of draft.aggregates) a.from = a.from.map(k => (k === old ? obj.key : k));
+    if (isStep) renameStep(old, obj.key);
   }
 };
 input.tplDays = el => { at(el.dataset.path).due_days = Math.max(0, Number(el.value) || 0); };
@@ -206,7 +218,12 @@ on.tplMove = ({ path, i, dir }) => {
   render();
 };
 on.tplRemove = ({ path, i }) => {
-  const [item] = at(path).splice(Number(i), 1);
+  const item = at(path)[Number(i)];
+  const steps = path === 'phases' ? item.tasks : path.endsWith('.tasks') ? [item] : [];
+  const users = [...new Set(steps.flatMap(t => rulesUsing(t.key)))];
+  if (users.length && !confirm(`${path === 'phases' ? 'Schritte dieser Phase werden' : 'Der Schritt wird'} in ${users.map(r => `„${r.name}“`).join(', ')} verwendet.
+Trotzdem entfernen? Die Regel muss danach angepasst werden, sonst lässt sich die Vorlage nicht speichern.`)) return;
+  at(path).splice(Number(i), 1);
   // steps that waited for a removed step no longer do; steps that offered a removed form no longer do
   for (const key of path === 'phases' ? item.tasks.map(t => t.key) : [item.key]) {
     for (const t of draft.phases.flatMap(p => p.tasks)) if (t.after?.includes(key)) t.after = t.after.filter(k => k !== key);

@@ -208,6 +208,16 @@ try {
   await change('[data-change="tplCondValue"][data-path="rules.0.conditions.0"]', 'start');
   await typeInto('rules.0.actions.0.text', 'Gestartet: {task.title}');
   await change('[data-change="tplAudience"][data-path="rules.0.actions.0"]', '*');
+  // a rule on the new step follows it when the step is renamed (its key follows the title)
+  await typeInto('phases.0.tasks.1.title', 'Anlagen später');
+  await b.click('[data-on="tplAdd"][data-path="rules"]');
+  await waitFor(`!!document.querySelector('[data-path="rules.1.name"]')`, 'zweite Regel');
+  await typeInto('rules.1.name', 'Anlagen da');
+  await b.click('[data-on="tplAdd"][data-path="rules.1.conditions"]');
+  await waitFor(`!!document.querySelector('[data-change="tplCondValue"][data-path="rules.1.conditions.0"]')`, 'Bedingung 2');
+  await change('[data-change="tplCondValue"][data-path="rules.1.conditions.0"]', 'anlagen-spater');
+  await typeInto('rules.1.actions.0.text', 'Anlagen sind da.');
+  await typeInto('phases.0.tasks.1.title', 'Anlagen hochladen');
   const shown = dialogs.length;
   await b.click('[data-on="tplSave"]');
   await until(() => dialogs.length > shown && dialogs.at(-1).startsWith('Gespeichert als Version 2'), 'im Editor gespeichert');
@@ -222,7 +232,9 @@ try {
     { key: 'g3', title: 'Freigabe', type: 'approval', labels: ['Passt', 'Ablehnen'] }]);
   assert.deepEqual(saved.definition.aggregates, [{ key: 'gesamtnote', label: 'Gesamtnote', scale: 'note', from: ['g2'], method: 'mean', round: 'truncate', field: 'grade', fail_value: 5 }]);
   assert.deepEqual(saved.definition.rules, [{ id: 'start-melden', name: 'Start melden', trigger: 'task.complete',
-    conditions: [{ field: 'task.key', operator: 'equals', value: 'start' }], actions: [{ type: 'add_comment', text: 'Gestartet: {task.title}', visible_to: ['*'] }] }]);
+    conditions: [{ field: 'task.key', operator: 'equals', value: 'start' }], actions: [{ type: 'add_comment', text: 'Gestartet: {task.title}', visible_to: ['*'] }] },
+  { id: 'anlagen-da', name: 'Anlagen da', trigger: 'task.complete', conditions: [{ field: 'task.key', operator: 'equals', value: 'anlagen-hochladen' }],
+    actions: [{ type: 'add_comment', text: 'Anlagen sind da.', visible_to: [] }] }]);
   // … and in a case from it: the step takes several PDFs at once, each one a document, the step done after the last
   const { id: edCase } = await post('/cases', { template_id: edId, title: `UI-Anlagen ${run}` });
   const begin = (await api(`/cases/${edCase}`)).tasks.find(t => t.key === 'start').id;

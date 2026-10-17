@@ -23,7 +23,8 @@ Dieselbe Software trägt deshalb eine Bachelor-Thesis genauso wie eine Arztrechn
 - Bewertungen arbeiten auf frei definierten Skalen, die Verrechnung ist einstellbar. Beispiel: Mittel zweier Noten,
   nur die erste Nachkommastelle zählt.
 - Ein angepasster Vorgang lässt sich als neue Vorlage speichern.
-- Ein Editor bearbeitet Vorlagen als Formular statt als JSON: Rollen, Angaben, Phasen, Schritte, Upload-Regeln und Regeln.
+- Ein Editor bearbeitet Vorlagen als Formular statt als JSON: Rollen, Angaben, Phasen, Schritte mit Sichtbarkeit,
+  Upload-Regeln und Bewertung, Verrechnungen, PDF-Formulare und Regeln. Nur Notenskalen und Geldschritte bleiben JSON.
 - Vorgänge lassen sich aus einer eingefügten Tabelle in großer Zahl anlegen, samt Einladungen.
 
 **Formulare**
