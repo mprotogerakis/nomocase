@@ -120,7 +120,7 @@ await expect(prof(`/workspaces/${wsId}/invitations`, { body: { email: colleagueM
 assert.equal((await myWs()).invitations.filter(i => i.email === colleagueMail).length, 1);
 await expect(colleague('/invitations/accept', { body: { consent: true, token: tokenOf(wsInvite.link), name: 'Kollegin' } }), 404, 'the replaced link is dead');
 const wsInvite2 = await expect(prof(`/workspaces/${wsId}/invitations`, { body: { email: colleagueMail, role: 'member' } }));
-assert.equal((await expect(colleague(`/invitations/${tokenOf(wsInvite2.link)}`))).kind, 'workspace');
+assert.equal((await expect(colleague('/invitations/lookup', { body: { token: tokenOf(wsInvite2.link) } }))).kind, 'workspace');
 await expect(colleague('/invitations/accept', { body: { consent: true, token: tokenOf(wsInvite2.link), name: 'Kollegin' } }));
 assert.deepEqual((await expect(colleague('/me'))).workspaces.map(w => [w.id, w.role]), [[wsId, 'member']]);
 await expect(colleague(`/workspaces/${wsId}/log`), 403); // the log is for owners
@@ -267,7 +267,7 @@ if (new URL(BASE).hostname === 'localhost') {
   }
   const { link: dLink } = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `lieber-mail.${run}@example.org`, role: 'student' } }));
   await expect(client()('/invitations/decline', { body: { token: tokenOf(dLink) } }));
-  await expect(client()(`/invitations/${tokenOf(dLink)}`), 404, 'a declined invitation is gone');
+  await expect(client()('/invitations/lookup', { body: { token: tokenOf(dLink) } }), 404, 'a declined invitation is gone');
   assert.ok((await expect(prof(`/cases/${caseId}`))).events.some(e => e.type === 'participant.declined' && e.payload.email === `lieber-mail.${run}@example.org`));
   assert.ok((await expect(prof('/people'))).people.some(u => u.email === `einwilligung.${run}@example.org` && u.consent_at));
 }
@@ -492,22 +492,23 @@ const invoiceTask = lc.tasks.find(t => t.title === 'Rechnung erfassen').id;
 await expect(student(`/tasks/${invoiceTask}/upload-links`, { body: { label: 'x' } }), 404);
 const upToken = (await expect(prof(`/tasks/${invoiceTask}/upload-links`, { body: { label: 'Praxis Dr. Link', days: 7 } }))).link.split('/#/upload/')[1];
 const anon = client();
-assert.deepEqual(Object.keys(await expect(anon(`/upload-links/${upToken}`))).sort(), ['document', 'expires_at', 'files', 'label', 'requester', 'task'], 'nothing about the case');
-await expect(anon(`/upload-links/${upToken}`, { form: file('Rechnung-Link.pdf', PDF) }), 400); // without consent: nothing stored
-await expect(anon(`/upload-links/${upToken}`, { form: file('evil.pdf', '<html>', { consent: 'yes' }) }), 422); // rejected, link stays usable
+await expect(anon(`/upload-links/${upToken}`), 404, 'tokens never travel in a path (paths end up in the logs)');
+assert.deepEqual(Object.keys(await expect(anon('/upload-links/lookup', { body: { token: upToken } }))).sort(), ['document', 'expires_at', 'files', 'label', 'requester', 'task'], 'nothing about the case');
+await expect(anon('/upload-links', { form: file('Rechnung-Link.pdf', PDF, { token: upToken }) }), 400); // without consent: nothing stored
+await expect(anon('/upload-links', { form: file('evil.pdf', '<html>', { token: upToken, consent: 'yes' }) }), 422); // rejected, link stays usable
 // a file that does not arrive intact (checksum mismatch at storage) uses nothing up either
-await expect(anon(`/upload-links/${upToken}`, { form: file('kaputt.pdf', PDF, { consent: 'yes', sha256: '0'.repeat(64) }) }), 400);
-await expect(anon(`/upload-links/${upToken}`, { form: file('Rechnung-Link.pdf', PDF, { consent: 'yes' }) }));
-await expect(anon(`/upload-links/${upToken}`, { form: file('nochmal.pdf', PDF, { consent: 'yes' }) }), 404); // single use
+await expect(anon('/upload-links', { form: file('kaputt.pdf', PDF, { token: upToken, consent: 'yes', sha256: '0'.repeat(64) }) }), 400);
+await expect(anon('/upload-links', { form: file('Rechnung-Link.pdf', PDF, { token: upToken, consent: 'yes' }) }));
+await expect(anon('/upload-links', { form: file('nochmal.pdf', PDF, { token: upToken, consent: 'yes' }) }), 404); // single use
 await expect(anon(`/cases/${linked}`), 401);
 // A link to a step that waits for an earlier one cannot be used until that one is done
 const { id: earlier } = await expect(prof(`/cases/${linked}/tasks`, { body: { title: `Vorher ${run}`, type: 'task' } }));
 const { id: later } = await expect(prof(`/cases/${linked}/tasks`, { body: { title: `Danach ${run}`, type: 'upload', depends_on: [earlier] } }));
 const laterToken = (await expect(prof(`/tasks/${later}/upload-links`, { body: { label: 'Extern' } }))).link.split('/#/upload/')[1];
-assert.match((await expect(anon(`/upload-links/${laterToken}`), 409)).error, /wartet noch/);
-await expect(anon(`/upload-links/${laterToken}`, { form: file('zu-frueh.pdf', PDF, { consent: 'yes' }) }), 409);
+assert.match((await expect(anon('/upload-links/lookup', { body: { token: laterToken } }), 409)).error, /wartet noch/);
+await expect(anon('/upload-links', { form: file('zu-frueh.pdf', PDF, { token: laterToken, consent: 'yes' }) }), 409);
 await expect(prof(`/tasks/${earlier}/action`, { body: { action: 'complete' } }));
-await expect(anon(`/upload-links/${laterToken}`, { form: file('jetzt.pdf', PDF, { consent: 'yes' }) }), 200, 'the single-use link was not used up');
+await expect(anon('/upload-links', { form: file('jetzt.pdf', PDF, { token: laterToken, consent: 'yes' }) }), 200, 'the single-use link was not used up');
 // API answers with personal data are not cached
 assert.equal((await fetchOnce(`${BASE}/api/me`)).headers.get('cache-control'), 'no-store');
 lc = await expect(prof(`/cases/${linked}`));
@@ -519,11 +520,11 @@ const bescheid = lc.tasks.find(t => t.title === 'PKV-Bescheid erfassen').id;
 const revokedToken = (await expect(prof(`/tasks/${bescheid}/upload-links`, { body: { label: 'PKV' } }))).link.split('/#/upload/')[1];
 assert.equal((await expect(prof(`/cases/${linked}`))).upload_links.length, 1);
 await expect(prof(`/tasks/${bescheid}/upload-links`, { method: 'DELETE' }));
-await expect(anon(`/upload-links/${revokedToken}`), 404);
+await expect(anon('/upload-links/lookup', { body: { token: revokedToken } }), 404);
 const multiUse = (await expect(prof(`/tasks/${bescheid}/upload-links`, { body: { label: 'PKV', single_use: false } }))).link.split('/#/upload/')[1];
-await expect(anon(`/upload-links/${multiUse}`), 409); // the step still waits for an earlier one
+await expect(anon('/upload-links/lookup', { body: { token: multiUse } }), 409); // the step still waits for an earlier one
 await expect(prof(`/tasks/${bescheid}/action`, { body: { action: 'skip' } }));
-await expect(anon(`/upload-links/${multiUse}`), 404, 'task no longer open');
+await expect(anon('/upload-links/lookup', { body: { token: multiUse } }), 404, 'task no longer open');
 // Writes only from our own pages (CSRF from sibling subdomains).
 assert.equal((await fetchOnce(`${BASE}/api/logout`, { method: 'POST', headers: { origin: 'https://evil.example' } })).status, 403);
 assert.equal((await fetchOnce(`${BASE}/api/logout`, { method: 'POST' })).status, 403, 'a write without Origin is refused too');
@@ -602,9 +603,9 @@ assert.equal(stepOf('many').status, 'done', 'the last file completes the step');
 assert.deepEqual(fc.documents.filter(d => d.doc_type === 'att').map(d => d.title).sort(), ['a.pdf', 'b.pdf'], 'each file a document of its own');
 const { link: pdfLink } = await expect(prof(`/tasks/${stepOf('pdf').id}/upload-links`, { body: { label: 'Extern' } }));
 const pdfToken = pdfLink.split('/').pop();
-assert.deepEqual((await expect(anon(`/upload-links/${pdfToken}`))).files, { accept: ['pdf'] }, 'the link page names the allowed kinds');
-await expect(anon(`/upload-links/${pdfToken}`, { form: file('x.txt', 'hallo', { consent: 'yes' }) }), 415);
-await expect(anon(`/upload-links/${pdfToken}`, { form: file('x.pdf', PDF, { consent: 'yes' }) }), 200, 'a wrong kind did not use up the link');
+assert.deepEqual((await expect(anon('/upload-links/lookup', { body: { token: pdfToken } }))).files, { accept: ['pdf'] }, 'the link page names the allowed kinds');
+await expect(anon('/upload-links', { form: file('x.txt', 'hallo', { token: pdfToken, consent: 'yes' }) }), 415);
+await expect(anon('/upload-links', { form: file('x.pdf', PDF, { token: pdfToken, consent: 'yes' }) }), 200, 'a wrong kind did not use up the link');
 await expect(prof(`/cases/${filesCase}`, { method: 'DELETE' }));
 await expect(prof(`/templates/${filesTpl}`, { method: 'DELETE' }));
 await expect(prof(`/cases/${parentToGo}`, { method: 'DELETE' }));
@@ -781,7 +782,7 @@ assert.equal((await expect(prof(`/cases/${reborn}`))).tasks.length, steps.length
 const asVersion = await expect(prof(`/cases/${caseId}/template`, { body: { template_id: pp.id } }));
 const reinvite = await expect(prof(`/cases/${reborn}/invitations`, { body: { email: `max.${run}@example.org`, role: 'student' } }));
 const stranger = client();
-assert.equal((await expect(stranger(`/invitations/${tokenOf(reinvite.link)}`))).needs_login, true, 'existing account without passkey');
+assert.equal((await expect(stranger('/invitations/lookup', { body: { token: tokenOf(reinvite.link) } }))).needs_login, true, 'existing account without passkey');
 await expect(stranger('/invitations/accept', { body: { consent: true, token: tokenOf(reinvite.link), name: 'Mallory' } }), 401);
 await expect(student('/invitations/accept', { body: { consent: true, token: tokenOf(reinvite.link) } }));
 assert.ok(asVersion.version > pp.version);

@@ -76,7 +76,7 @@ async function inviteCannotTakeOver(login) {
   try {
     const { link: invite } = await (await api(`/cases/${caseId}/invitations`, { cookie, body: { email: EMAIL, role: tpl.definition.roles.at(-1).key } })).json();
     const token = invite.split('/invite/')[1];
-    assert.equal((await (await api(`/invitations/${token}`)).json()).needs_login, true);
+    assert.equal((await (await api('/invitations/lookup', { body: { token } })).json()).needs_login, true);
     const hijack = await api('/invitations/accept', { body: { token, name: 'Mallory' } });
     assert.equal(hijack.status, 401);
     assert.equal(hijack.headers.get('set-cookie'), null);

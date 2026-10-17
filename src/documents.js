@@ -195,17 +195,17 @@ async function linkTask(l) {
   return task;
 }
 
-export async function getUploadLink({ params }) {
-  const l = await loadUploadLink(params.token);
+export async function getUploadLink({ body }) {
+  const l = await loadUploadLink(body.token);
   await linkTask(l);
   const dt = JSON.parse(l.definition).document_types.find(t => t.key === l.doc_type);
   return { requester: l.requester, label: l.label, task: l.task_title, document: dt?.label ?? null, expires_at: l.expires_at,
     files: l.task_files ? JSON.parse(l.task_files) : null };
 }
 
-export async function useUploadLink({ req, params }) {
-  const l = await loadUploadLink(params.token);
+export async function useUploadLink({ req }) {
   const form = await req.formData();
+  const l = await loadUploadLink(form.get('token'));
   if (form.get('consent') !== 'yes') fail(400, 'Bitte stimmen Sie der Verarbeitung zu – oder schicken Sie die Datei auf dem bisherigen Weg per E-Mail.');
   const f = await readUpload(form.get('file'), true, form.get('sha256'));
   if (f.problem) { // logged for the team; the link stays usable for a corrected file

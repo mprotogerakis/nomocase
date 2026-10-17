@@ -65,8 +65,8 @@ export const accountByEmail = email =>
 const needsLogin = (existing, user) => !!existing && user?.id !== existing.id;
 
 // One link page for both kinds of invitation: into a case (a seat in it) or into a workspace.
-export async function getInvitation({ user, params }) {
-  const hash = await sha256(params.token);
+export async function getInvitation({ user, body }) {
+  const hash = await sha256(String(body.token ?? ''));
   const inv = await row(`
     SELECT i.email, i.role, i.access, c.title, c.definition, u.name AS inviter FROM invitations i
     JOIN cases c ON c.id = i.case_id JOIN users u ON u.id = i.created_by

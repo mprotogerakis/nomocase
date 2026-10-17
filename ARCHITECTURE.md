@@ -131,7 +131,7 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [ ] Formulare auch für Praxisprojekt und Masterprojekt
 - [x] Sicherheitsprüfung vor der Veröffentlichung: Signaturketten nur über echte CAs, Parser gegen präparierte Dateien,
   keine Einladungslinks an Einladende, Mail-Limit je Person, CSP und Header, Origin-Pflicht, `__Host-`-Cookie
-- [ ] Tokens aus URL-Pfaden in den Request-Body (Einladung, Upload-Link): Pfade landen in den Worker-Logs
+- [x] Tokens aus URL-Pfaden in den Request-Body (Einladung, Upload-Link): Pfade landen in den Worker-Logs
 - [ ] Anmeldelink-Anfragen zusätzlich pro IP begrenzen (Workers Rate Limiting), falls das Tageskontingent missbraucht wird
 - [x] Vorlagen-Editor, Stufe 1: Rollen, Angaben, Dokumenttypen, Phasen und Schritte (Typ, Rolle, Reihenfolge, Frist,
   Dokument, Upload-Einstellungen, Beschreibung) als Formular; Regeln, Formulare, Bewertung, Geld weiter als JSON

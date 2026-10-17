@@ -107,7 +107,7 @@ change.mailSetting = async el => { await api('/me', { method: 'PATCH', body: { [
 
 // Public page behind an upload link: who asks for what, one file field. Nothing about the case.
 export async function uploadLinkView(token) {
-  const l = await api(`/upload-links/${token}`);
+  const l = await api('/upload-links/lookup', { body: { token } });
   show(html`<main class="narrow"><h1>Datei bereitstellen</h1>
     <p>${l.requester} bittet ${l.label ? html`<b>${l.label}</b>` : 'Sie'}, für „${l.task}“ ${l.document ? `das Dokument „${l.document}“` : 'eine Datei'} hochzuladen.</p>
     <form data-submit="linkUpload" data-token="${token}" class="stack card">
@@ -123,7 +123,8 @@ export async function uploadLinkView(token) {
 }
 
 submit.linkUpload = async (fd, form) => {
-  await api(`/upload-links/${form.dataset.token}`, { body: fd });
+  fd.append('token', form.dataset.token);
+  await api('/upload-links', { body: fd });
   show(html`<main class="narrow"><h1>Vielen Dank</h1><p>Die Datei „${fd.get('file').name}“ ist vollständig angekommen. Sie können dieses Fenster schließen.</p>
     <p class="muted small">Prüfsumme (SHA-256) als Nachweis, welche Datei Sie übermittelt haben:<br><code class="hash">${fd.get('sha256')}</code></p></main>`);
 };
@@ -161,7 +162,7 @@ export function welcomeView(next) {
 on.welcomePasskey = webauthn(async ({ next }) => { await passkeyRegister(); go(next); });
 
 export async function inviteView(token) {
-  const inv = await api(`/invitations/${token}`);
+  const inv = await api('/invitations/lookup', { body: { token } });
   show(html`<main class="narrow"><h1>Einladung</h1>
     ${inv.kind === 'workspace' ? html`<p>${inv.inviter} lädt Sie in den Workspace <b>${inv.workspace}</b> ein, als <b>${inv.role}</b>.</p>
       <p>${inv.role === 'Owner' ? 'Sie sehen alle Vorgänge des Workspaces und pflegen Vorlagen und Mitglieder.'
