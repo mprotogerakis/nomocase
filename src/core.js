@@ -18,6 +18,20 @@ export class HttpError extends Error {
 
 export const fail = (status, message) => { throw new HttpError(status, message); };
 
+// A request body, read with a byte limit – also without (or with a false) Content-Length. json() and formData() alone
+// would take a body of any size first.
+export async function readBody(req, max, tooBig) {
+  if (Number(req.headers.get('content-length')) > max) fail(413, tooBig);
+  const reader = req.body?.getReader(), chunks = [];
+  if (reader) {
+    for (let n = 0, r = await reader.read(); !r.done; r = await reader.read()) {
+      if ((n += r.value.length) > max) { await reader.cancel(); fail(413, tooBig); }
+      chunks.push(r.value);
+    }
+  }
+  return new Blob(chunks);
+}
+
 // API answers carry personal data: never kept in a cache (headers may be an object or a list of pairs).
 export const json = (data, status = 200, headers = {}) => {
   const h = new Headers(headers);

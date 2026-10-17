@@ -539,6 +539,9 @@ await expect(prof(`/documents/${invoiceDoc}`, { method: 'PATCH', body: { final: 
 await expect(anon('/upload-links', { form: file('korrektur.pdf', `${PDF}% fix ${run}\n`, { token: fixToken, consent: 'yes' }) }), 200, 'not used up by the refusal');
 // A request larger than one upload is refused before it is read (the token is in the body, checked only afterwards)
 assert.equal((await expect(anon('/upload-links', { form: file('gross.pdf', new Uint8Array(21 * 1024 * 1024), { token: 'x' }) }), 413)).error, 'Datei zu groß (max. 20 MB)');
+// JSON bodies too: at most 1 MB, also for anonymous requests
+assert.equal((await fetchOnce(`${BASE}/api/passkeys/login/options`, { method: 'POST', headers: { origin: BASE, 'content-type': 'application/json' },
+  body: JSON.stringify({ x: 'x'.repeat(2 * 1024 * 1024) }) })).status, 413);
 // Public writes are limited per client address (Cloudflare sets CF-Connecting-IP; here a test address, locally none = no limit)
 const probeIp = `198.51.100.${Date.now() % 250}`, limited = [];
 for (let i = 0; i < 31; i++) limited.push((await fetchOnce(`${BASE}/api/passkeys/login/options`, { method: 'POST', headers: { origin: BASE, 'cf-connecting-ip': probeIp } })).status);

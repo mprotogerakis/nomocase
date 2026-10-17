@@ -2,7 +2,7 @@
 import { checkContent } from './validate.js';
 import { readSignatures } from './pdfsig.js';
 import { signatureEvents, signatureStmts } from './signatures.js';
-import { acceptedExtensions, arr, DB, DECISIONS, E, ev, fail, FILE_KIND_LABELS, hex, NEEDS_FILE, now, q, roleList, row, rows, sha256, token, uid } from './core.js';
+import { acceptedExtensions, arr, DB, DECISIONS, E, ev, fail, FILE_KIND_LABELS, hex, NEEDS_FILE, now, q, readBody, roleList, row, rows, sha256, token, uid } from './core.js';
 import { canSee, canWork, caseCtx, taskAudience } from './access.js';
 import { originOf } from './auth.js';
 import { loadTask, markBlocked } from './tasks.js';
@@ -33,18 +33,10 @@ const INLINE = ['application/pdf', 'image/png', 'image/jpeg'];
 // Checks a file before anything is stored: type, size, magic bytes and content (strict outside the team).
 // `given`: SHA-256 as the browser read the file (app.js sends it). R2 checks it on put, so the stored bytes provably
 // match what left the uploader's disk. Without one the Worker computes it (ponytail: Worker CPU, ~1 ms per MB).
-// The request as a form, limited while it is read: formData() alone would take a body of any size first. One file per
-// request plus a few fields; a missing or false Content-Length is caught by counting.
+// The request as a form, limited while it is read (one file per request plus a few fields).
 export async function uploadForm(req) {
-  const max = MAX_UPLOAD + 64 * 1024, tooBig = () => fail(413, 'Datei zu groß (max. 20 MB)');
-  if (Number(req.headers.get('content-length')) > max) tooBig();
-  const reader = req.body?.getReader() ?? fail(400, 'Keine Datei');
-  const chunks = [];
-  for (let n = 0, r = await reader.read(); !r.done; r = await reader.read()) {
-    if ((n += r.value.length) > max) { await reader.cancel(); tooBig(); }
-    chunks.push(r.value);
-  }
-  return new Response(new Blob(chunks), { headers: { 'content-type': req.headers.get('content-type') ?? '' } }).formData()
+  const body = await readBody(req, MAX_UPLOAD + 64 * 1024, 'Datei zu groß (max. 20 MB)');
+  return new Response(body, { headers: { 'content-type': req.headers.get('content-type') ?? '' } }).formData()
     .catch(() => fail(400, 'Ungültige Anfrage'));
 }
 
