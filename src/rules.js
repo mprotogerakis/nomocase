@@ -1,5 +1,5 @@
 // Rule engine: triggers, conditions, actions; processed after writes and by cron, idempotent per event.
-import { DB, ev, fail, now, q, row, rows, uid } from './core.js';
+import { fail, uid } from './core.js';
 import { caseCtx, taskAudience } from './access.js';
 import { instantiate } from './templates.js';
 import { eur, loadFinance, sum } from './finance.js';
@@ -29,6 +29,7 @@ const MONEY_FACTS = ['claim.amount', 'claim.recognized', 'claim.cut', 'claim.set
 
 // Everything a condition or a {placeholder} can refer to, for one event.
 async function ruleFacts(rq, c, e, p) {
+  const { row } = rq;
   const f = { 'event.type': e.type, 'event.actor': e.actor ?? '', 'case.title': c.title };
   if (e.actor_id) f['event.actor_role'] = (await row('SELECT role FROM case_participants WHERE case_id = ? AND user_id = ?', c.id, e.actor_id))?.role ?? '';
   if (p.task_id) {
@@ -54,7 +55,8 @@ async function ruleFacts(rq, c, e, p) {
   return f;
 }
 
-async function ruleStmts(c, def, rule, f) {
+async function ruleStmts(rq, c, def, rule, f) {
+  const { row, rows, sql, event, time } = rq;
   const fill = text => String(text ?? '')
     .replace(/\{date(?:\+(\d+))?\}/g, (_, n) => deDate(new Date(Date.now() + Number(n ?? 0) * 864e5).toISOString().slice(0, 10)))
     .replace(/\{([\w.]+)\}/g, (_, k) => (MONEY_FACTS.includes(k) ? eur(f[k] ?? 0) : String(f[k] ?? '')));
@@ -65,10 +67,10 @@ async function ruleStmts(c, def, rule, f) {
     if (a.type === 'create_task') {
       const t = { id: uid(), title: fill(a.title), role: !a.assign_to_role || a.assign_to_role === 'owner' ? ownerRole : a.assign_to_role, visible_to: a.visible_to ?? [] };
       stmts.push(
-        q('INSERT INTO tasks (id, case_id, title, description, type, role, visible_to, due_date, position, created_at, key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        sql('INSERT INTO tasks (id, case_id, title, description, type, role, visible_to, due_date, position, created_at, key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           t.id, c.id, t.title, a.description ? fill(a.description) : null, a.task_type ?? 'task', t.role, JSON.stringify(t.visible_to),
-          a.due_days != null ? new Date(Date.now() + a.due_days * 864e5).toISOString().slice(0, 10) : null, 1e6, now(), a.key ?? null),
-        ev(c.id, null, 'task.added', { task: t.title, task_id: t.id, ...by }, taskAudience(t)),
+          a.due_days != null ? new Date(Date.now() + a.due_days * 864e5).toISOString().slice(0, 10) : null, 1e6, time, a.key ?? null),
+        event(c.id, null, 'task.added', { task: t.title, task_id: t.id, ...by }, taskAudience(t)),
       );
     } else if (a.type === 'complete_tasks') {
       const open = await rows(`SELECT id, title, role, visible_to FROM tasks WHERE case_id = ? AND status = 'open'
@@ -76,12 +78,12 @@ async function ruleStmts(c, def, rule, f) {
         c.id, a.key ?? null, a.key ?? null, a.task_type ?? null, a.task_type ?? null, a.title ?? null, a.title ?? null);
       for (const t of open) {
         stmts.push(
-          q("UPDATE tasks SET status = 'done', completed_at = ? WHERE id = ? AND status = 'open'", now(), t.id),
-          ev(c.id, null, 'task.complete', { task: t.title, task_id: t.id, ...by }, taskAudience(t)),
+          sql("UPDATE tasks SET status = 'done', completed_at = ? WHERE id = ? AND status = 'open'", time, t.id),
+          event(c.id, null, 'task.complete', { task: t.title, task_id: t.id, ...by }, taskAudience(t)),
         );
       }
     } else if (a.type === 'add_comment') {
-      stmts.push(ev(c.id, null, 'comment', { body: fill(a.text), ...by }, a.visible_to ?? [])); // team only unless the template shares it
+      stmts.push(event(c.id, null, 'comment', { body: fill(a.text), ...by }, a.visible_to ?? [])); // team only unless the template shares it
     } else if (a.type === 'create_subcase') {
       const tpl = await row(`SELECT t.id, t.workspace_id, t.name, v.version, v.definition FROM templates t JOIN template_versions v ON v.template_id = t.id
         WHERE t.workspace_id = ? AND t.name = ? AND t.archived_at IS NULL ORDER BY v.version DESC LIMIT 1`, c.workspace_id, a.template);
@@ -89,8 +91,8 @@ async function ruleStmts(c, def, rule, f) {
       const owner = await row("SELECT user_id FROM case_participants WHERE case_id = ? AND access = 'case_owner' AND revoked_at IS NULL ORDER BY created_at LIMIT 1", c.id);
       if (!owner) throw new Error('Der Vorgang hat keine Verantwortlichen');
       const title = fill(a.title).slice(0, 200);
-      const sub = instantiate(tpl, { title, ownerId: owner.user_id, actorId: null, parentId: c.id, by });
-      stmts.push(...sub.stmts, ev(c.id, null, 'subcase.created', { title, case_id: sub.caseId, template: tpl.name, ...by }, []));
+      const sub = instantiate(rq, tpl, { title, ownerId: owner.user_id, actorId: null, parentId: c.id, by });
+      stmts.push(...sub.stmts, event(c.id, null, 'subcase.created', { title, case_id: sub.caseId, template: tpl.name, ...by }, []));
     }
   }
   return stmts;
@@ -100,41 +102,44 @@ async function ruleStmts(c, def, rule, f) {
 const RETRY_MINUTES = [1, 5, 30];
 const ATTEMPTS = RETRY_MINUTES.length + 1;
 
-const loadCases = async ids => new Map((await rows('SELECT id, title, workspace_id, definition FROM cases WHERE id IN (SELECT value FROM json_each(?))',
+const loadCases = async (rq, ids) => new Map((await rq.rows('SELECT id, title, workspace_id, definition FROM cases WHERE id IN (SELECT value FROM json_each(?))',
   JSON.stringify([...new Set(ids)]))).map(c => [c.id, { ...c, def: JSON.parse(c.definition) }]));
 
 // One rule on one event. Run record and effects commit together (a batch is one transaction): a crash leaves neither
 // behind, and a parallel run of the same rule fails on the primary key without changing anything – also for a retry,
 // whose 'retry' record is swapped for the 'done' one in the same batch. A failure is recorded for the next attempt.
-async function runRule(c, e, rule, f, attemptsBefore = 0) {
+async function runRule(rq, c, e, rule, f, attemptsBefore = 0) {
+  const { sql, batch, time } = rq;
   try {
-    await DB.batch([
-      ...(attemptsBefore ? [q("DELETE FROM automation_runs WHERE event_id = ? AND rule_id = ? AND status = 'retry'", e.id, rule.id)] : []),
-      q("INSERT INTO automation_runs (event_id, rule_id, case_id, status, created_at) VALUES (?, ?, ?, 'done', ?)", e.id, rule.id, c.id, now()),
-      ...await ruleStmts(c, c.def, rule, f),
+    await batch([
+      ...(attemptsBefore ? [sql("DELETE FROM automation_runs WHERE event_id = ? AND rule_id = ? AND status = 'retry'", e.id, rule.id)] : []),
+      sql("INSERT INTO automation_runs (event_id, rule_id, case_id, status, created_at) VALUES (?, ?, ?, 'done', ?)", e.id, rule.id, c.id, time),
+      ...await ruleStmts(rq, c, c.def, rule, f),
     ]);
   } catch (err) {
     if (/UNIQUE constraint/i.test(err.message)) return; // done meanwhile
-    await recordFailure(c.id, e.id, rule.id, attemptsBefore + 1, String(err.message).slice(0, 500));
+    await recordFailure(rq, c.id, e.id, rule.id, attemptsBefore + 1, String(err.message).slice(0, 500));
   }
 }
 
-async function recordFailure(caseId, eventId, ruleId, attempts, detail) {
+async function recordFailure(rq, caseId, eventId, ruleId, attempts, detail) {
+  const { sql, time } = rq;
   const last = attempts >= ATTEMPTS;
   console.error('rule failed', ruleId, `attempt ${attempts}${last ? ' (last)' : ''}`, detail);
-  await q(`INSERT INTO automation_runs (event_id, rule_id, case_id, status, detail, attempts, next_attempt_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  await sql(`INSERT INTO automation_runs (event_id, rule_id, case_id, status, detail, attempts, next_attempt_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (event_id, rule_id) DO UPDATE SET status = excluded.status, detail = excluded.detail, attempts = excluded.attempts,
       next_attempt_at = excluded.next_attempt_at WHERE automation_runs.status = 'retry'`,
-  eventId, ruleId, caseId, last ? 'error' : 'retry', detail, attempts, last ? null : new Date(Date.now() + RETRY_MINUTES[attempts - 1] * 60e3).toISOString(), now()).run();
+  eventId, ruleId, caseId, last ? 'error' : 'retry', detail, attempts, last ? null : new Date(Date.now() + RETRY_MINUTES[attempts - 1] * 60e3).toISOString(), time).run();
 }
 
 // New events, each looked at once (the cursor); `retries` (the cron): also the failed runs that are due again. The
 // cursor is not what guarantees a run – a failed one stays in automation_runs until it succeeds or gives up.
 export async function processRules(rq, { retries = false } = {}) {
+  const { row, rows, sql } = rq;
   const events = await rows(`SELECT e.*, u.name AS actor FROM events e LEFT JOIN users u ON u.id = e.actor_id
     WHERE e.id > (SELECT last_event_id FROM rule_cursor WHERE id = 1) ORDER BY e.id LIMIT 200`);
   if (events.length) {
-    const cases = await loadCases(events.map(e => e.case_id));
+    const cases = await loadCases(rq, events.map(e => e.case_id));
     for (const e of events) {
       const c = cases.get(e.case_id);
       const p = JSON.parse(e.payload);
@@ -144,37 +149,38 @@ export async function processRules(rq, { retries = false } = {}) {
       for (const rule of rules) {
         if (!rule.conditions.every(cond => RULE_OPS[cond.operator](f[cond.field], cond.value))) continue;
         if (await row('SELECT 1 FROM automation_runs WHERE event_id = ? AND rule_id = ?', e.id, rule.id)) continue; // ran already
-        await runRule(c, e, rule, f);
+        await runRule(rq, c, e, rule, f);
       }
     }
-    await q('UPDATE rule_cursor SET last_event_id = MAX(last_event_id, ?) WHERE id = 1', events.at(-1).id).run();
+    await sql('UPDATE rule_cursor SET last_event_id = MAX(last_event_id, ?) WHERE id = 1', events.at(-1).id).run();
   }
   if (retries) await retryRules(rq);
 }
 
 // Failed runs that are due: the same rule on the same event (its conditions held then), with the facts of now.
 async function retryRules(rq) {
+  const { rows, time } = rq;
   const due = await rows(`SELECT r.rule_id, r.attempts, e.*, u.name AS actor FROM automation_runs r JOIN events e ON e.id = r.event_id
-    LEFT JOIN users u ON u.id = e.actor_id WHERE r.status = 'retry' AND r.next_attempt_at <= ? ORDER BY r.next_attempt_at LIMIT 20`, now());
-  const cases = await loadCases(due.map(d => d.case_id));
+    LEFT JOIN users u ON u.id = e.actor_id WHERE r.status = 'retry' AND r.next_attempt_at <= ? ORDER BY r.next_attempt_at LIMIT 20`, time);
+  const cases = await loadCases(rq, due.map(d => d.case_id));
   for (const { rule_id: ruleId, attempts, ...e } of due) {
     const c = cases.get(e.case_id), rule = c?.def.rules?.find(r => r.id === ruleId);
     if (!rule || rule.enabled === false) {
-      await recordFailure(e.case_id, e.id, ruleId, ATTEMPTS, 'nicht wiederholt: Regel inzwischen ausgeschaltet oder entfernt');
+      await recordFailure(rq, e.case_id, e.id, ruleId, ATTEMPTS, 'nicht wiederholt: Regel inzwischen ausgeschaltet oder entfernt');
       continue;
     }
-    await runRule(c, e, rule, await ruleFacts(rq, c, e, JSON.parse(e.payload)), attempts);
+    await runRule(rq, c, e, rule, await ruleFacts(rq, c, e, JSON.parse(e.payload)), attempts);
   }
 }
 
-export async function toggleRule({ user, params, body }) {
+export async function toggleRule({ user, params, body, sql, batch, event }) {
   const ctx = await caseCtx(user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
   if (typeof body.enabled !== 'boolean') fail(400, 'enabled muss true oder false sein');
   const rule = (ctx.def.rules ?? []).find(r => r.id === params.ruleId) ?? fail(404, 'Regel nicht gefunden');
   rule.enabled = body.enabled;
-  await DB.batch([
-    q('UPDATE cases SET definition = ? WHERE id = ?', JSON.stringify(ctx.def), ctx.c.id),
-    ev(ctx.c.id, user.id, 'rule.toggled', { rule: rule.name, enabled: body.enabled }, []),
+  await batch([
+    sql('UPDATE cases SET definition = ? WHERE id = ?', JSON.stringify(ctx.def), ctx.c.id),
+    event(ctx.c.id, user.id, 'rule.toggled', { rule: rule.name, enabled: body.enabled }, []),
   ]);
 }

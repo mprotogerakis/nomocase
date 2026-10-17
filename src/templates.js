@@ -1,5 +1,5 @@
 // Templates: definition check, versions, instantiating a case, turning a case back into a template.
-import { ACCESS, arr, DB, DECISIONS, ev, fail, FILE_KINDS, isDate, now, q, row, rows, TASK_TYPES, uid, validFiles, wsEv } from './core.js';
+import { ACCESS, arr, DECISIONS, fail, FILE_KINDS, isDate, TASK_TYPES, uid, validFiles } from './core.js';
 import { caseCtx, requireWsOwner } from './access.js';
 import { RULE_ACTIONS, RULE_OPS, RULE_TRIGGERS } from './rules.js';
 import { parseScore, scaleProblem } from '../public/shared/assess.js';
@@ -87,7 +87,7 @@ export function checkDef(d) {
   return d;
 }
 
-export async function listTemplates({ user }) {
+export async function listTemplates({ user, rows }) {
   const list = await rows(`
     SELECT t.id, t.name, t.workspace_id, w.name AS workspace, t.archived_at, v.version, v.definition, v.created_at,
       (SELECT COUNT(*) FROM cases c WHERE c.template_id = t.id) AS cases,
@@ -101,85 +101,88 @@ export async function listTemplates({ user }) {
 }
 
 // Templates are never edited in place: every change is a new version, running cases keep their copy.
-const versionStmt = (templateId, version, def, userId) =>
-  q('INSERT INTO template_versions (template_id, version, definition, created_at, created_by) VALUES (?, ?, ?, ?, ?)',
-    templateId, version, JSON.stringify(def), now(), userId);
-const nextVersion = async templateId => (await row('SELECT MAX(version) + 1 AS v FROM template_versions WHERE template_id = ?', templateId)).v;
+const versionStmt = (rq, templateId, version, def, userId) =>
+  rq.sql('INSERT INTO template_versions (template_id, version, definition, created_at, created_by) VALUES (?, ?, ?, ?, ?)',
+    templateId, version, JSON.stringify(def), rq.time, userId);
+const nextVersion = async (rq, templateId) => (await rq.row('SELECT MAX(version) + 1 AS v FROM template_versions WHERE template_id = ?', templateId)).v;
 
 // An active template name is unique in its workspace (index templates_name): rules name the template of a subcase.
 const nameTaken = name => e => { if (/UNIQUE/.test(e.message)) fail(409, `Im Workspace gibt es schon eine Vorlage „${name}“.`); throw e; };
 
-export async function createTemplate({ user, body }) {
+export async function createTemplate(rq) {
+  const { user, body, sql, batch, wsEvent } = rq;
   await requireWsOwner(user, body.workspace_id);
   const name = String(body.name ?? '').trim() || fail(400, 'Name fehlt');
   const def = checkDef(body.definition);
   const id = uid();
-  await DB.batch([
-    q('INSERT INTO templates (id, workspace_id, name) VALUES (?, ?, ?)', id, body.workspace_id, name),
-    versionStmt(id, 1, def, user.id),
-    wsEv(body.workspace_id, user.id, 'template.created', { template: name }),
+  await batch([
+    sql('INSERT INTO templates (id, workspace_id, name) VALUES (?, ?, ?)', id, body.workspace_id, name),
+    versionStmt(rq, id, 1, def, user.id),
+    wsEvent(body.workspace_id, user.id, 'template.created', { template: name }),
   ]).catch(nameTaken(name));
   return { id };
 }
 
 // A template no case uses is deleted; one that cases use is archived: gone from "new case", the cases keep their copy.
-export async function deleteTemplate({ user, params }) {
+export async function deleteTemplate({ user, params, row, sql, batch, wsEvent, time }) {
   const t = (await row('SELECT * FROM templates WHERE id = ?', params.id)) ?? fail(404, 'Vorlage nicht gefunden');
   await requireWsOwner(user, t.workspace_id);
   const { n } = await row('SELECT COUNT(*) AS n FROM cases WHERE template_id = ?', t.id);
   if (n) {
-    await DB.batch([q('UPDATE templates SET archived_at = COALESCE(archived_at, ?) WHERE id = ?', now(), t.id), wsEv(t.workspace_id, user.id, 'template.archived', { template: t.name })]);
+    await batch([sql('UPDATE templates SET archived_at = COALESCE(archived_at, ?) WHERE id = ?', time, t.id), wsEvent(t.workspace_id, user.id, 'template.archived', { template: t.name })]);
     return { archived: true, cases: n };
   }
-  await DB.batch([q('DELETE FROM template_versions WHERE template_id = ?', t.id), q('DELETE FROM templates WHERE id = ?', t.id),
-    wsEv(t.workspace_id, user.id, 'template.deleted', { template: t.name })]);
+  await batch([sql('DELETE FROM template_versions WHERE template_id = ?', t.id), sql('DELETE FROM templates WHERE id = ?', t.id),
+    wsEvent(t.workspace_id, user.id, 'template.deleted', { template: t.name })]);
   return { deleted: true };
 }
 
-export async function restoreTemplate({ user, params }) {
+export async function restoreTemplate({ user, params, row, sql, batch, wsEvent }) {
   const t = (await row('SELECT * FROM templates WHERE id = ?', params.id)) ?? fail(404, 'Vorlage nicht gefunden');
   await requireWsOwner(user, t.workspace_id);
-  await DB.batch([q('UPDATE templates SET archived_at = NULL WHERE id = ?', t.id), wsEv(t.workspace_id, user.id, 'template.restored', { template: t.name })])
+  await batch([sql('UPDATE templates SET archived_at = NULL WHERE id = ?', t.id), wsEvent(t.workspace_id, user.id, 'template.restored', { template: t.name })])
     .catch(nameTaken(t.name));
 }
 
-export async function addTemplateVersion({ user, params, body }) {
+export async function addTemplateVersion(rq) {
+  const { user, params, body, row, batch, wsEvent } = rq;
   const t = (await row('SELECT * FROM templates WHERE id = ?', params.id)) ?? fail(404, 'Vorlage nicht gefunden');
   await requireWsOwner(user, t.workspace_id);
   const def = checkDef(body.definition);
-  const v = await nextVersion(t.id);
-  await DB.batch([versionStmt(t.id, v, def, user.id), wsEv(t.workspace_id, user.id, 'template.version', { template: t.name, version: v })]);
+  const v = await nextVersion(rq, t.id);
+  await batch([versionStmt(rq, t.id, v, def, user.id), wsEvent(t.workspace_id, user.id, 'template.version', { template: t.name, version: v })]);
   return { version: v };
 }
 
-export const latestTemplate = id => row(`SELECT t.id, t.workspace_id, t.name, t.archived_at, v.version, v.definition FROM templates t
+export const latestTemplate = (rq, id) => rq.row(`SELECT t.id, t.workspace_id, t.name, t.archived_at, v.version, v.definition FROM templates t
   JOIN template_versions v ON v.template_id = t.id WHERE t.id = ? ORDER BY v.version DESC LIMIT 1`, id ?? null);
 
 // Statements that create a case (with phases and tasks) from the latest version of a template.
 // `actorId` is null when a rule creates the case (then `by` names the rule).
-export function instantiate(tpl, { title, fields: input = {}, ownerId, actorId = ownerId, parentId = null, by = {} }) {
+export function instantiate(rq, tpl, { title, fields: input = {}, ownerId, actorId = ownerId, parentId = null, by = {} }) {
+  const { sql, event, time } = rq;
   const def = JSON.parse(tpl.definition);
   const fields = Object.fromEntries(def.fields.map(f => [f.key, String(input?.[f.key] ?? '')]));
   // due_days count from the date field the template names (due_base_field), else from today
   const base = isDate(fields[def.due_base_field]) ? new Date(fields[def.due_base_field]) : new Date();
   const due = days => (days == null ? null : new Date(base.getTime() + days * 864e5).toISOString().slice(0, 10));
-  const caseId = uid(), ts = now();
+  const caseId = uid(), ts = time;
   const ownerRole = def.roles.find(r => r.access === 'case_owner').key;
   const taskIds = Object.fromEntries(def.phases.flatMap(p => p.tasks).map(t => [t.key, uid()]));
   const stmts = [
-    q('INSERT INTO cases (id, workspace_id, template_id, template_version, title, definition, fields, created_at, parent_case_id, inbox) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    sql('INSERT INTO cases (id, workspace_id, template_id, template_version, title, definition, fields, created_at, parent_case_id, inbox) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       caseId, tpl.workspace_id, tpl.id, tpl.version, title,
       JSON.stringify({ roles: def.roles, fields: def.fields, document_types: def.document_types, finance: def.finance ?? false, retention_days: def.retention_days ?? null,
         ...(def.due_base_field && { due_base_field: def.due_base_field }),
         rules: def.rules ?? [], ...(def.scales && { scales: def.scales }), ...(def.aggregates?.length && { aggregates: def.aggregates }),
         ...(def.forms?.length && { forms: def.forms }) }),
       JSON.stringify(fields), ts, parentId, newInbox()),
-    q('INSERT INTO case_participants (case_id, user_id, access, role, created_at) VALUES (?, ?, ?, ?, ?)', caseId, ownerId, 'case_owner', ownerRole, ts),
+    sql('INSERT INTO case_participants (case_id, user_id, access, role, created_at) VALUES (?, ?, ?, ?, ?)', caseId, ownerId, 'case_owner', ownerRole, ts),
   ];
   def.phases.forEach((p, i) => {
     const phaseId = uid();
-    stmts.push(q('INSERT INTO phases (id, case_id, title, position) VALUES (?, ?, ?, ?)', phaseId, caseId, p.title, i));
-    p.tasks.forEach((t, j) => stmts.push(q(
+    stmts.push(sql('INSERT INTO phases (id, case_id, title, position) VALUES (?, ?, ?, ?)', phaseId, caseId, p.title, i));
+    p.tasks.forEach((t, j) => stmts.push(sql(
       `INSERT INTO tasks (id, case_id, phase_id, title, description, type, role, depends_on, doc_type, due_date, position, created_by, created_at, money, visible_to, labels, assess, key, due_field, form, files)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       taskIds[t.key], caseId, phaseId, t.title, t.description ?? null, t.type, t.role ?? null,
@@ -187,7 +190,7 @@ export function instantiate(tpl, { title, fields: input = {}, ownerId, actorId =
       t.due_field ? (isDate(fields[t.due_field]) ? fields[t.due_field] : null) : due(t.due_days), j, ownerId, ts,
       t.money ? JSON.stringify(t.money) : null, JSON.stringify(t.visible_to ?? []), t.labels ? JSON.stringify(t.labels) : null, t.assess ?? null, t.key, t.due_field ?? null, t.form ?? null, t.files ? JSON.stringify(t.files) : null)));
   });
-  stmts.push(ev(caseId, actorId, 'case.created', { template: tpl.name, version: tpl.version, ...by }, ['*']));
+  stmts.push(event(caseId, actorId, 'case.created', { template: tpl.name, version: tpl.version, ...by }, ['*']));
   return { caseId, stmts };
 }
 
@@ -233,29 +236,30 @@ function caseDefinition(c, def, phases, tasks) {
   });
 }
 
-export async function saveAsTemplate({ user, params, body }) {
+export async function saveAsTemplate(rq) {
+  const { user, params, body, row, sql, batch, event, wsEvent } = rq;
   const ctx = await caseCtx(user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
   await requireWsOwner(user, ctx.c.workspace_id);
-  const [phases, tasks] = (await DB.batch([
-    q('SELECT * FROM phases WHERE case_id = ? ORDER BY position', ctx.c.id),
-    q('SELECT t.* FROM tasks t LEFT JOIN phases p ON p.id = t.phase_id WHERE t.case_id = ? ORDER BY p.position, t.position, t.created_at', ctx.c.id),
+  const [phases, tasks] = (await batch([
+    sql('SELECT * FROM phases WHERE case_id = ? ORDER BY position', ctx.c.id),
+    sql('SELECT t.* FROM tasks t LEFT JOIN phases p ON p.id = t.phase_id WHERE t.case_id = ? ORDER BY p.position, t.position, t.created_at', ctx.c.id),
   ])).map(r => r.results);
   const def = caseDefinition(ctx.c, ctx.def, phases, tasks);
   let templateId, name, version;
   if (body.template_id) {
     const t = (await row('SELECT * FROM templates WHERE id = ? AND workspace_id = ?', body.template_id, ctx.c.workspace_id)) ?? fail(404, 'Vorlage nicht gefunden');
-    [templateId, name, version] = [t.id, t.name, await nextVersion(t.id)];
-    await DB.batch([versionStmt(t.id, version, def, user.id), wsEv(ctx.c.workspace_id, user.id, 'template.version', { template: name, version })]);
+    [templateId, name, version] = [t.id, t.name, await nextVersion(rq, t.id)];
+    await batch([versionStmt(rq, t.id, version, def, user.id), wsEvent(ctx.c.workspace_id, user.id, 'template.version', { template: name, version })]);
   } else {
     name = String(body.name ?? '').trim().slice(0, 80) || fail(400, 'Name der Vorlage fehlt');
     [templateId, version] = [uid(), 1];
-    await DB.batch([
-      q('INSERT INTO templates (id, workspace_id, name) VALUES (?, ?, ?)', templateId, ctx.c.workspace_id, name),
-      versionStmt(templateId, 1, def, user.id),
-      wsEv(ctx.c.workspace_id, user.id, 'template.created', { template: name }),
+    await batch([
+      sql('INSERT INTO templates (id, workspace_id, name) VALUES (?, ?, ?)', templateId, ctx.c.workspace_id, name),
+      versionStmt(rq, templateId, 1, def, user.id),
+      wsEvent(ctx.c.workspace_id, user.id, 'template.created', { template: name }),
     ]).catch(nameTaken(name));
   }
-  await ev(ctx.c.id, user.id, 'case.saved_as_template', { template: name, version }, []).run();
+  await event(ctx.c.id, user.id, 'case.saved_as_template', { template: name, version }, []).run();
   return { template_id: templateId, name, version };
 }

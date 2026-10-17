@@ -8,25 +8,27 @@ import { deDate, sendMail } from './notify.js';
 import { explainSignatures } from './signatures.js';
 import { inboxAddress } from './inbox.js';
 
-export async function createCase({ user, body }) {
-  const tpl = (await latestTemplate(body.template_id)) ?? fail(404, 'Vorlage nicht gefunden');
+export async function createCase(rq) {
+  const { user, body } = rq;
+  const tpl = (await latestTemplate(rq, body.template_id)) ?? fail(404, 'Vorlage nicht gefunden');
   if (tpl.archived_at) fail(409, 'Diese Vorlage ist archiviert.');
   (await row('SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?', tpl.workspace_id, user.id)) ?? fail(403, 'Kein Mitglied dieses Workspaces');
   const title = String(body.title ?? '').trim().slice(0, 200) || fail(400, 'Titel fehlt');
-  const { caseId, stmts } = instantiate(tpl, { title, fields: body.fields, ownerId: user.id });
+  const { caseId, stmts } = instantiate(rq, tpl, { title, fields: body.fields, ownerId: user.id });
   await DB.batch(stmts);
   return { id: caseId };
 }
 
 // A subcase is a case of its own (template, participants, rules); the parent only knows it exists.
-export async function addSubcase({ user, params, body }) {
+export async function addSubcase(rq) {
+  const { user, params, body } = rq;
   const ctx = await caseCtx(user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
-  const tpl = (await latestTemplate(body.template_id)) ?? fail(404, 'Vorlage nicht gefunden');
+  const tpl = (await latestTemplate(rq, body.template_id)) ?? fail(404, 'Vorlage nicht gefunden');
   if (tpl.workspace_id !== ctx.c.workspace_id) fail(400, 'Die Vorlage gehört zu einem anderen Workspace');
   if (tpl.archived_at) fail(409, 'Diese Vorlage ist archiviert.');
   const title = String(body.title ?? '').trim().slice(0, 200) || fail(400, 'Titel fehlt');
-  const { caseId, stmts } = instantiate(tpl, { title, fields: body.fields, ownerId: user.id, parentId: ctx.c.id });
+  const { caseId, stmts } = instantiate(rq, tpl, { title, fields: body.fields, ownerId: user.id, parentId: ctx.c.id });
   await DB.batch([...stmts, ev(ctx.c.id, user.id, 'subcase.created', { title, case_id: caseId, template: tpl.name }, [])]);
   return { id: caseId };
 }
