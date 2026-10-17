@@ -3,7 +3,7 @@ import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthe
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import { appVersion, arr, DB, E, ev, fail, hex, json, now, q, row, rows, rpId, sessionFrom, sha256, token, uid } from './core.js';
 import { caseCtx } from './access.js';
-import { sendMail } from './notify.js';
+import { checkSenderCap, mailAnswer, outboxStmt, sendFromOutbox } from './notify.js';
 import { CONSENT_VERSION } from '../public/shared/consent.js';
 
 // The canonical origin. Not the request URL: wrangler dev rewrites that to the production route.
@@ -56,24 +56,29 @@ const LOGIN_REQUEST_CAP = 60;
 const LINKS_PER_PERSON = 5;
 
 async function mailLoginLink(u, url, kind = null, sender = null) {
-  const t = token(), at = now(), day = 864e5;
-  const made = await q(`INSERT INTO login_links (token_hash, user_id, expires_at, kind) SELECT ?1, ?2, ?3, ?4
+  // A link whose mail has not gone out yet (the provider failed): asking again continues it – the same link.
+  const open = await row(`SELECT o.id FROM login_links l JOIN mail_outbox o ON o.ref = l.token_hash AND o.status = 'pending'
+    WHERE l.user_id = ? AND l.used_at IS NULL AND l.expires_at > ?`, u.id, now());
+  if (open) return mailAnswer(await sendFromOutbox(open.id));
+  if (sender) await checkSenderCap(sender);
+  const t = token(), hash = await sha256(t), at = now(), day = 864e5, mailId = uid();
+  const link = `${originOf(url)}/#/login/${t}`;
+  // The link and its mail in one transaction; the outbox row only goes in if the limits let the link in.
+  const [made] = await DB.batch([q(`INSERT INTO login_links (token_hash, user_id, expires_at, kind) SELECT ?1, ?2, ?3, ?4
     WHERE NOT EXISTS (SELECT 1 FROM login_links WHERE user_id = ?2 AND used_at IS NULL AND expires_at > ?5)
       AND (SELECT COUNT(*) FROM login_links WHERE user_id = ?2 AND expires_at > ?6) < ?7
       AND (?4 IS NULL OR (SELECT COUNT(*) FROM login_links WHERE kind = ?4 AND expires_at > ?6) < ?8)`,
-  await sha256(t), u.id, new Date(Date.now() + day).toISOString(), kind, new Date(Date.now() + day - 10 * 60e3).toISOString(), at, LINKS_PER_PERSON, LOGIN_REQUEST_CAP).run();
+  hash, u.id, new Date(Date.now() + day).toISOString(), kind, new Date(Date.now() + day - 10 * 60e3).toISOString(), at, LINKS_PER_PERSON, LOGIN_REQUEST_CAP),
+  outboxStmt({ id: mailId, kind: 'login_link', ref: hash, to: u.email, subject: 'Ihr Anmeldelink für NomoCase', sender, mailKind: kind, paragraphs: [
+    `Guten Tag ${u.name},`,
+    `mit diesem Link melden Sie sich bei NomoCase an:\n${link}`,
+    'Der Link ist 24 Stunden gültig und funktioniert nur einmal. Richten Sie danach am besten einen Passkey ein, dann brauchen Sie keinen Link mehr.',
+    'Falls Sie keinen Anmeldelink angefordert haben, ignorieren Sie diese E-Mail einfach.'] })]);
   if (!made.meta.changes) {
     if (kind && (await row('SELECT COUNT(*) AS n FROM login_links WHERE kind = ? AND expires_at > ?', kind, at)).n >= LOGIN_REQUEST_CAP) console.error('login link requests: daily cap reached');
     return { throttled: true };
   }
-  const link = `${originOf(url)}/#/login/${t}`;
-  const sent = await sendMail(u.email, 'Ihr Anmeldelink für NomoCase', [
-    `Guten Tag ${u.name},`,
-    `mit diesem Link melden Sie sich bei NomoCase an:\n${link}`,
-    'Der Link ist 24 Stunden gültig und funktioniert nur einmal. Richten Sie danach am besten einen Passkey ein, dann brauchen Sie keinen Link mehr.',
-    'Falls Sie keinen Anmeldelink angefordert haben, ignorieren Sie diese E-Mail einfach.',
-  ], { kind, sender });
-  return { sent, link };
+  return { ...mailAnswer(await sendFromOutbox(mailId)), link };
 }
 
 export async function requestLoginLink({ body, url, exec }) {
@@ -96,9 +101,9 @@ export async function sendParticipantLink({ user, params, url }) {
     ?? fail(404, 'Nicht (mehr) beteiligt');
   const r = await mailLoginLink(p, url, null, user.id);
   if (r.throttled) fail(429, 'Es wurde gerade erst (oder heute schon mehrmals) ein Anmeldelink verschickt. Bitte später erneut versuchen.');
-  if (!r.sent) fail(502, 'Die E-Mail konnte nicht verschickt werden.');
   await ev(ctx.c.id, user.id, 'participant.link_sent', { name: p.name }, []).run();
-  return E.DEV_LOGIN ? { sent: true, link: r.link } : { sent: true };
+  const answer = { sent: r.sent, queued: r.queued }; // queued: the outbox delivers it as soon as the provider takes it
+  return E.DEV_LOGIN && r.link ? { ...answer, link: r.link } : answer;
 }
 
 export async function useLoginLink({ body, url }) {

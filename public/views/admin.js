@@ -1,6 +1,6 @@
 // Workspace administration: templates and people.
 import { input, me, on, submit } from '../state.js';
-import { ACCESS_LABELS, api, count, date, dateTime, html, page, reload } from '../lib.js';
+import { ACCESS_LABELS, api, count, date, dateTime, html, mailNotice, page, reload } from '../lib.js';
 import { fillForm } from '../shared/forms.js';
 
 // Admin overview (workspace owners): who has an account, how they log in, where they take part, open invitations –
@@ -58,9 +58,7 @@ input.peopleSearch = el => {
   for (const card of document.querySelectorAll('main .card[data-search]')) card.hidden = !words.every(w => card.dataset.search.includes(w));
 };
 on.peopleReinvite = async ({ case: caseId, email, role }) => {
-  const { sent, link } = await api(`/cases/${caseId}/invitations`, { body: { email, role } });
-  if (link) prompt(sent ? 'E-Mail verschickt. Lokal zusätzlich der Link:' : 'E-Mail-Versand gerade nicht möglich. Bitte den Link selbst schicken:', link);
-  else alert(`Neue Einladung an ${email} verschickt.`);
+  mailNotice(await api(`/cases/${caseId}/invitations`, { body: { email, role } }), `Neue Einladung an ${email}`);
   reload();
 };
 on.peopleWithdraw = async ({ case: caseId, email }) => {
@@ -69,9 +67,7 @@ on.peopleWithdraw = async ({ case: caseId, email }) => {
   reload();
 };
 on.peopleLink = async ({ case: caseId, user, name }) => {
-  const { link } = await api(`/cases/${caseId}/participants/${user}/login-link`, { body: {} });
-  if (link) prompt(`Lokal: Anmeldelink für ${name}`, link);
-  else alert(`Anmeldelink an ${name} verschickt.`);
+  mailNotice(await api(`/cases/${caseId}/participants/${user}/login-link`, { body: {} }), `Anmeldelink für ${name}`);
 };
 on.peopleRevoke = async ({ case: caseId, user, name, title }) => {
   if (!confirm(`Zugang von ${name} zu „${title}“ beenden?`)) return;

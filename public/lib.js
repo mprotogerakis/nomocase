@@ -111,3 +111,10 @@ export const page = (...parts) => show(html`${header()}${parts}`);
 
 // Re-runs the router for the current hash (app.js listens to hashchange).
 export const reload = () => dispatchEvent(new HashChangeEvent('hashchange'));
+
+// What became of a mail with a link (invitation, login link): handed over, or queued – the server delivers it as soon as
+// the mail provider takes it. Locally the link comes back too, for testing.
+export function mailNotice({ sent, link }, what) {
+  if (link) prompt(`${sent ? 'E-Mail verschickt' : 'E-Mail noch nicht zugestellt'}. Lokal zusätzlich der Link:`, link);
+  else alert(sent ? `${what} per E-Mail verschickt.` : `${what} ist angelegt. Die E-Mail wird automatisch zugestellt, sobald der Mail-Anbieter wieder erreichbar ist.`);
+}

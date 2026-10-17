@@ -1,7 +1,7 @@
 // Case page for the team and for guests: frame, timeline, details (fields, people, subcases, rules), case actions.
 import { filesHint, RULE_FIELD_LABELS, RULE_OP_LABELS, RULE_TRIGGER_LABELS, STAFF } from '../shared/vocab.js';
 import { change, cur, me, on, set, submit } from '../state.js';
-import { ACCESS_LABELS, api, CAN, count, date, dateTime, due, eur, go, html, linkify, page, reload, shortHash, today, TYPES, VERDICT } from '../lib.js';
+import { ACCESS_LABELS, api, CAN, count, date, dateTime, due, eur, go, html, linkify, mailNotice, page, reload, shortHash, today, TYPES, VERDICT } from '../lib.js';
 import { addTaskForm, aggregatesSummary, canWork, questionsTo, resultsOf, taskActions, taskItem, taskResult } from './tasks.js';
 import { documents, verifyFile } from './documents.js';
 import { financeSection, moneyWord } from './finance.js';
@@ -412,9 +412,7 @@ on.deleteCase = async () => {
 };
 
 on.reinvite = async ({ email, role }) => {
-  const { sent, link } = await api(caseApi('/invitations'), { body: { email, role } });
-  if (link) prompt(sent ? 'E-Mail verschickt. Lokal zusätzlich der Link:' : 'E-Mail-Versand gerade nicht möglich. Bitte den Link selbst schicken:', link);
-  else alert(`Neue Einladung an ${email} verschickt.`);
+  mailNotice(await api(caseApi('/invitations'), { body: { email, role } }), `Neue Einladung an ${email}`);
   reload();
 };
 
@@ -427,9 +425,7 @@ on.withdraw = async ({ email }) => {
 };
 
 on.sendLink = async ({ id, name }) => {
-  const { link } = await api(caseApi(`/participants/${id}/login-link`), { body: {} });
-  if (link) prompt(`Lokal: Anmeldelink für ${name}`, link);
-  else alert(`Anmeldelink an ${name} verschickt.`);
+  mailNotice(await api(caseApi(`/participants/${id}/login-link`), { body: {} }), `Anmeldelink für ${name}`);
 };
 
 on.inviteRole = ({ role }) => {
@@ -459,11 +455,9 @@ submit.request = async fd => { await api(caseApi('/tasks'), { body: Object.fromE
 
 submit.invite = async fd => {
   const role = fd.get('role');
-  const { sent, link } = await api(caseApi('/invitations'), { body: {
+  mailNotice(await api(caseApi('/invitations'), { body: {
     email: fd.get('email'), access_until: fd.get('access_until'),
     ...(role === '__new' ? { new_role: { label: fd.get('new_label'), access: fd.get('new_access') } } : { role }),
-  } });
-  if (!link) alert(`Einladung an ${fd.get('email')} per E-Mail verschickt.`);
-  else prompt(sent ? 'E-Mail verschickt. Lokal zusätzlich der Link:' : 'E-Mail-Versand gerade nicht möglich. Bitte den Link selbst schicken (wird nur jetzt angezeigt):', link);
+  } }), `Einladung an ${fd.get('email')}`);
   reload();
 };

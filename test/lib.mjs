@@ -47,6 +47,7 @@ export const tokenOf = link => link.split('/invite/')[1];
 // Direct look into the local D1 (only for checks the API deliberately doesn't expose).
 // Local runs start with a fresh daily mail quota per sender (tests run many times a day).
 export const freshMailQuota = () => new URL(BASE).hostname === 'localhost' && sql('DELETE FROM mail_log WHERE sender_id IS NOT NULL')
+  && sql("DELETE FROM mail_outbox WHERE sender_id IS NOT NULL AND status <> 'pending'") // the cap counts these too
   && sql("UPDATE login_links SET kind = NULL WHERE kind = 'login_request'"); // self-service links of earlier runs
 
 export const sql = query => JSON.parse(execFileSync('npx', ['wrangler', 'd1', 'execute', 'nomocase', '--local', '--json', '--command', query], { encoding: 'utf8' }))[0].results;

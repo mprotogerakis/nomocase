@@ -859,7 +859,41 @@ if (new URL(BASE).hostname === 'localhost') {
   sql(`DELETE FROM login_links WHERE token_hash LIKE 'cap-${run}-%'`);
   assert.ok((await expect(client()('/login-link/request', { body: { email: `pa.${run}@example.org` } }))).link, 'below the cap the link goes out again');
 
-  // Progress mails: bundled news from others, at most one per 20 minutes, and never beyond the daily cap.
+  // Mails with links go through an outbox (migration 0043). A provider error or timeout leaves the invitation in place
+// with its mail queued: asking again continues it (the same link), the cron retries it; an answer lost after the provider
+// accepted the mail is retried with the same Idempotency-Key; after five failed attempts the mail is given up and its
+// link stops working. (Locally, addresses @outbox.test play the provider's failures.)
+{
+  const cron = async () => assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=*/20+*+*+*+*`)).status, 200);
+  const due = () => sql("UPDATE mail_outbox SET next_attempt_at = '2000-01-01T00:00:00.000Z' WHERE status = 'pending'");
+  const mail = email => sql(`SELECT o.status, o.attempts, o.body IS NULL AS erased, (SELECT COUNT(DISTINCT outbox_id) FROM mail_log WHERE outbox_id = o.id) AS keys
+    FROM mail_outbox o WHERE o.recipient = '${email}'`);
+  const inviteTo = email => expect(prof(`/cases/${caseId}/invitations`, { body: { email, role: 'office' } }));
+  const linkOf = email => sql(`SELECT token_hash FROM invitations WHERE email = '${email}'`)[0]?.token_hash;
+
+  const failOnce = `fail-once.${run}@outbox.test`;
+  assert.deepEqual((({ sent, queued }) => ({ sent, queued }))(await inviteTo(failOnce)), { sent: false, queued: true }, 'provider error: queued, no error for the inviter');
+  const firstLink = linkOf(failOnce);
+  assert.deepEqual((({ sent, queued }) => ({ sent, queued }))(await inviteTo(failOnce)), { sent: true, queued: false });
+  assert.equal(linkOf(failOnce), firstLink, 'asking again continued the same invitation – the same link');
+  assert.deepEqual(mail(failOnce), [{ status: 'sent', attempts: 2, erased: 1, keys: 1 }], 'one mail, its text (with the link) erased once sent');
+
+  for (const mode of ['timeout-once', 'lost']) {
+    const email = `${mode}.${run}@outbox.test`;
+    assert.equal((await inviteTo(email)).queued, true, mode);
+    due();
+    await cron();
+    assert.deepEqual(mail(email), [{ status: 'sent', attempts: 2, erased: 1, keys: 1 }], `${mode}: the cron delivered it, with the same key both times`);
+  }
+
+  const never = `fail-always.${run}@outbox.test`;
+  const { link: dead } = await inviteTo(never);
+  for (let i = 0; i < 4; i++) { due(); await cron(); }
+  assert.deepEqual(mail(never), [{ status: 'failed', attempts: 5, erased: 1, keys: 1 }], 'given up after five attempts');
+  await expect(client()('/invitations/lookup', { body: { token: tokenOf(dead) } }), 404, 'nobody got the link: it no longer works');
+}
+
+// Progress mails: bundled news from others, at most one per 20 minutes, and never beyond the daily cap.
   const runProgress = async () => assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=*/20+*+*+*+*`)).status, 200);
   const progressOf = email => sql(`SELECT progress_mail_at AS at FROM users WHERE email = '${email}'`)[0].at;
   const studentMail = `max.${run}@example.org`;

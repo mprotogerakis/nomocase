@@ -140,8 +140,12 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Abgeschlossene Vorgänge sind schreibgeschützt (Entscheidung 17.10.): Datenbank-Trigger in jeder Schreib-Transaktion
   (Schritte, Phasen, Dokumente, Fassungen, Signaturen, Geld, Upload-Links, Angaben/Definition/Titel, Kommentare);
   erlaubt bleiben Abschließen/Wiederöffnen, Zugänge, Verschieben, Löschen (Löschvermerk). Oberfläche blendet Bearbeitung aus.
-- [ ] Architektur-Review 17.10., in dieser Reihenfolge: Mail-Outbox für Einladungs-/Anmeldelinks; Regel-Wiederholung mit
-  Dauerfehler; expliziter Anfragekontext statt `DB`/`E`; Importzyklen auflösen (+ Prüfung); Testisolation je Lauf
+- [x] Mail-Outbox für Mails mit Link (Einladungen, Anmeldelinks): Eintrag in derselben Transaktion wie der Link, sofortiger
+  Versuch, Wiederholung im Cron (1/5/15/60 min), nach 5 Versuchen aufgegeben und Link entwertet; Text mit Link nur bis
+  zur Übergabe gespeichert; `Idempotency-Key` = Eintrags-ID (keine Doppelmail bei verlorener Antwort); erneutes
+  Einladen/Anfordern setzt eine ausstehende Mail fort (derselbe Link). Upload-Link-Mails nicht: Team bekommt den Link.
+- [ ] Architektur-Review 17.10., weiter in dieser Reihenfolge: Regel-Wiederholung mit Dauerfehler; expliziter
+  Anfragekontext statt `DB`/`E`; Importzyklen auflösen (+ Prüfung); Testisolation je Lauf
 - [x] Passkey-Anmeldung ohne Schreibzugriff für Anonyme: Challenges sind signiert („Ablauf.Nonce.HMAC“, Schlüssel in
   `app_secrets`, beim ersten Gebrauch erzeugt); erst eine erfolgreiche Anmeldung verbraucht ihre Challenge (kein Replay)
 - [x] Vorlagen-Editor, Stufe 1: Rollen, Angaben, Dokumenttypen, Phasen und Schritte (Typ, Rolle, Reihenfolge, Frist,

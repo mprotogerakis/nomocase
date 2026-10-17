@@ -9,7 +9,7 @@ import { addClaim, addDecision, addTransaction, BOOKED_ONCE, reverseTransaction,
 import { processRules, toggleRule } from './rules.js';
 import { createUploadLink, deleteVersion, download, getUploadLink, revokeUploadLinks, sweepOrphanFiles, updateDocument, upload, useUploadLink } from './documents.js';
 import { acceptInvitation, declineInvitation, getInvitation, invite, peopleOverview, revoke, withdrawInvitation } from './people.js';
-import { DAILY_CRON, sendDigests, sendProgress, testMail } from './notify.js';
+import { DAILY_CRON, processOutbox, sendDigests, sendProgress, testMail } from './notify.js';
 import { addSigningKey, addTrustedIssuer, assignSignature, claimSignature, mySigningKeys, removeSigningKey, removeTrustedIssuer } from './signatures.js';
 import { receiveMail } from './inbox.js';
 import { taskForm } from './forms.js';
@@ -155,6 +155,7 @@ export default {
     const failed = [];
     const step = async (name, fn) => { try { await fn(); } catch (e) { console.error(`cron ${name}`, e.message); failed.push(name); } };
     await step('rules', processRules); // catch-up, e.g. after a request that failed midway
+    await step('outbox', processOutbox); // mails with links the provider did not take yet
     if (controller.cron === DAILY_CRON) {
       await step('retention', applyRetention);
       await step('digests', sendDigests);
@@ -164,6 +165,7 @@ export default {
         q('DELETE FROM sessions WHERE expires_at < ?', now()),
         q('DELETE FROM login_links WHERE expires_at < ?', now()),
         q('DELETE FROM challenges WHERE expires_at < ?', now()),
+        q("DELETE FROM mail_outbox WHERE status <> 'pending' AND created_at < ?", new Date(Date.now() - 30 * 864e5).toISOString()),
       ]));
       await step('file sweep', sweepOrphanFiles);
     } else {

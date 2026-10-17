@@ -1,6 +1,6 @@
 // Workspaces: create and rename them, members with their role, invitations, deleting an empty workspace.
 import { change, me, on, submit } from '../state.js';
-import { api, count, date, dateTime, esc, go, html, page, reload } from '../lib.js';
+import { api, count, date, dateTime, esc, go, html, mailNotice, page, reload } from '../lib.js';
 
 const ROLES = [['member', 'Mitglied'], ['owner', 'Owner']];
 const roleSelect = (name, selected, attrs = '') => html`<select name="${name}" ${attrs}>${ROLES.map(([k, label]) =>
@@ -65,9 +65,7 @@ export async function workspacesView() {
   </main>`);
 }
 
-const invited = (email, { sent, link }) => (link
-  ? prompt(sent ? 'E-Mail verschickt. Lokal zusätzlich der Link:' : 'E-Mail-Versand gerade nicht möglich. Bitte den Link selbst schicken:', link)
-  : alert(`Einladung an ${email} verschickt.`));
+const invited = (email, answer) => mailNotice(answer, `Einladung an ${email}`);
 
 submit.wsCreate = async fd => { await api('/workspaces', { body: { name: fd.get('name') } }); reload(); };
 submit.wsRename = async (fd, form) => { await api(`/workspaces/${form.dataset.id}`, { method: 'PATCH', body: { name: fd.get('name') } }); reload(); };

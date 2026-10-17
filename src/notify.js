@@ -24,18 +24,23 @@ const CONSENTED = 'EXISTS (SELECT 1 FROM consents k WHERE k.user_id = u.id AND k
 // quota for everyone else (and with it everyone's invitations and login links).
 const PER_SENDER = 30, PER_OWNER = 150;
 
+// Counted per mail the person caused today: plain mails by their attempts, outbox mails once each (however often retried).
+export async function checkSenderCap(sender) {
+  const { n, owner } = await row(`SELECT (SELECT COUNT(*) FROM mail_log WHERE sender_id = ?1 AND outbox_id IS NULL AND sent_at >= ?2)
+      + (SELECT COUNT(*) FROM mail_outbox WHERE sender_id = ?1 AND created_at >= ?2) AS n,
+    EXISTS (SELECT 1 FROM workspace_members WHERE user_id = ?1 AND role = 'owner') AS owner`, sender, now().slice(0, 10));
+  const cap = owner ? PER_OWNER : PER_SENDER;
+  if (n >= cap) fail(429, `Über Ihr Konto gingen heute schon ${cap} E-Mails hinaus. Morgen geht es weiter.`);
+}
+
 export async function sendMail(to, subject, paragraphs, { replyTo, bulk = false, kind = null, sender = null } = {}) {
   return (await deliver(to, subject, paragraphs, { replyTo, bulk, kind, sender })).ok;
 }
 
-// Same, with the provider's answer (for the test mail on the account page).
-export async function deliver(to, subject, paragraphs, { replyTo, bulk = false, kind = null, sender = null } = {}) {
-  if (sender) {
-    const { n, owner } = await row(`SELECT (SELECT COUNT(*) FROM mail_log WHERE sender_id = ?1 AND sent_at >= ?2) AS n,
-      EXISTS (SELECT 1 FROM workspace_members WHERE user_id = ?1 AND role = 'owner') AS owner`, sender, now().slice(0, 10));
-    const cap = owner ? PER_OWNER : PER_SENDER;
-    if (n >= cap) fail(429, `Über Ihr Konto gingen heute schon ${cap} E-Mails hinaus. Morgen geht es weiter.`);
-  }
+// Same, with the provider's answer (for the test mail on the account page). `outboxId`: the outbox mail this attempt
+// is for – sent as Idempotency-Key (its sender was counted when it was queued).
+export async function deliver(to, subject, paragraphs, { replyTo, bulk = false, kind = null, sender = null, outboxId = null } = {}) {
+  if (sender && !outboxId) await checkSenderCap(sender);
   if (bulk && (await mailsToday(true)) >= bulkCap()) {
     console.error('sendMail skipped: daily cap for digest/progress mails reached');
     return { ok: false, error: 'Tageskontingent für Sammelmails erreicht' };
@@ -45,13 +50,14 @@ export async function deliver(to, subject, paragraphs, { replyTo, bulk = false, 
   if (!E.RESEND_API_KEY) {
     if (!E.DEV_LOGIN) return { ok: false, error: 'kein Mail-Anbieter eingerichtet' };
     console.log(`[mail] to ${to}: ${subject}\n${text}`);
-    r = { ok: true, status: 200 };
+    r = await devProvider(to, outboxId);
   } else {
     try {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
-        headers: { authorization: `Bearer ${E.RESEND_API_KEY}`, 'content-type': 'application/json' },
+        headers: { authorization: `Bearer ${E.RESEND_API_KEY}`, 'content-type': 'application/json', ...(outboxId && { 'idempotency-key': outboxId }) },
         body: JSON.stringify({ from: E.MAIL_FROM, to: [to], subject, text, ...(replyTo && { reply_to: replyTo }) }),
+        signal: AbortSignal.timeout(10e3), // a hanging provider must not hold the request; the outbox tries again
       });
       const body = await res.text();
       r = { ok: res.ok, status: res.status, ...(res.ok ? { id: JSON.parse(body).id } : { error: body.slice(0, 300) }) };
@@ -60,10 +66,70 @@ export async function deliver(to, subject, paragraphs, { replyTo, bulk = false, 
     }
     if (!r.ok) console.error('sendMail failed', r.status, r.error);
   }
-  await q('INSERT INTO mail_log (bulk, kind, sent_at, ok, status, error, sender_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    bulk ? 1 : 0, kind, now(), r.ok ? 1 : 0, r.status ?? null, r.error ?? null, sender).run();
+  await q('INSERT INTO mail_log (bulk, kind, sent_at, ok, status, error, sender_id, outbox_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    bulk ? 1 : 0, kind, now(), r.ok ? 1 : 0, r.status ?? null, r.error ?? null, sender, outboxId).run();
   return r;
 }
+
+// Locally there is no provider: mails are only logged. Addresses <mode>.…@outbox.test play its failures for the tests:
+// fail-once (an error, then fine), timeout-once, lost (accepted, but the answer never came – the retry carries the
+// same Idempotency-Key, so a real provider answers without sending again), fail-always.
+async function devProvider(to, outboxId) {
+  const [name, domain] = to.split('@'), mode = name.split('.')[0];
+  if (domain !== 'outbox.test') return { ok: true, status: 200 };
+  const first = !outboxId || !(await row('SELECT 1 FROM mail_log WHERE outbox_id = ?', outboxId));
+  if (mode === 'fail-always' || (mode === 'fail-once' && first)) return { ok: false, status: 500, error: 'provider error (test)' };
+  if (mode === 'timeout-once' && first) return { ok: false, error: 'The operation was aborted due to timeout (test)' };
+  if (mode === 'lost' && first) return { ok: false, error: 'connection lost after the provider accepted the mail (test)' };
+  return { ok: true, status: 200 };
+}
+
+// --- Outbox: mails that carry a link (migration 0043) ---------------------------------------------------------------
+// outboxStmt goes into the batch that makes the link (and only inserts if the link is there); sendFromOutbox hands it
+// over right away, processOutbox (cron) retries what is due. After MAX_ATTEMPTS the mail is given up and its link
+// stops working: nobody got it, so nobody should be able to use it.
+const LINK_TABLES = { invitation: 'invitations', workspace_invitation: 'workspace_invitations', login_link: 'login_links' };
+const RETRY_MINUTES = [1, 5, 15, 60];
+const MAX_ATTEMPTS = RETRY_MINUTES.length + 1;
+
+export const outboxStmt = ({ id, kind, ref, to, subject, paragraphs, replyTo = null, sender = null, mailKind = null }) =>
+  q(`INSERT INTO mail_outbox (id, kind, ref, recipient, subject, body, reply_to, sender_id, mail_kind, next_attempt_at, created_at)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM ${LINK_TABLES[kind]} WHERE token_hash = ?)`,
+  id, kind, ref, to, subject, paragraphs.join('\n\n'), replyTo, sender, mailKind, now(), now(), ref);
+
+const giveUp = m => ({
+  invitation: q('UPDATE invitations SET expires_at = ? WHERE token_hash = ? AND accepted_at IS NULL', now(), m.ref),
+  workspace_invitation: q('UPDATE workspace_invitations SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL', now(), m.ref),
+  login_link: q('UPDATE login_links SET expires_at = ? WHERE token_hash = ? AND used_at IS NULL', now(), m.ref),
+}[m.kind]);
+
+// One attempt for a pending outbox mail: { ok } – ok also when it had gone out before (e.g. by the cron meanwhile).
+export async function sendFromOutbox(id) {
+  const m = await row("SELECT * FROM mail_outbox WHERE id = ? AND status = 'pending'", id);
+  if (!m) return { ok: (await row('SELECT status FROM mail_outbox WHERE id = ?', id))?.status === 'sent' };
+  const r = await deliver(m.recipient, m.subject, [m.body], { replyTo: m.reply_to, kind: m.mail_kind, sender: m.sender_id, outboxId: m.id });
+  const attempts = m.attempts + 1, error = r.ok ? null : r.error ?? `HTTP ${r.status}`;
+  if (r.ok) {
+    await q("UPDATE mail_outbox SET status = 'sent', body = NULL, attempts = ?, last_error = NULL, sent_at = ? WHERE id = ?", attempts, now(), m.id).run();
+  } else if (attempts >= MAX_ATTEMPTS) {
+    console.error('outbox: given up', m.kind, m.id, error);
+    await DB.batch([q("UPDATE mail_outbox SET status = 'failed', body = NULL, attempts = ?, last_error = ? WHERE id = ?", attempts, error, m.id), giveUp(m)]);
+  } else {
+    await q('UPDATE mail_outbox SET attempts = ?, last_error = ?, next_attempt_at = ? WHERE id = ?',
+      attempts, error, new Date(Date.now() + RETRY_MINUTES[attempts - 1] * 60e3).toISOString(), m.id).run();
+  }
+  return r;
+}
+
+// Cron: retries the pending mails that are due (a few per run: the free plan allows 50 subrequests per run).
+export async function processOutbox() {
+  for (const { id } of await rows("SELECT id FROM mail_outbox WHERE status = 'pending' AND next_attempt_at <= ? ORDER BY next_attempt_at LIMIT 10", now())) {
+    await sendFromOutbox(id);
+  }
+}
+
+// What the person who caused the mail is told: handed over, or queued and retried by itself.
+export const mailAnswer = r => ({ sent: !!r.ok, queued: !r.ok });
 
 // Account page: a test mail to oneself shows whether sending works and what the provider answered. At most 3 per hour.
 export async function testMail({ user }) {

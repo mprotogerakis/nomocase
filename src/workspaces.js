@@ -4,7 +4,7 @@
 import { DB, E, fail, now, q, row, rows, rpId, sha256, token, uid, wsEv } from './core.js';
 import { requireWsOwner } from './access.js';
 import { originOf } from './auth.js';
-import { sendMail } from './notify.js';
+import { checkSenderCap, mailAnswer, outboxStmt, sendFromOutbox } from './notify.js';
 import { trustedIssuersOf } from './signatures.js';
 
 export const WORKSPACE_ROLES = { owner: 'Owner', member: 'Mitglied' };
@@ -138,26 +138,30 @@ export async function inviteToWorkspace({ user, params, body, url }) {
   if ((await row('SELECT COUNT(*) AS n FROM workspace_invitations WHERE created_by = ? AND email = ? AND created_at >= ?', user.id, email, now().slice(0, 10))).n >= 5) {
     fail(429, 'An diese Adresse gingen heute schon fünf Einladungen.');
   }
-  const t = token();
+  // The open invitation's mail has not gone out yet: asking again continues it – same link (as for case invitations).
+  const open = await row(`SELECT o.id FROM workspace_invitations i JOIN mail_outbox o ON o.ref = i.token_hash AND o.status = 'pending'
+    WHERE i.workspace_id = ? AND i.email = ? AND i.role = ? AND i.accepted_at IS NULL AND i.revoked_at IS NULL`, params.id, email, role);
+  if (open) return mailAnswer(await sendFromOutbox(open.id));
+  await checkSenderCap(user.id);
+  const t = token(), hash = await sha256(t), mailId = uid();
+  const link = `${originOf(url)}/#/invite/${t}`;
   await DB.batch([
     // inviting again replaces the open invitation
     q('UPDATE workspace_invitations SET revoked_at = ? WHERE workspace_id = ? AND email = ? AND accepted_at IS NULL AND revoked_at IS NULL', now(), params.id, email),
     q('INSERT INTO workspace_invitations (token_hash, workspace_id, email, role, expires_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      await sha256(t), params.id, email, role, new Date(Date.now() + 14 * 864e5).toISOString(), user.id, now()),
+      hash, params.id, email, role, new Date(Date.now() + 14 * 864e5).toISOString(), user.id, now()),
+    outboxStmt({ id: mailId, kind: 'workspace_invitation', ref: hash, to: email, subject: `Einladung in den Workspace „${ws.name}“`,
+      replyTo: user.email, sender: user.id, paragraphs: [
+        'Guten Tag,',
+        `${user.name} lädt Sie in NomoCase in den Workspace „${ws.name}“ ein, als ${WORKSPACE_ROLES[role]}.`,
+        `Einladung annehmen:\n${link}`,
+        'Der Link ist 14 Tage gültig und funktioniert nur einmal. Danach richten Sie einen Passkey ein, mit dem Sie sich künftig anmelden.',
+        'Falls Sie diese Einladung nicht erwartet haben, ignorieren Sie diese E-Mail einfach.'] }),
     wsEv(params.id, user.id, 'member.invited', { email, role }),
   ]);
-  const link = `${originOf(url)}/#/invite/${t}`;
-  const sent = await sendMail(email, `Einladung in den Workspace „${ws.name}“`, [
-    'Guten Tag,',
-    `${user.name} lädt Sie in NomoCase in den Workspace „${ws.name}“ ein, als ${WORKSPACE_ROLES[role]}.`,
-    `Einladung annehmen:\n${link}`,
-    'Der Link ist 14 Tage gültig und funktioniert nur einmal. Danach richten Sie einen Passkey ein, mit dem Sie sich künftig anmelden.',
-    'Falls Sie diese Einladung nicht erwartet haben, ignorieren Sie diese E-Mail einfach.',
-  ], { replyTo: user.email, sender: user.id });
+  const answer = mailAnswer(await sendFromOutbox(mailId));
   // As with case invitations: only the invitee may hold the link (locally it comes back for testing).
-  if (E.DEV_LOGIN) return { sent, link };
-  if (!sent) fail(502, 'Die Einladung konnte nicht per E-Mail verschickt werden. Bitte später erneut versuchen.');
-  return { sent };
+  return E.DEV_LOGIN ? { ...answer, link } : answer;
 }
 
 export async function withdrawWorkspaceInvitation({ user, params }) {

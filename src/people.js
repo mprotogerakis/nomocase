@@ -2,7 +2,7 @@
 import { DB, E, ev, fail, isDate, json, now, q, row, rows, rpId, sha256, token, uid, wsEv } from './core.js';
 import { caseCtx } from './access.js';
 import { consentStmt, hasConsent, originOf, sessionCookie } from './auth.js';
-import { bulkCap, sendMail } from './notify.js';
+import { bulkCap, checkSenderCap, mailAnswer, outboxStmt, sendFromOutbox } from './notify.js';
 import { workspaceInvitation, WORKSPACE_ROLES } from './workspaces.js';
 import { CONSENT_VERSION } from '../public/shared/consent.js';
 
@@ -32,30 +32,34 @@ export async function invite({ user, params, body, url }) {
   const sentToday = await row(`SELECT COUNT(*) AS n FROM events WHERE actor_id = ? AND created_at >= ? AND type = 'participant.invited'
     AND json_extract(payload, '$.email') = ?`, user.id, now().slice(0, 10), email);
   if (sentToday.n >= 5) fail(429, 'An diese Adresse gingen heute schon fünf Einladungen.');
-  const t = token();
+  // The open invitation's mail has not gone out yet (the provider failed): asking again continues it – same link.
+  const open = !body.new_role && await row(`SELECT o.id FROM invitations i JOIN mail_outbox o ON o.ref = i.token_hash AND o.status = 'pending'
+    WHERE i.case_id = ? AND i.email = ? AND i.role = ? AND i.accepted_at IS NULL`, ctx.c.id, email, role.key);
+  if (open) return { ...mailAnswer(await sendFromOutbox(open.id)), role: role.key };
+  await checkSenderCap(user.id);
+  const t = token(), hash = await sha256(t), mailId = uid();
   // Inviting the same address again (e.g. after the link expired) replaces the open invitation: one row, a fresh link.
   const again = await row('SELECT 1 FROM invitations WHERE case_id = ? AND email = ? AND accepted_at IS NULL', ctx.c.id, email);
+  const link = `${originOf(url)}/#/invite/${t}`;
   await DB.batch([
     ...stmts,
     q('DELETE FROM invitations WHERE case_id = ? AND email = ? AND accepted_at IS NULL', ctx.c.id, email),
     q('INSERT INTO invitations (token_hash, case_id, email, role, access, access_until, expires_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      await sha256(t), ctx.c.id, email, role.key, access, body.access_until ? `${body.access_until}T23:59:59` : null,
+      hash, ctx.c.id, email, role.key, access, body.access_until ? `${body.access_until}T23:59:59` : null,
       new Date(Date.now() + 14 * 864e5).toISOString(), user.id, now()),
+    // the mail with the link, in the same transaction (migration 0043); replies go to the inviter, the sender address has no mailbox
+    outboxStmt({ id: mailId, kind: 'invitation', ref: hash, to: email, subject: `Einladung: ${ctx.c.title}`, replyTo: user.email, sender: user.id, paragraphs: [
+      'Guten Tag,',
+      `${user.name} lädt Sie in NomoCase zum Vorgang „${ctx.c.title}“ ein. Sie sind dort als ${role.label} beteiligt.`,
+      `Einladung annehmen:\n${link}`,
+      'Der Link ist 14 Tage gültig und funktioniert nur einmal. Danach richten Sie einen Passkey ein, mit dem Sie sich künftig anmelden.',
+      'Falls Sie diese Einladung nicht erwartet haben, ignorieren Sie diese E-Mail einfach.'] }),
     ev(ctx.c.id, user.id, 'participant.invited', { email, role: role.label, ...(again && { again: true }) }, []),
   ]);
-  const link = `${originOf(url)}/#/invite/${t}`;
-  const sent = await sendMail(email, `Einladung: ${ctx.c.title}`, [
-    'Guten Tag,',
-    `${user.name} lädt Sie in NomoCase zum Vorgang „${ctx.c.title}“ ein. Sie sind dort als ${role.label} beteiligt.`,
-    `Einladung annehmen:\n${link}`,
-    'Der Link ist 14 Tage gültig und funktioniert nur einmal. Danach richten Sie einen Passkey ein, mit dem Sie sich künftig anmelden.',
-    'Falls Sie diese Einladung nicht erwartet haben, ignorieren Sie diese E-Mail einfach.',
-  ], { replyTo: user.email, sender: user.id }); // replies go to the inviter, the sender address has no mailbox
+  const answer = { ...mailAnswer(await sendFromOutbox(mailId)), role: role.key };
   // Only the invitee may ever hold the link: whoever accepts it chooses name and passkey of the new account.
   // (Locally it comes back for testing.)
-  if (E.DEV_LOGIN) return { sent, role: role.key, link };
-  if (!sent) fail(502, 'Die Einladung konnte nicht per E-Mail verschickt werden. Bitte später erneut versuchen.');
-  return { sent, role: role.key };
+  return E.DEV_LOGIN ? { ...answer, link } : answer;
 }
 
 export const accountByEmail = email =>
