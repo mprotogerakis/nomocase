@@ -1,5 +1,5 @@
 // Cases: dashboard, case view, fields, status, comments, phases, subcases, deletion and retention, change stamps.
-import { appVersion, arr, DB, E, ev, fail, isDate, now, q, roleList, row, rows, STAFF, uid, wsEv } from './core.js';
+import { appVersion, arr, fail, isDate, roleList, STAFF, uid } from './core.js';
 import { ACCESSIBLE, canSee, canSeeTask, caseCtx, requireWsOwner } from './access.js';
 import { instantiate, latestTemplate } from './templates.js';
 import { markBlocked } from './tasks.js';
@@ -9,19 +9,19 @@ import { explainSignatures } from './signatures.js';
 import { inboxAddress } from './inbox.js';
 
 export async function createCase(rq) {
-  const { user, body } = rq;
+  const { user, body, row, batch } = rq;
   const tpl = (await latestTemplate(rq, body.template_id)) ?? fail(404, 'Vorlage nicht gefunden');
   if (tpl.archived_at) fail(409, 'Diese Vorlage ist archiviert.');
   (await row('SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?', tpl.workspace_id, user.id)) ?? fail(403, 'Kein Mitglied dieses Workspaces');
   const title = String(body.title ?? '').trim().slice(0, 200) || fail(400, 'Titel fehlt');
   const { caseId, stmts } = instantiate(rq, tpl, { title, fields: body.fields, ownerId: user.id });
-  await DB.batch(stmts);
+  await batch(stmts);
   return { id: caseId };
 }
 
 // A subcase is a case of its own (template, participants, rules); the parent only knows it exists.
 export async function addSubcase(rq) {
-  const { user, params, body } = rq;
+  const { user, params, body, batch, event } = rq;
   const ctx = await caseCtx(user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
   const tpl = (await latestTemplate(rq, body.template_id)) ?? fail(404, 'Vorlage nicht gefunden');
@@ -29,7 +29,7 @@ export async function addSubcase(rq) {
   if (tpl.archived_at) fail(409, 'Diese Vorlage ist archiviert.');
   const title = String(body.title ?? '').trim().slice(0, 200) || fail(400, 'Titel fehlt');
   const { caseId, stmts } = instantiate(rq, tpl, { title, fields: body.fields, ownerId: user.id, parentId: ctx.c.id });
-  await DB.batch([...stmts, ev(ctx.c.id, user.id, 'subcase.created', { title, case_id: caseId, template: tpl.name }, [])]);
+  await batch([...stmts, event(ctx.c.id, user.id, 'subcase.created', { title, case_id: caseId, template: tpl.name }, [])]);
   return { id: caseId };
 }
 
@@ -40,41 +40,42 @@ export async function addSubcase(rq) {
 const seesEvent = u => `(e.actor_id = ${u} OR EXISTS (SELECT 1 FROM workspace_members m WHERE m.workspace_id = c.workspace_id AND m.user_id = ${u} AND m.role = 'owner')
   OR EXISTS (SELECT 1 FROM case_participants p WHERE p.case_id = c.id AND p.user_id = ${u} AND p.revoked_at IS NULL
     AND (p.access IN ('case_owner', 'case_editor') OR EXISTS (SELECT 1 FROM json_each(e.visible_to) j WHERE j.value IN ('*', p.role)))))`;
-const caseStamp = async (caseId, user) => String((await row(`SELECT MAX(e.id) AS v FROM events e JOIN cases c ON c.id = e.case_id
+const caseStamp = async (rq, caseId, user) => String((await rq.row(`SELECT MAX(e.id) AS v FROM events e JOIN cases c ON c.id = e.case_id
   WHERE e.case_id = ?1 AND ${seesEvent('?2')}`, caseId, user.id)).v ?? 0);
 
-const dashboardStamp = async user => {
-  const r = await row(`SELECT COUNT(*) AS n, MAX((SELECT MAX(e.id) FROM events e WHERE e.case_id = c.id AND ${seesEvent('?2')})) AS v
-    FROM cases c WHERE ${ACCESSIBLE}`, null, user.id, now());
+const dashboardStamp = async (rq, user) => {
+  const r = await rq.row(`SELECT COUNT(*) AS n, MAX((SELECT MAX(e.id) FROM events e WHERE e.case_id = c.id AND ${seesEvent('?2')})) AS v
+    FROM cases c WHERE ${ACCESSIBLE}`, null, user.id, rq.time);
   return `${r.n}:${r.v ?? 0}`;
 };
 
 // Polled by open pages (see app.js); one indexed lookup per call.
-export async function getChanges({ user, url }) {
+export async function getChanges(rq) {
+  const { user, url } = rq;
   const caseId = url.searchParams.get('case');
-  if (!caseId) return { stamp: await dashboardStamp(user), version: appVersion() };
+  if (!caseId) return { stamp: await dashboardStamp(rq, user), version: appVersion() };
   await caseCtx(user, caseId);
-  return { stamp: await caseStamp(caseId, user), version: appVersion() };
+  return { stamp: await caseStamp(rq, caseId, user), version: appVersion() };
 }
 
 const currentPhase = (phases, tasks) => phases.find(p => tasks.some(t => t.phase_id === p.id && t.status === 'open'))?.title ?? null;
 
 export async function getCase(rq) {
-  const { user, params } = rq;
+  const { user, params, row, rows, sql, batch, time } = rq;
   const ctx = await caseCtx(user, params.id);
   const id = ctx.c.id;
-  const [phases, tasks, docs, versions, events, parts, invites] = (await DB.batch([
-    q('SELECT * FROM phases WHERE case_id = ? ORDER BY position', id),
-    q(`SELECT t.*, cb.name AS completed_by_name FROM tasks t LEFT JOIN phases p ON p.id = t.phase_id LEFT JOIN users cb ON cb.id = t.completed_by
+  const [phases, tasks, docs, versions, events, parts, invites] = (await batch([
+    sql('SELECT * FROM phases WHERE case_id = ? ORDER BY position', id),
+    sql(`SELECT t.*, cb.name AS completed_by_name FROM tasks t LEFT JOIN phases p ON p.id = t.phase_id LEFT JOIN users cb ON cb.id = t.completed_by
        WHERE t.case_id = ? ORDER BY p.position IS NULL, p.position, t.position, t.created_at`, id),
-    q('SELECT * FROM documents WHERE case_id = ? ORDER BY created_at', id),
-    q(`SELECT v.id, v.document_id, v.version, v.filename, v.content_type, v.size, v.created_at, v.task_id, v.uploaded_by, v.sha256, v.form_values,
+    sql('SELECT * FROM documents WHERE case_id = ? ORDER BY created_at', id),
+    sql(`SELECT v.id, v.document_id, v.version, v.filename, v.content_type, v.size, v.created_at, v.task_id, v.uploaded_by, v.sha256, v.form_values,
          COALESCE(v.uploader_label, u.name) AS uploader
        FROM document_versions v JOIN documents d ON d.id = v.document_id LEFT JOIN users u ON u.id = v.uploaded_by
        WHERE d.case_id = ? ORDER BY v.version`, id),
-    q('SELECT e.*, u.name AS actor FROM events e LEFT JOIN users u ON u.id = e.actor_id WHERE e.case_id = ? ORDER BY e.id', id),
-    q('SELECT p.user_id, p.role, p.access, p.expires_at, p.revoked_at, u.name, u.email FROM case_participants p JOIN users u ON u.id = p.user_id WHERE p.case_id = ? ORDER BY p.created_at', id),
-    q('SELECT email, role, access, access_until, expires_at, expires_at <= ? AS expired FROM invitations WHERE case_id = ? AND accepted_at IS NULL', now(), id),
+    sql('SELECT e.*, u.name AS actor FROM events e LEFT JOIN users u ON u.id = e.actor_id WHERE e.case_id = ? ORDER BY e.id', id),
+    sql('SELECT p.user_id, p.role, p.access, p.expires_at, p.revoked_at, u.name, u.email FROM case_participants p JOIN users u ON u.id = p.user_id WHERE p.case_id = ? ORDER BY p.created_at', id),
+    sql('SELECT email, role, access, access_until, expires_at, expires_at <= ? AS expired FROM invitations WHERE case_id = ? AND accepted_at IS NULL', time, id),
   ])).map(r => r.results);
   markBlocked(tasks);
   // Guests see the phases (and the current one) of the steps they may see: titles of the others tell too much.
@@ -89,7 +90,7 @@ export async function getCase(rq) {
     'SELECT * FROM document_signatures WHERE version_id IN (SELECT value FROM json_each(?)) ORDER BY version_id, position', JSON.stringify(visibleVersions))) : [];
   const canVersion = (d, vs) => ctx.staff || (ctx.access !== 'guest_viewer' && !d.final && vs.at(-1)?.uploaded_by === user.id);
   return {
-    stamp: String(events.filter(e => canSee(ctx, e)).at(-1)?.id ?? 0), // same value as caseStamp(), read in the same batch as the data
+    stamp: String(events.filter(e => canSee(ctx, e)).at(-1)?.id ?? 0), // same value as caseStamp(rq), read in the same batch as the data
     case: {
       id, title: ctx.c.title, status: ctx.c.status, fields: ctx.staff ? JSON.parse(ctx.c.fields) : {}, created_at: ctx.c.created_at,
       template_name: ctx.c.template_name, template_version: ctx.c.template_version, phase: currentPhase(visiblePhases, visibleTasks),
@@ -114,15 +115,15 @@ export async function getCase(rq) {
     participants: ctx.staff ? parts : parts.filter(p => !p.revoked_at).map(({ name, role }) => ({ name, role })),
     invitations: ctx.owner ? invites : [],
     finance: ctx.staff ? financeSummary(await loadFinance(rq, [id])) : null, // guests never see money
-    parent: ctx.c.parent_case_id ? await row(`SELECT c.id, c.title FROM cases c WHERE c.id = ?1 AND ${ACCESSIBLE}`, ctx.c.parent_case_id, user.id, now()) : null,
+    parent: ctx.c.parent_case_id ? await row(`SELECT c.id, c.title FROM cases c WHERE c.id = ?1 AND ${ACCESSIBLE}`, ctx.c.parent_case_id, user.id, time) : null,
     // the phase of a subcase only for the team (it is computed from all its steps)
     subcases: (await rows(`SELECT c.id, c.title, c.status, t.name AS template,
         (SELECT ph.title FROM phases ph WHERE ph.case_id = c.id AND EXISTS (SELECT 1 FROM tasks k WHERE k.phase_id = ph.id AND k.status = 'open') ORDER BY ph.position LIMIT 1) AS phase
-      FROM cases c LEFT JOIN templates t ON t.id = c.template_id WHERE c.parent_case_id = ?1 AND ${ACCESSIBLE} ORDER BY c.created_at`, id, user.id, now()))
+      FROM cases c LEFT JOIN templates t ON t.id = c.template_id WHERE c.parent_case_id = ?1 AND ${ACCESSIBLE} ORDER BY c.created_at`, id, user.id, time))
       .map(s => (ctx.staff ? s : { ...s, phase: null })),
     templates: ctx.owner ? await rows('SELECT id, name FROM templates WHERE workspace_id = ? AND archived_at IS NULL ORDER BY name', ctx.c.workspace_id) : [],
     upload_links: ctx.staff ? await rows(`SELECT task_id, label, expires_at, single_use FROM upload_links
-      WHERE case_id = ? AND revoked_at IS NULL AND expires_at > ? AND (single_use = 0 OR used_at IS NULL)`, id, now()) : [],
+      WHERE case_id = ? AND revoked_at IS NULL AND expires_at > ? AND (single_use = 0 OR used_at IS NULL)`, id, time) : [],
     rule_runs: ctx.staff ? await rows(`SELECT rule_id, SUM(status = 'done') AS n, MAX(CASE WHEN status = 'done' THEN created_at END) AS last,
         SUM(status = 'error') AS errors, SUM(status = 'retry') AS retrying, (SELECT detail FROM automation_runs x WHERE x.case_id = r.case_id
           AND x.rule_id = r.rule_id AND x.status IN ('error', 'retry') ORDER BY x.created_at DESC LIMIT 1) AS error
@@ -133,7 +134,8 @@ export async function getCase(rq) {
 // Statements that set field values (checked like the Angaben form) and move open deadlines that come from a changed
 // date field: those of steps that remember the field, and older ones still on the old date.
 // The log names the changed fields, not their values (personal data stays out of the trail).
-export function fieldStmts(c, def, input, actorId, extra = {}) {
+export function fieldStmts(rq, c, def, input, actorId, extra = {}) {
+  const { sql, event } = rq;
   const old = JSON.parse(c.fields);
   const next = { ...old };
   const changed = [];
@@ -145,29 +147,31 @@ export function fieldStmts(c, def, input, actorId, extra = {}) {
   }
   if (!changed.length) return { changed, stmts: [] };
   const moves = changed.filter(f => f.type === 'date')
-    .map(f => q("UPDATE tasks SET due_date = ? WHERE case_id = ? AND status = 'open' AND (due_field = ? OR (due_date IS NOT NULL AND due_date = ?))",
+    .map(f => sql("UPDATE tasks SET due_date = ? WHERE case_id = ? AND status = 'open' AND (due_field = ? OR (due_date IS NOT NULL AND due_date = ?))",
       isDate(next[f.key]) ? next[f.key] : null, c.id, f.key, old[f.key] ?? ''));
   return { changed, stmts: [
-    q('UPDATE cases SET fields = ? WHERE id = ?', JSON.stringify(next), c.id),
+    sql('UPDATE cases SET fields = ? WHERE id = ?', JSON.stringify(next), c.id),
     ...moves,
-    ev(c.id, actorId, 'case.fields_updated', { fields: changed.map(f => f.label), ...extra }, []),
+    event(c.id, actorId, 'case.fields_updated', { fields: changed.map(f => f.label), ...extra }, []),
   ] };
 }
 
 // Edit the case's field values (Angaben).
-export async function updateFields({ user, params, body }) {
+export async function updateFields(rq) {
+  const { user, params, body, batch } = rq;
   const ctx = await caseCtx(user, params.id);
   if (!ctx.staff) fail(403, 'Nur das Team bearbeitet die Angaben');
   const input = body.fields && typeof body.fields === 'object' ? body.fields : fail(400, 'fields fehlt');
-  const { changed, stmts } = fieldStmts(ctx.c, ctx.def, input, user.id);
-  if (changed.length) await DB.batch(stmts);
+  const { changed, stmts } = fieldStmts(rq, ctx.c, ctx.def, input, user.id);
+  if (changed.length) await batch(stmts);
   return { changed: changed.length };
 }
 
 // A case moves to another workspace, with its sub-cases (those still in the same workspace). Only owners of both
 // workspaces may do this: it changes who oversees the case. Participants keep their seats, files stay where they are
 // (their storage keys only record where they began); logo, colour and trusted issuers now come from the new workspace.
-export async function moveCase({ user, params, body }) {
+export async function moveCase(rq) {
+  const { user, params, body, row, rows, sql, batch, event, wsEvent, time } = rq;
   const ctx = await caseCtx(user, params.id);
   await requireWsOwner(user, ctx.c.workspace_id);
   const to = (await row('SELECT id, name FROM workspaces WHERE id = ?', body.workspace_id ?? null)) ?? fail(404, 'Workspace nicht gefunden');
@@ -176,13 +180,13 @@ export async function moveCase({ user, params, body }) {
   const from = await row('SELECT name FROM workspaces WHERE id = ?', ctx.c.workspace_id);
   const ids = (await rows(`WITH RECURSIVE tree(id) AS (SELECT ?1 UNION SELECT c.id FROM cases c JOIN tree ON c.parent_case_id = tree.id WHERE c.workspace_id = ?2)
     SELECT id FROM tree`, ctx.c.id, ctx.c.workspace_id)).map(r => r.id);
-  await DB.batch([
-    q('UPDATE cases SET workspace_id = ? WHERE id IN (SELECT value FROM json_each(?))', to.id, JSON.stringify(ids)),
+  await batch([
+    sql('UPDATE cases SET workspace_id = ? WHERE id IN (SELECT value FROM json_each(?))', to.id, JSON.stringify(ids)),
     // links handed out for the old workspace end: whoever gets one for the new workspace gets it from its team
-    q('UPDATE upload_links SET revoked_at = ? WHERE case_id IN (SELECT value FROM json_each(?)) AND revoked_at IS NULL', now(), JSON.stringify(ids)),
-    ...ids.map(id => ev(id, user.id, 'case.moved', { from: from.name, to: to.name }, [])),
-    wsEv(ctx.c.workspace_id, user.id, 'case.moved_out', { case: ctx.c.title, to: to.name, count: ids.length }),
-    wsEv(to.id, user.id, 'case.moved_in', { case: ctx.c.title, from: from.name, count: ids.length }),
+    sql('UPDATE upload_links SET revoked_at = ? WHERE case_id IN (SELECT value FROM json_each(?)) AND revoked_at IS NULL', time, JSON.stringify(ids)),
+    ...ids.map(id => event(id, user.id, 'case.moved', { from: from.name, to: to.name }, [])),
+    wsEvent(ctx.c.workspace_id, user.id, 'case.moved_out', { case: ctx.c.title, to: to.name, count: ids.length }),
+    wsEvent(to.id, user.id, 'case.moved_in', { case: ctx.c.title, from: from.name, count: ids.length }),
   ]);
   // rules start sub-cases from templates by name, looked up in the case's (now new) workspace
   const wanted = [...new Set((ctx.def.rules ?? []).flatMap(r => r.actions).filter(a => a.type === 'create_subcase').map(a => a.template))];
@@ -190,97 +194,101 @@ export async function moveCase({ user, params, body }) {
   return { moved: ids.length, workspace: to.name, missing_templates: wanted.filter(n => !there.has(n)) };
 }
 
-export async function updateCase({ user, params, body }) {
+export async function updateCase(rq) {
+  const { user, params, body, sql, batch, event, time } = rq;
   const ctx = await caseCtx(user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
   if (!['open', 'closed'].includes(body.status)) fail(400, 'Status ungültig');
   const closing = body.status === 'closed';
-  await DB.batch([
+  await batch([
     ...(closing && ctx.c.parent_case_id
-      ? [ev(ctx.c.parent_case_id, user.id, 'subcase.closed', { title: ctx.c.title, case_id: ctx.c.id, template: ctx.c.template_name }, [])] : []),
-    q('UPDATE cases SET status = ?, closed_at = ? WHERE id = ?', body.status, closing ? now() : null, ctx.c.id),
-    q("DELETE FROM notifications WHERE task_id = ? AND stage = 'retention'", ctx.c.id), // a later close announces again
-    ev(ctx.c.id, user.id, closing ? 'case.closed' : 'case.reopened', {}, ['*']),
+      ? [event(ctx.c.parent_case_id, user.id, 'subcase.closed', { title: ctx.c.title, case_id: ctx.c.id, template: ctx.c.template_name }, [])] : []),
+    sql('UPDATE cases SET status = ?, closed_at = ? WHERE id = ?', body.status, closing ? time : null, ctx.c.id),
+    sql("DELETE FROM notifications WHERE task_id = ? AND stage = 'retention'", ctx.c.id), // a later close announces again
+    event(ctx.c.id, user.id, closing ? 'case.closed' : 'case.reopened', {}, ['*']),
   ]);
 }
 
-export async function deleteCase({ user, params }) {
+export async function deleteCase(rq) {
+  const { user, params } = rq;
   const ctx = await caseCtx(user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche können löschen');
-  await purgeCase(ctx.c, user.id, 'manual');
+  await purgeCase(rq, ctx.c, user.id, 'manual');
 }
 
 // Removes a case with everything in it (files in R2 included) and leaves only a tombstone.
 // People who were only part of this case lose their account too.
-async function purgeCase(c, actorId, reason) {
+async function purgeCase(rq, c, actorId, reason) {
+  const { rows, sql, batch, env, time } = rq;
   for (const child of await rows('SELECT c.id, c.workspace_id, t.name AS template_name FROM cases c LEFT JOIN templates t ON t.id = c.template_id WHERE c.parent_case_id = ?', c.id)) {
-    await purgeCase(child, actorId, reason);
+    await purgeCase(rq, child, actorId, reason);
   }
   const keys = (await rows('SELECT v.r2_key FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.case_id = ?', c.id)).map(r => r.r2_key);
   const people = (await rows('SELECT user_id FROM case_participants WHERE case_id = ?', c.id)).map(r => r.user_id);
   const ofClaims = 'IN (SELECT id FROM financial_claims WHERE case_id = ?)';
-  await DB.batch([
-    q('INSERT INTO case_deletions (case_id, workspace_id, template_name, reason, deleted_by, deleted_at) VALUES (?, ?, ?, ?, ?, ?)',
-      c.id, c.workspace_id, c.template_name ?? null, reason, actorId, now()),
-    q('DELETE FROM notifications WHERE task_id = ? OR task_id IN (SELECT id FROM tasks WHERE case_id = ?)', c.id, c.id),
-    q('DELETE FROM document_signatures WHERE version_id IN (SELECT v.id FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.case_id = ?)', c.id),
-    q('DELETE FROM document_versions WHERE document_id IN (SELECT id FROM documents WHERE case_id = ?)', c.id),
-    q('DELETE FROM documents WHERE case_id = ?', c.id),
-    q(`DELETE FROM financial_transactions WHERE claim_id ${ofClaims}`, c.id),
-    q(`DELETE FROM financial_decisions WHERE claim_id ${ofClaims}`, c.id),
-    q('DELETE FROM financial_claims WHERE case_id = ?', c.id),
-    q('DELETE FROM tasks WHERE case_id = ?', c.id),
-    q('DELETE FROM phases WHERE case_id = ?', c.id),
-    q('DELETE FROM events WHERE case_id = ?', c.id),
-    q('DELETE FROM invitations WHERE case_id = ?', c.id),
-    q('DELETE FROM case_participants WHERE case_id = ?', c.id),
-    q('DELETE FROM upload_links WHERE case_id = ?', c.id),
-    q('DELETE FROM inbound_mail WHERE case_id = ?', c.id),
-    q('DELETE FROM automation_runs WHERE case_id = ?', c.id),
-    q('DELETE FROM cases WHERE id = ?', c.id),
+  await batch([
+    sql('INSERT INTO case_deletions (case_id, workspace_id, template_name, reason, deleted_by, deleted_at) VALUES (?, ?, ?, ?, ?, ?)',
+      c.id, c.workspace_id, c.template_name ?? null, reason, actorId, time),
+    sql('DELETE FROM notifications WHERE task_id = ? OR task_id IN (SELECT id FROM tasks WHERE case_id = ?)', c.id, c.id),
+    sql('DELETE FROM document_signatures WHERE version_id IN (SELECT v.id FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.case_id = ?)', c.id),
+    sql('DELETE FROM document_versions WHERE document_id IN (SELECT id FROM documents WHERE case_id = ?)', c.id),
+    sql('DELETE FROM documents WHERE case_id = ?', c.id),
+    sql(`DELETE FROM financial_transactions WHERE claim_id ${ofClaims}`, c.id),
+    sql(`DELETE FROM financial_decisions WHERE claim_id ${ofClaims}`, c.id),
+    sql('DELETE FROM financial_claims WHERE case_id = ?', c.id),
+    sql('DELETE FROM tasks WHERE case_id = ?', c.id),
+    sql('DELETE FROM phases WHERE case_id = ?', c.id),
+    sql('DELETE FROM events WHERE case_id = ?', c.id),
+    sql('DELETE FROM invitations WHERE case_id = ?', c.id),
+    sql('DELETE FROM case_participants WHERE case_id = ?', c.id),
+    sql('DELETE FROM upload_links WHERE case_id = ?', c.id),
+    sql('DELETE FROM inbound_mail WHERE case_id = ?', c.id),
+    sql('DELETE FROM automation_runs WHERE case_id = ?', c.id),
+    sql('DELETE FROM cases WHERE id = ?', c.id),
   ]);
   // the rows are gone now: files R2 fails to delete here are found and removed by the daily sweep (sweepOrphanFiles)
-  for (let i = 0; i < keys.length; i += 1000) await E.FILES.delete(keys.slice(i, i + 1000)).catch(e => console.error('R2 delete failed (the daily sweep retries)', c.id, e.message));
+  for (let i = 0; i < keys.length; i += 1000) await env.FILES.delete(keys.slice(i, i + 1000)).catch(e => console.error('R2 delete failed (the daily sweep retries)', c.id, e.message));
   const orphans = await rows(`SELECT id FROM users WHERE id IN (SELECT value FROM json_each(?))
     AND NOT EXISTS (SELECT 1 FROM case_participants WHERE user_id = users.id) AND NOT EXISTS (SELECT 1 FROM workspace_members WHERE user_id = users.id)`, JSON.stringify(people));
   for (const { id } of orphans) {
-    await DB.batch(['sessions', 'passkeys', 'login_links', 'challenges', 'notifications', 'signing_keys', 'consents'].map(t => q(`DELETE FROM ${t} WHERE user_id = ?`, id))
-      .concat(q('UPDATE signing_keys SET vouched_by = NULL WHERE vouched_by = ?', id), q('DELETE FROM users WHERE id = ?', id)))
+    await batch(['sessions', 'passkeys', 'login_links', 'challenges', 'notifications', 'signing_keys', 'consents'].map(t => sql(`DELETE FROM ${t} WHERE user_id = ?`, id))
+      .concat(sql('UPDATE signing_keys SET vouched_by = NULL WHERE vouched_by = ?', id), sql('DELETE FROM users WHERE id = ?', id)))
       .catch(e => console.error('user purge failed', id, e.message));
   }
 }
 
 // Closed cases whose template sets retention_days: announce 14 days ahead, then delete.
-export async function applyRetention() {
-  const today = now().slice(0, 10);
+export async function applyRetention(rq) {
+  const { rows, sql, env, time } = rq;
+  const today = time.slice(0, 10);
   const cases = await rows(`SELECT c.id, c.workspace_id, c.title, c.closed_at, json_extract(c.definition, '$.retention_days') AS days, t.name AS template_name
     FROM cases c LEFT JOIN templates t ON t.id = c.template_id
     WHERE c.status = 'closed' AND c.closed_at IS NOT NULL AND json_extract(c.definition, '$.retention_days') IS NOT NULL`);
   for (const c of cases) {
     const deleteOn = new Date(Date.parse(c.closed_at) + c.days * 864e5).toISOString().slice(0, 10);
     if (deleteOn <= today) {
-      await purgeCase(c, null, 'retention');
+      await purgeCase(rq, c, null, 'retention');
       continue;
     }
     if (Date.parse(deleteOn) - Date.parse(today) > 14 * 864e5) continue;
     const owners = await rows(`SELECT u.id, u.email, u.name FROM case_participants p JOIN users u ON u.id = p.user_id
       WHERE p.case_id = ? AND p.access = 'case_owner' AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?)
-      AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.user_id = u.id AND n.task_id = p.case_id AND n.stage = 'retention')`, c.id, now());
+      AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.user_id = u.id AND n.task_id = p.case_id AND n.stage = 'retention')`, c.id, time);
     for (const o of owners) {
       const ok = await sendMail(o.email, `Wird gelöscht: ${c.title}`, [
         `Guten Tag ${o.name},`,
         `der abgeschlossene Vorgang „${c.title}“ wird gemäß Aufbewahrungsfrist am ${deDate(deleteOn)} endgültig gelöscht, mit allen Dokumenten und Nachrichten.`,
         `Wenn Sie ihn behalten möchten, öffnen Sie ihn wieder:
-${E.ORIGIN}/#/case/${c.id}`,
+${env.ORIGIN}/#/case/${c.id}`,
       ]);
-      if (ok) await q("INSERT OR IGNORE INTO notifications (user_id, task_id, stage, sent_at) VALUES (?, ?, 'retention', ?)", o.id, c.id, now()).run();
+      if (ok) await sql("INSERT OR IGNORE INTO notifications (user_id, task_id, stage, sent_at) VALUES (?, ?, 'retention', ?)", o.id, c.id, time).run();
     }
   }
 }
 
 export async function dashboard(rq) {
-  const { user } = rq;
-  const stamp = await dashboardStamp(user); // before the data: a change in between only causes one extra refresh
+  const { user, rows, sql, batch, time } = rq;
+  const stamp = await dashboardStamp(rq, user); // before the data: a change in between only causes one extra refresh
   const cases = await rows(`
     SELECT c.id, c.title, c.status, c.workspace_id, c.parent_case_id, w.name AS workspace, t.name AS template,
       json_extract(c.definition, '$.roles') AS roles, p.role, p.access, m.role AS ws_role,
@@ -291,15 +299,15 @@ export async function dashboard(rq) {
     LEFT JOIN case_participants p ON p.case_id = c.id AND p.user_id = ?1 AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?2)
     LEFT JOIN workspace_members m ON m.workspace_id = c.workspace_id AND m.user_id = ?1
     WHERE p.user_id IS NOT NULL OR m.role = 'owner'
-    ORDER BY c.created_at DESC`, user.id, now());
+    ORDER BY c.created_at DESC`, user.id, time);
   const caseIds = JSON.stringify(cases.map(c => c.id));
-  const [phases, tasks, holders] = (await DB.batch([
-    q('SELECT * FROM phases WHERE case_id IN (SELECT value FROM json_each(?)) ORDER BY position', caseIds),
-    q('SELECT * FROM tasks WHERE case_id IN (SELECT value FROM json_each(?)) ORDER BY position, created_at', caseIds),
-    q(`SELECT p.case_id, p.role, u.name FROM case_participants p JOIN users u ON u.id = p.user_id
-       WHERE p.case_id IN (SELECT value FROM json_each(?)) AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?)`, caseIds, now()),
+  const [phases, tasks, holders] = (await batch([
+    sql('SELECT * FROM phases WHERE case_id IN (SELECT value FROM json_each(?)) ORDER BY position', caseIds),
+    sql('SELECT * FROM tasks WHERE case_id IN (SELECT value FROM json_each(?)) ORDER BY position, created_at', caseIds),
+    sql(`SELECT p.case_id, p.role, u.name FROM case_participants p JOIN users u ON u.id = p.user_id
+       WHERE p.case_id IN (SELECT value FROM json_each(?)) AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?)`, caseIds, time),
   ])).map(r => r.results);
-  const today = now().slice(0, 10);
+  const today = time.slice(0, 10);
   markBlocked(tasks);
   for (const c of cases) {
     c.staff = c.ws_role === 'owner' || STAFF.includes(c.access);
@@ -331,21 +339,23 @@ export async function dashboard(rq) {
   return { stamp, cases, my_tasks: myTasks, open_receivable_cents: claims.length ? openReceivable(claims) : null };
 }
 
-export async function addPhase({ user, params, body }) {
+export async function addPhase(rq) {
+  const { user, params, body, sql, batch, event } = rq;
   const ctx = await caseCtx(user, params.id);
   if (!ctx.staff) fail(403, 'Nur Bearbeiter');
   const title = String(body.title ?? '').trim() || fail(400, 'Titel fehlt');
-  await DB.batch([
-    q('INSERT INTO phases (id, case_id, title, position) SELECT ?, ?, ?, COALESCE(MAX(position), -1) + 1 FROM phases WHERE case_id = ?', uid(), ctx.c.id, title, ctx.c.id),
-    ev(ctx.c.id, user.id, 'phase.added', { phase: title }, ['*']),
+  await batch([
+    sql('INSERT INTO phases (id, case_id, title, position) SELECT ?, ?, ?, COALESCE(MAX(position), -1) + 1 FROM phases WHERE case_id = ?', uid(), ctx.c.id, title, ctx.c.id),
+    event(ctx.c.id, user.id, 'phase.added', { phase: title }, ['*']),
   ]);
 }
 
-export async function addComment({ user, params, body }) {
+export async function addComment(rq) {
+  const { user, params, body, event } = rq;
   const ctx = await caseCtx(user, params.id);
   if (ctx.access === 'guest_viewer') fail(403, 'Mit Lesezugriff können Sie keine Nachrichten schreiben');
   const text = String(body.body ?? '').trim() || fail(400, 'Nachricht ist leer');
   if (text.length > 10000) fail(413, 'Nachricht zu lang (höchstens 10.000 Zeichen)');
   // Guests always write to staff + their own role; staff choose the audience ([] = internal).
-  await ev(ctx.c.id, user.id, 'comment', { body: text }, ctx.staff ? roleList(body.visible_to ?? []) : [ctx.role]).run();
+  await event(ctx.c.id, user.id, 'comment', { body: text }, ctx.staff ? roleList(body.visible_to ?? []) : [ctx.role]).run();
 }

@@ -152,22 +152,22 @@ export default {
   // Independent steps: one that fails is logged and the others still run; the run then counts as failed.
   async scheduled(controller, env) {
     init(env);
-    const failed = [];
+    const rq = context(env), { batch, sql, time } = rq, failed = [];
     const step = async (name, fn) => { try { await fn(); } catch (e) { console.error(`cron ${name}`, e.message); failed.push(name); } };
-    await step('rules', () => processRules(context(env), { retries: true })); // catch-up (e.g. after a request that failed midway) and retries
+    await step('rules', () => processRules(rq, { retries: true })); // catch-up (e.g. after a request that failed midway) and retries
     await step('outbox', processOutbox); // mails with links the provider did not take yet
     if (controller.cron === DAILY_CRON) {
-      await step('retention', applyRetention);
+      await step('retention', () => applyRetention(rq));
       await step('digests', sendDigests);
       // housekeeping: old mail log, expired sessions, login links and passkey challenges
-      await step('housekeeping', () => DB.batch([
-        q('DELETE FROM mail_log WHERE sent_at < ?', new Date(Date.now() - 3 * 864e5).toISOString()),
-        q('DELETE FROM sessions WHERE expires_at < ?', now()),
-        q('DELETE FROM login_links WHERE expires_at < ?', now()),
-        q('DELETE FROM challenges WHERE expires_at < ?', now()),
-        q("DELETE FROM mail_outbox WHERE status <> 'pending' AND created_at < ?", new Date(Date.now() - 30 * 864e5).toISOString()),
+      await step('housekeeping', () => batch([
+        sql('DELETE FROM mail_log WHERE sent_at < ?', new Date(Date.now() - 3 * 864e5).toISOString()),
+        sql('DELETE FROM sessions WHERE expires_at < ?', time),
+        sql('DELETE FROM login_links WHERE expires_at < ?', time),
+        sql('DELETE FROM challenges WHERE expires_at < ?', time),
+        sql("DELETE FROM mail_outbox WHERE status <> 'pending' AND created_at < ?", new Date(Date.now() - 30 * 864e5).toISOString()),
       ]));
-      await step('file sweep', sweepOrphanFiles);
+      await step('file sweep', () => sweepOrphanFiles(rq));
     } else {
       await step('progress', sendProgress);
     }

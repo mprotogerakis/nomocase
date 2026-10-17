@@ -50,7 +50,7 @@ export async function receiveMail(rq, message) {
   const doc = { isNew: true, id: uid(), title: `E-Mail: ${subject}`.slice(0, 200), doc_type: null, visible_to: [] };
   const f = { bytes, contentType: 'message/rfc822', size: bytes.length, filename: `${today} ${safeName(subject)}.eml`,
     sha256: hex(await crypto.subtle.digest('SHA-256', bytes)) };
-  await storeVersion({ rq, c, actorId: null, uploadedBy: owner.user_id, label: from, channel: 'mail', f, task: null, doc,
+  await storeVersion(rq, { c, actorId: null, uploadedBy: owner.user_id, label: from, channel: 'mail', f, task: null, doc,
     extra: { subject, attachments: attachmentNames(bytes) },
     stmts: [sql('INSERT INTO inbound_mail (case_id, message_id, document_id, sender, received_at) VALUES (?, ?, ?, ?, ?)', c.id, messageId, doc.id, message.from, time)] });
 }
