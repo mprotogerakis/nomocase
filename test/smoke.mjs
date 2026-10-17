@@ -521,6 +521,18 @@ assert.equal((await expect(subGuest(`/cases/${extension}`))).parent, null, 'pare
 assert.equal((await expect(subGuest('/dashboard'))).cases[0].parent_title, null);
 const { id: parentToGo } = await expect(prof('/cases', { body: { template_id: free.id, title: 'Elternvorgang' } }));
 const { id: childToGo } = await expect(prof(`/cases/${parentToGo}/subcases`, { body: { template_id: free.id, title: 'Kindvorgang' } }));
+// Moving to another workspace: owners of both only; sub-cases go along; the log says so; missing sub-case templates are named.
+await expect(student(`/cases/${parentToGo}/move`, { body: { workspace_id: 'ws_priv' } }), 404);
+await expect(prof(`/cases/${parentToGo}/move`, { body: { workspace_id: 'ws_hs' } }), 400);
+await expect(prof(`/cases/${parentToGo}/move`, { body: { workspace_id: 'nope' } }), 404);
+const moved = await expect(prof(`/cases/${parentToGo}/move`, { body: { workspace_id: 'ws_priv' } }));
+assert.deepEqual([moved.moved, moved.missing_templates], [2, []]);
+const [movedParent, movedChild] = [await expect(prof(`/cases/${parentToGo}`)), await expect(prof(`/cases/${childToGo}`))];
+assert.deepEqual([movedParent.case.workspace_id, movedChild.case.workspace_id], ['ws_priv', 'ws_priv'], 'sub-case moved along');
+assert.ok(movedParent.events.some(e => e.type === 'case.moved' && e.payload.to === moved.workspace));
+const { id: toMove } = await expect(prof(`/cases`, { body: { template_id: med.id, title: "Rechnung zum Verschieben" } }));
+assert.deepEqual((await expect(prof(`/cases/${toMove}/move`, { body: { workspace_id: 'ws_hs' } }))).missing_templates, ['Widerspruch'], 'sub-case template missing there');
+await expect(prof(`/cases/${toMove}`, { method: 'DELETE' }));
 await expect(prof(`/cases/${parentToGo}`, { method: 'DELETE' }));
 await expect(prof(`/cases/${childToGo}`), 404, 'subcases go with their parent');
 

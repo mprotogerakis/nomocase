@@ -1,7 +1,7 @@
 // Case page for the team and for guests: frame, timeline, details (fields, people, subcases, rules), case actions.
 import { STAFF } from '../shared/vocab.js';
 import { change, cur, me, on, set, submit } from '../state.js';
-import { ACCESS_LABELS, api, CAN, date, dateTime, due, eur, go, html, linkify, page, reload, shortHash, today, TYPES, VERDICT } from '../lib.js';
+import { ACCESS_LABELS, api, CAN, count, date, dateTime, due, eur, go, html, linkify, page, reload, shortHash, today, TYPES, VERDICT } from '../lib.js';
 import { addTaskForm, aggregatesSummary, canWork, questionsTo, resultsOf, taskActions, taskItem, taskResult } from './tasks.js';
 import { documents, verifyFile } from './documents.js';
 import { financeSection, moneyWord } from './finance.js';
@@ -34,6 +34,7 @@ const EVENTS = {
   'form.mismatch': p => `Achtung: „${p.document}“ passt nicht zu den Angaben (${p.fields.join(', ')})`,
   'subcase.created': p => `hat den Teilvorgang „${p.title}“ angelegt (Vorlage ${p.template})`,
   'subcase.closed': p => `hat den Teilvorgang „${p.title}“ abgeschlossen`,
+  'case.moved': p => `hat den Vorgang vom Workspace „${p.from}“ nach „${p.to}“ verschoben`,
   'case.saved_as_template': p => `hat den Ablauf als Vorlage „${p.template}“ (Version ${p.version}) gespeichert`,
   'rule.toggled': p => `hat die Regel „${p.rule}“ ${p.enabled ? 'eingeschaltet' : 'ausgeschaltet'}`,
   'signature.changed': p => `Achtung: In „${p.document}“ signiert ${p.signers.join(', ')} mit einem anderen Schlüssel als bisher`,
@@ -79,15 +80,27 @@ function audienceTag(v, d) {
   return html` · <span class="tag ${text === 'nur Team' ? 'internal' : ''}">${text}</span>`;
 }
 
+// Long texts (messages, notes) show three lines with "…" and open on request; open ones stay open on live refresh.
+const openEvents = new Set();
+const isLong = text => text.length > 240 || text.split('\n').length > 3;
+
 function eventItem(e, d) {
   const text = e.payload.body ?? e.payload.note ?? e.payload.description;
+  const long = text && isLong(String(text)), open = openEvents.has(String(e.id));
   return html`<li class="ev ${e.type === 'comment' ? 'comment' : ''}">
     <div class="small muted">${dateTime(e.created_at)}${d.me.staff ? audienceTag(e.visible_to, d) : ''}</div>
     <div><b>${e.actor ?? e.payload.via ?? (e.payload.rule ? 'Automatik' : 'System')}</b>${e.payload.via ? html` <span class="tag">${e.payload.channel === 'mail' ? 'E-Mail' : 'Upload-Link'}</span>` : ''} ${e.type === 'comment' ? '' : EVENTS[e.type]?.(e.payload, d) ?? e.type}
       ${e.payload.rule ? html`<span class="tag">Regel: ${e.payload.rule}</span>` : ''}</div>
-    ${text ? html`<p>${linkify(text)}</p>` : ''}
+    ${text ? html`<p class="${long ? `clamp${open ? ' open' : ''}` : ''}">${linkify(text)}</p>` : ''}
+    ${long ? html`<button class="link small" data-on="toggleEvent" data-id="${e.id}">${open ? 'weniger anzeigen' : 'mehr anzeigen'}</button>` : ''}
   </li>`;
 }
+
+on.toggleEvent = ({ id }, el) => {
+  const open = el.previousElementSibling.classList.toggle('open');
+  if (open) openEvents.add(id); else openEvents.delete(id);
+  el.textContent = open ? 'weniger anzeigen' : 'mehr anzeigen';
+};
 
 let onlyMessages = false;
 
@@ -188,7 +201,7 @@ function staffCase(d) {
             ? html`<button data-on="caseStatus" data-status="closed">Vorgang abschließen</button>`
             : html`<button data-on="caseStatus" data-status="open">Wieder öffnen</button>`}
             <button class="danger" data-on="deleteCase">Vorgang löschen</button></div>
-          ${saveTemplateForm(d)}` : ''}
+          ${saveTemplateForm(d)}${moveForm(d)}` : ''}
       </aside>
     </div>
   </main>`;
@@ -348,6 +361,29 @@ function saveTemplateForm(d) {
     </form>
   </details>`;
 }
+
+// To another workspace: only owners of both (it changes who oversees the case).
+function moveForm(d) {
+  const owned = me.workspaces.filter(w => w.role === 'owner');
+  if (!owned.some(w => w.id === d.case.workspace_id) || owned.length < 2) return '';
+  return html`<details class="add"><summary>In anderen Workspace verschieben …</summary>
+    <form data-submit="moveCase" class="stack small">
+      <p class="muted">Danach sehen die Owner des neuen Workspace den Vorgang, die des bisherigen nur noch, wenn sie beteiligt sind.
+        Teilvorgänge wandern mit; Beteiligte, Dokumente und Verlauf bleiben. Logo und Farbe der Formulare kommen dann vom neuen Workspace.</p>
+      <div class="row"><select name="workspace_id" aria-label="Ziel-Workspace">${owned.filter(w => w.id !== d.case.workspace_id)
+        .map(w => html`<option value="${w.id}">${w.name}</option>`)}</select><button>Verschieben</button></div>
+    </form>
+  </details>`;
+}
+
+submit.moveCase = async fd => {
+  const target = me.workspaces.find(w => w.id === fd.get('workspace_id'));
+  if (!confirm(`Vorgang „${cur.case.title}“ in den Workspace „${target.name}“ verschieben?`)) return;
+  const r = await api(caseApi('/move'), { body: { workspace_id: target.id } });
+  alert(`Verschoben nach „${r.workspace}“${r.moved > 1 ? `, zusammen mit ${count(r.moved - 1, 'Teilvorgang', 'Teilvorgängen')}` : ''}.`
+    + (r.missing_templates.length ? `\nDie Regeln des Vorgangs starten Teilvorgänge aus ${r.missing_templates.map(n => `„${n}“`).join(', ')} – diese Vorlage(n) bitte nach „${r.workspace}“ kopieren.` : ''));
+  reload();
+};
 
 submit.saveCaseTemplate = async fd => {
   const asVersion = fd.get('target') === 'version';

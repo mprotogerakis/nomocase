@@ -199,6 +199,17 @@ try {
   await b.click('[data-on="takeFormValue"][data-key="matrikel"]');
   await waitFor(`fetch('/api/cases/${thesis}').then(r => r.json()).then(c => c.case.fields.matrikel === '4243')`, 'Formularwert übernommen');
   await waitFor(has('passt zu den Angaben'), 'Formular passt danach');
+  // Long entries in the log: three lines with "…", opened on request
+  await evaluate(`fetch('/api/cases/${thesis}/comments', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: ${J(J({ body: `${'Eine lange Rückmeldung. '.repeat(40)}\nEnde` }))} }).then(r => r.status)`);
+  await go(`#/case/${thesis}`, `!!document.querySelector('.ev p.clamp')`);
+  assert.ok(await evaluate(`(() => { const p = document.querySelector('.ev p.clamp'); return p.scrollHeight > p.clientHeight + 4 && p.clientHeight < 80; })()`), 'clamped to three lines');
+  await b.click('[data-on="toggleEvent"]');
+  assert.ok(await evaluate(`(() => { const p = document.querySelector('.ev p.clamp'); return p.classList.contains('open') && p.scrollHeight <= p.clientHeight + 1; })()`), 'opened in full');
+  // Move to another workspace (owners of both)
+  await submit('moveCase', { workspace_id: 'ws_priv' });
+  await until(() => dialogs.some(d => d.startsWith('Verschoben nach')), 'verschoben');
+  assert.equal((await api(`/cases/${thesis}`)).case.workspace_id, 'ws_priv');
   await evaluate(`fetch('/api/cases/${thesis}', { method: 'DELETE' }).then(r => r.status)`);
   // … and previewed on the templates page, with the placeholders' names
   await go('#/templates', `!!document.querySelector('[data-on="previewForm"][data-key="ergebnis"]')`);
@@ -278,7 +289,7 @@ try {
   await waitFor(`document.querySelector('code.hash')?.textContent.length === 64`, 'Quittung mit SHA-256');
 
   assert.deepEqual(errors, [], 'no script errors');
-  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
+  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|verschieben\?$|^Verschoben nach|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
   console.log('ok – ui test passed');
 } finally {
   if (caseId) {

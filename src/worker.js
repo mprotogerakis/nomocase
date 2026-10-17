@@ -3,7 +3,7 @@
 import { appVersion, DB, fail, HttpError, init, json, now, q } from './core.js';
 import { deletePasskey, devLogin, giveConsent, legalInfo, listPasskeys, loadUser, logout, me, originOf, passkeyLoginOptions, passkeyLoginVerify, passkeyRegisterOptions, passkeyRegisterVerify, requestLoginLink, sendParticipantLink, updateMe, useLoginLink, withdrawConsent } from './auth.js';
 import { addTemplateVersion, createTemplate, deleteTemplate, listTemplates, restoreTemplate, saveAsTemplate } from './templates.js';
-import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard, deleteCase, getCase, getChanges, updateCase, updateFields } from './cases.js';
+import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard, deleteCase, getCase, getChanges, moveCase, updateCase, updateFields } from './cases.js';
 import { addTask, deleteTask, taskAction, updateTask } from './tasks.js';
 import { addClaim, addDecision, addTransaction, reverseTransaction, taskMoney } from './finance.js';
 import { processRules, toggleRule } from './rules.js';
@@ -71,6 +71,7 @@ const ROUTES = [
   ['PATCH', '/api/cases/:id/rules/:ruleId', toggleRule],
   ['POST', '/api/cases/:id/template', saveAsTemplate],
   ['POST', '/api/cases/:id/subcases', addSubcase],
+  ['POST', '/api/cases/:id/move', moveCase],
   ['DELETE', '/api/cases/:id', deleteCase],
   ['POST', '/api/cases/:id/phases', addPhase],
   ['POST', '/api/cases/:id/tasks', addTask],

@@ -72,6 +72,8 @@
   .timeline { list-style: none; padding: 0; margin: 0 0 10px; }
   .ev { padding: 7px 0; border-bottom: 1px solid var(--line); }
   .ev p { margin: 4px 0 0; white-space: pre-wrap; }
+  .ev p.clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+  .ev p.clamp.open { display: block; }
   .ev.comment p { background: #f1f5ff; padding: 6px 9px; border-radius: 6px; }
   .doc { padding: 8px 0; border-bottom: 1px solid var(--line); }
   .versions { margin: 4px 0; padding-left: 22px; font-size: .9em; }

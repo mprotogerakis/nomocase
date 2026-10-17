@@ -107,6 +107,11 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
   Passkey-Status, letzter Anmeldung, Mail-Einstellungen, Plätzen je Vorgang, offenen Einladungen und dem Mail-Kontingent von heute.
 - **Angaben bearbeiten** (rechte Spalte, „bearbeiten“; nur Team): Ändert sich ein Datumsfeld, wandern offene Aufgaben mit,
   deren Frist noch auf dem alten Datum steht. Der Verlauf nennt nur die geänderten Felder, nicht die Werte.
+- **Vorgang in einen anderen Workspace verschieben** (Details → Vorgang, nur für Owner beider Workspaces): Teilvorgänge
+  wandern mit, Beteiligte, Dokumente und Verlauf bleiben; danach sehen die Owner des neuen Workspace den Vorgang, die des
+  alten nur noch als Beteiligte. Der Verlauf vermerkt den Umzug; fehlen dort Vorlagen, aus denen Regeln Teilvorgänge starten,
+  weist NomoCase darauf hin.
+- **Verlauf**: Lange Nachrichten und Notizen zeigen drei Zeilen mit „…“ und lassen sich aufklappen.
 - **Vorgang als Vorlage speichern** (Details → Vorgang): übernimmt Rollen, Felder ohne Inhalte, Dokumenttypen, Phasen, Aufgaben,
   Fristen (relativ bzw. `due_field`), Sichtbarkeit und Regeln; keine Dokumente, Nachrichten, Personen, Anliegen oder Regel-Aufgaben.
 - **Löschen**: „Vorgang löschen“ entfernt alles inkl. Dateien in R2 und unveränderlicher Buchungen; es bleibt nur ein

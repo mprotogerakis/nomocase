@@ -1,6 +1,6 @@
 // Cases: dashboard, case view, fields, status, comments, phases, subcases, deletion and retention, change stamps.
 import { appVersion, arr, DB, E, ev, fail, isDate, now, q, roleList, row, rows, STAFF, uid } from './core.js';
-import { ACCESSIBLE, canSee, canSeeTask, caseCtx } from './access.js';
+import { ACCESSIBLE, canSee, canSeeTask, caseCtx, requireWsOwner } from './access.js';
 import { instantiate, latestTemplate } from './templates.js';
 import { markBlocked } from './tasks.js';
 import { financeSummary, loadFinance, sum } from './finance.js';
@@ -147,6 +147,28 @@ export async function updateFields({ user, params, body }) {
   const { changed, stmts } = fieldStmts(ctx.c, ctx.def, input, user.id);
   if (changed.length) await DB.batch(stmts);
   return { changed: changed.length };
+}
+
+// A case moves to another workspace, with its sub-cases (those still in the same workspace). Only owners of both
+// workspaces may do this: it changes who oversees the case. Participants keep their seats, files stay where they are
+// (their storage keys only record where they began); logo, colour and trusted issuers now come from the new workspace.
+export async function moveCase({ user, params, body }) {
+  const ctx = await caseCtx(user, params.id);
+  await requireWsOwner(user, ctx.c.workspace_id);
+  const to = (await row('SELECT id, name FROM workspaces WHERE id = ?', body.workspace_id ?? null)) ?? fail(404, 'Workspace nicht gefunden');
+  if (to.id === ctx.c.workspace_id) fail(400, 'Der Vorgang ist schon in diesem Workspace.');
+  await requireWsOwner(user, to.id);
+  const from = await row('SELECT name FROM workspaces WHERE id = ?', ctx.c.workspace_id);
+  const ids = (await rows(`WITH RECURSIVE tree(id) AS (SELECT ?1 UNION SELECT c.id FROM cases c JOIN tree ON c.parent_case_id = tree.id WHERE c.workspace_id = ?2)
+    SELECT id FROM tree`, ctx.c.id, ctx.c.workspace_id)).map(r => r.id);
+  await DB.batch([
+    q('UPDATE cases SET workspace_id = ? WHERE id IN (SELECT value FROM json_each(?))', to.id, JSON.stringify(ids)),
+    ...ids.map(id => ev(id, user.id, 'case.moved', { from: from.name, to: to.name }, [])),
+  ]);
+  // rules start sub-cases from templates by name, looked up in the case's (now new) workspace
+  const wanted = [...new Set((ctx.def.rules ?? []).flatMap(r => r.actions).filter(a => a.type === 'create_subcase').map(a => a.template))];
+  const there = new Set((await rows('SELECT name FROM templates WHERE workspace_id = ? AND archived_at IS NULL', to.id)).map(t => t.name));
+  return { moved: ids.length, workspace: to.name, missing_templates: wanted.filter(n => !there.has(n)) };
 }
 
 export async function updateCase({ user, params, body }) {
