@@ -1,4 +1,6 @@
 // Sessions, passkeys, login links, dev login and the own account.
+import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthenticationResponse, verifyRegistrationResponse } from '@simplewebauthn/server';
+import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import { appVersion, arr, DB, E, ev, fail, hex, json, now, q, row, rows, rpId, sessionFrom, sha256, token, uid } from './core.js';
 import { caseCtx } from './access.js';
 import { sendMail } from './notify.js';
@@ -107,10 +109,6 @@ export async function useLoginLink({ body, url }) {
 
 // RP ID and origin come from ORIGIN (localhost in .dev.vars, the custom domain in production).
 
-// The passkey library is more than half of the Worker (certificate and ASN.1 parsers) and takes ~15 ms to load; only
-// passkey requests load it, every other request starts without it.
-const webauthn = async () => ({ ...(await import('@simplewebauthn/server')), ...(await import('@simplewebauthn/server/helpers')) });
-
 async function newChallenge(options, userId = null) {
   const id = uid();
   await DB.batch([
@@ -126,7 +124,6 @@ const takeChallenge = async (id, userId) =>
   ?? fail(400, 'Anmeldeversuch abgelaufen, bitte erneut versuchen');
 
 export async function passkeyRegisterOptions({ user, url }) {
-  const { generateRegistrationOptions } = await webauthn();
   const existing = await rows('SELECT id, transports FROM passkeys WHERE user_id = ? AND rp_id IS ?', user.id, rpOf(url));
   return newChallenge(await generateRegistrationOptions({
     rpName: 'NomoCase',
@@ -140,7 +137,6 @@ export async function passkeyRegisterOptions({ user, url }) {
 }
 
 export async function passkeyRegisterVerify({ user, url, body }) {
-  const { verifyRegistrationResponse, isoBase64URL } = await webauthn();
   const expectedChallenge = await takeChallenge(body.challenge_id, user.id);
   const { verified, registrationInfo } = await verifyRegistrationResponse({ response: body.response, expectedChallenge, expectedOrigin: originOf(url), expectedRPID: rpOf(url) })
     .catch(e => fail(400, `Passkey ungültig: ${e.message}`));
@@ -166,13 +162,11 @@ const macValid = async (body, mac) => /^[0-9a-f]{64}$/.test(mac ?? '') // compar
 
 // No allowCredentials: discoverable credentials, so the browser offers the user's passkeys without asking for an email.
 export async function passkeyLoginOptions({ url }) {
-  const { generateAuthenticationOptions } = await webauthn();
   const body = `${Date.now() + 5 * 60e3}.${hex(crypto.getRandomValues(new Uint8Array(16)))}`;
   return { options: await generateAuthenticationOptions({ rpID: rpOf(url), userVerification: 'required', challenge: `${body}.${await challengeMac(body)}` }) };
 }
 
 export async function passkeyLoginVerify({ url, body }) {
-  const { verifyAuthenticationResponse, isoBase64URL } = await webauthn();
   let used = null; // the challenge the response signed, once its signature and expiry check out
   const expectedChallenge = async encoded => {
     const s = isoBase64URL.toUTF8String(encoded), [expiry, nonce, mac] = s.split('.');
