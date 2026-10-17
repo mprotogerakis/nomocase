@@ -29,7 +29,7 @@ export function attachmentNames(raw) {
 const safeName = s => s.replace(/[\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'E-Mail';
 
 // Called by worker.js for every mail Email Routing hands over. Rejecting makes the sender's server bounce it.
-export async function receiveMail(message) {
+export async function receiveMail(rq, message) {
   const local = message.to.split('@')[0].toLowerCase();
   const c = local.startsWith('v-') && await row('SELECT * FROM cases WHERE inbox = ?', local.slice(2));
   if (!c) return message.setReject('Unbekannte Adresse');
@@ -49,7 +49,7 @@ export async function receiveMail(message) {
   const doc = { isNew: true, id: uid(), title: `E-Mail: ${subject}`.slice(0, 200), doc_type: null, visible_to: [] };
   const f = { bytes, contentType: 'message/rfc822', size: bytes.length, filename: `${today} ${safeName(subject)}.eml`,
     sha256: hex(await crypto.subtle.digest('SHA-256', bytes)) };
-  await storeVersion({ c, actorId: null, uploadedBy: owner.user_id, label: from, channel: 'mail', f, task: null, doc,
+  await storeVersion({ rq, c, actorId: null, uploadedBy: owner.user_id, label: from, channel: 'mail', f, task: null, doc,
     extra: { subject, attachments: attachmentNames(bytes) },
     stmts: [q('INSERT INTO inbound_mail (case_id, message_id, document_id, sender, received_at) VALUES (?, ?, ?, ?, ?)', c.id, messageId, doc.id, message.from, now())] });
 }

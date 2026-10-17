@@ -142,7 +142,7 @@ export default {
   async email(message, env) {
     init(env);
     try {
-      await receiveMail(message);
+      await receiveMail(context(env), message);
     } catch (e) {
       console.error('mail in failed', e.message);
       message.setReject('Die Mail konnte gerade nicht gespeichert werden. Bitte später erneut senden.');

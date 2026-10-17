@@ -57,7 +57,8 @@ export async function getChanges({ user, url }) {
 
 const currentPhase = (phases, tasks) => phases.find(p => tasks.some(t => t.phase_id === p.id && t.status === 'open'))?.title ?? null;
 
-export async function getCase({ user, params }) {
+export async function getCase(rq) {
+  const { user, params } = rq;
   const ctx = await caseCtx(user, params.id);
   const id = ctx.c.id;
   const [phases, tasks, docs, versions, events, parts, invites] = (await DB.batch([
@@ -82,7 +83,7 @@ export async function getCase({ user, params }) {
   // otherwise a guest file could silently replace a signed or approved one.
   const visibleDocs = docs.filter(d => canSee(ctx, d));
   const visibleVersions = versions.filter(v => visibleDocs.some(d => d.id === v.document_id)).map(v => v.id);
-  const signatures = visibleVersions.length ? await explainSignatures(ctx.c, await rows(
+  const signatures = visibleVersions.length ? await explainSignatures(rq, ctx.c, await rows(
     'SELECT * FROM document_signatures WHERE version_id IN (SELECT value FROM json_each(?)) ORDER BY version_id, position', JSON.stringify(visibleVersions))) : [];
   const canVersion = (d, vs) => ctx.staff || (ctx.access !== 'guest_viewer' && !d.final && vs.at(-1)?.uploaded_by === user.id);
   return {

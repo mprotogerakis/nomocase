@@ -13,7 +13,8 @@ const checkName = n => String(n ?? '').trim().slice(0, 80) || fail(400, 'Name fe
 const owners = async (rq, wsId) => (await rq.row("SELECT COUNT(*) AS n FROM workspace_members WHERE workspace_id = ? AND role = 'owner'", wsId)).n;
 
 // The user's workspaces; owners also get members, open invitations and what the workspace holds.
-export async function listWorkspaces({ user, rows, sql, batch, time, rpId }) {
+export async function listWorkspaces(rq) {
+  const { user, rows, sql, batch, time, rpId } = rq;
   const list = await rows(`SELECT w.id, w.name, m.role, w.accent, w.logo IS NOT NULL AS has_logo,
       (SELECT COUNT(*) FROM cases c WHERE c.workspace_id = w.id) AS cases,
       (SELECT COUNT(*) FROM templates t WHERE t.workspace_id = w.id) AS templates
@@ -25,7 +26,7 @@ export async function listWorkspaces({ user, rows, sql, batch, time, rpId }) {
     sql(`SELECT workspace_id, email, role, created_at, expires_at, expires_at <= ? AS expired FROM workspace_invitations
        WHERE workspace_id IN (SELECT value FROM json_each(?)) AND accepted_at IS NULL AND revoked_at IS NULL ORDER BY created_at DESC`, time, owned),
   ])).map(r => r.results);
-  const issuers = await trustedIssuersOf(JSON.parse(owned));
+  const issuers = await trustedIssuersOf(rq, JSON.parse(owned));
   return list.map(w => ({ ...w, ...(w.role === 'owner' && {
     members: members.filter(m => m.workspace_id === w.id),
     invitations: invitations.filter(i => i.workspace_id === w.id),

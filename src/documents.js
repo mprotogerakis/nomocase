@@ -55,9 +55,9 @@ export async function readUpload(file, strict, given) {
 // Stores a checked file as the next version of `doc` (a row, or a new document to create) and completes the task
 // it belongs to (decisions only get it attached). `actorId` is null and `label` set for uploads through a link or
 // mails into the case (`channel: 'mail'`, `extra`: subject and attachment names for the log). `byTeam`: uploaded by the team.
-// `complete: false` keeps the task open (more files of a multi-file step follow). `uploadLink`: the link's token hash
+// `rq`: the request context (core.js). `complete: false` keeps the task open (more files of a multi-file step follow). `uploadLink`: the link's token hash
 // – the database stores the version only while that link is valid and its case and step are open (trigger, 0040/0041).
-export async function storeVersion({ c, actorId, uploadedBy, label = null, channel = null, extra = {}, f, task, doc, stmts = [], byTeam = false, complete = true, uploadLink = null }) {
+export async function storeVersion({ rq, c, actorId, uploadedBy, label = null, channel = null, extra = {}, f, task, doc, stmts = [], byTeam = false, complete = true, uploadLink = null }) {
   if (doc.isNew) {
     stmts.unshift(q('INSERT INTO documents (id, case_id, title, doc_type, visible_to, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       doc.id, c.id, doc.title, doc.doc_type, JSON.stringify(doc.visible_to), uploadedBy, now()));
@@ -89,8 +89,8 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
       { document: doc.title, version: n, filename: f.filename, version_id: versionId, sha256: f.sha256, ...(label && { via: label }), ...(channel && { channel }), ...extra,
         ...(task && { task: task.title, task_id: task.id, completed: completes }) },
       arr(doc.visible_to)), // who sees the document (team and uploader always): name, file and checksum are its metadata
-    ...signatureStmts(versionId, sigs),
-    ...await signatureEvents(c, versionId, doc, sigs, actorId),
+    ...signatureStmts(rq, versionId, sigs),
+    ...await signatureEvents(rq, c, versionId, doc, sigs, actorId),
     ...taken.stmts,
     ...(check?.differs.length ? [ev(c.id, actorId, 'form.mismatch', { document: doc.title, version_id: versionId, form: form.title, fields: check.differs }, [])] : []),
   );
@@ -121,7 +121,8 @@ async function taskDocument(ctx, task, title, filename) {
   return { isNew: true, id: uid(), title: String(title || dt?.label || filename).slice(0, 200), doc_type: task.doc_type ?? null, visible_to: dt?.visible_to ?? [] };
 }
 
-export async function upload({ req, user, params }) {
+export async function upload(rq) {
+  const { req, user, params } = rq;
   const ctx = await caseCtx(user, params.id);
   if (ctx.access === 'guest_viewer') fail(403, 'Keine Upload-Berechtigung');
   if (ctx.c.status === 'closed') fail(409, CASE_CLOSED); // before the file is read; the database refuses it anyway
@@ -163,7 +164,7 @@ export async function upload({ req, user, params }) {
     doc = { isNew: true, id: uid(), title: String(form.get('title') || dt?.label || f.filename).slice(0, 200), doc_type: docType, visible_to: dt?.visible_to ?? [] };
   }
   const stmts = task ? await moneyStmts(ctx, user, task, form.get('amount_cents')) : [];
-  return storeVersion({ c: ctx.c, actorId: user.id, uploadedBy: user.id, f, task, doc, stmts, byTeam: ctx.staff,
+  return storeVersion({ rq, c: ctx.c, actorId: user.id, uploadedBy: user.id, f, task, doc, stmts, byTeam: ctx.staff,
     complete: !(several && form.get('more') === '1') });
 }
 
@@ -218,7 +219,8 @@ export async function getUploadLink({ body }) {
     files: l.task_files ? JSON.parse(l.task_files) : null };
 }
 
-export async function useUploadLink({ req }) {
+export async function useUploadLink(rq) {
+  const { req } = rq;
   const form = await uploadForm(req);
   const l = await loadUploadLink(form.get('token'));
   if (form.get('consent') !== 'yes') fail(400, 'Bitte stimmen Sie der Verarbeitung zu – oder schicken Sie die Datei auf dem bisherigen Weg per E-Mail.');
@@ -239,7 +241,7 @@ export async function useUploadLink({ req }) {
     fail(404, 'Dieser Upload-Link wurde gerade schon benutzt.');
   }
   try {
-    await storeVersion({ c, actorId: null, uploadedBy: l.created_by, label: l.label, f, task, doc, extra: { consent: CONSENT_VERSION }, uploadLink: l.token_hash });
+    await storeVersion({ rq, c, actorId: null, uploadedBy: l.created_by, label: l.label, f, task, doc, extra: { consent: CONSENT_VERSION }, uploadLink: l.token_hash });
   } catch (e) { // nothing was stored: a single-use link stays usable for another try
     if (l.single_use) await q('UPDATE upload_links SET used_at = NULL WHERE token_hash = ?', l.token_hash).run();
     throw e;
