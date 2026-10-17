@@ -10,7 +10,7 @@ import { branding } from './workspaces.js';
 
 export async function taskForm(rq) {
   const { user, params, rows, time } = rq;
-  const { ctx, t } = await loadTask(user, params.id);
+  const { ctx, t } = await loadTask(rq, user, params.id);
   const form = (ctx.def.forms ?? []).find(f => f.key === t.form) ?? fail(404, 'Zu diesem Schritt gehört kein Formular');
   const fields = JSON.parse(ctx.c.fields);
   const people = await rows(`SELECT p.role, u.name, u.email FROM case_participants p JOIN users u ON u.id = p.user_id

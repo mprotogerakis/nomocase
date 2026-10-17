@@ -1,5 +1,5 @@
 // Tasks: blocked state, editing, actions (complete, decide, assess, ask back, skip, reopen).
-import { arr, CASE_CLOSED, DB, DECISIONS, ev, fail, isDate, NEEDS_FILE, now, q, roleList, row, rows, TASK_TYPES, uid, validFiles } from './core.js';
+import { arr, CASE_CLOSED, DECISIONS, fail, isDate, NEEDS_FILE, roleList, TASK_TYPES, uid, validFiles } from './core.js';
 import { canSeeTask, canWork, caseCtx, taskAudience } from './access.js';
 import { moneyStmts } from './finance.js';
 import { formatScore, parseScore, passes, verdict } from '../public/shared/assess.js';
@@ -21,7 +21,8 @@ export function markBlocked(tasks) {
   return tasks;
 }
 
-export async function loadTask(user, taskId) {
+export async function loadTask(rq, user, taskId) {
+  const { row, rows } = rq;
   const { case_id } = (await row('SELECT case_id FROM tasks WHERE id = ?', taskId)) ?? fail(404, 'Aufgabe nicht gefunden');
   const ctx = await caseCtx(user, case_id);
   const tasks = markBlocked(await rows('SELECT * FROM tasks WHERE case_id = ?', case_id));
@@ -30,7 +31,8 @@ export async function loadTask(user, taskId) {
   return { ctx, t, tasks };
 }
 
-async function cleanTask(ctx, b, tasks, selfId) {
+async function cleanTask(rq, ctx, b, tasks, selfId) {
+  const { row } = rq;
   const t = {};
   for (const k of ['title', 'description', 'type', 'role', 'phase_id', 'due_date', 'doc_type']) if (k in b) t[k] = b[k] ? String(b[k]).trim().slice(0, k === 'description' ? 5000 : 200) : null;
   if ('title' in t && !t.title) fail(400, 'Titel fehlt');
@@ -59,52 +61,55 @@ async function cleanTask(ctx, b, tasks, selfId) {
   return t;
 }
 
-export async function addTask({ user, params, body }) {
+export async function addTask(rq) {
+  const { user, params, body, rows, sql, batch, event, time } = rq;
   const ctx = await caseCtx(user, params.id);
   const tasks = await rows('SELECT id FROM tasks WHERE case_id = ?', ctx.c.id);
   let t;
   if (ctx.staff) {
-    t = { type: 'task', depends_on: '[]', visible_to: '[]', ...(await cleanTask(ctx, body, tasks)) };
+    t = { type: 'task', depends_on: '[]', visible_to: '[]', ...(await cleanTask(rq, ctx, body, tasks)) };
   } else if (ctx.access === 'guest_contributor') {
     // Guests can't change the process, but they can file a request (e.g. an extension),
     // which lands as a decision task for the case owner.
     t = {
-      ...(await cleanTask(ctx, { title: body.title, description: body.description }, tasks)),
+      ...(await cleanTask(rq, ctx, { title: body.title, description: body.description }, tasks)),
       type: 'decision', role: ctx.def.roles.find(r => r.access === 'case_owner').key, depends_on: '[]', visible_to: JSON.stringify([ctx.role]),
     };
   } else fail(403, 'Keine Berechtigung');
   if (!t.title) fail(400, 'Titel fehlt');
   t.id = uid();
-  await DB.batch([
-    q(`INSERT INTO tasks (id, case_id, phase_id, title, description, type, role, depends_on, visible_to, doc_type, due_date, position, created_by, created_at)
+  await batch([
+    sql(`INSERT INTO tasks (id, case_id, phase_id, title, description, type, role, depends_on, visible_to, doc_type, due_date, position, created_by, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       t.id, ctx.c.id, t.phase_id ?? null, t.title, t.description ?? null, t.type, t.role ?? null, t.depends_on, t.visible_to,
-      t.doc_type ?? null, t.due_date ?? null, 1e6, user.id, now()),
-    ev(ctx.c.id, user.id, ctx.staff ? 'task.added' : 'request.created', { task: t.title, task_id: t.id, description: t.description ?? '' }, taskAudience(t)),
+      t.doc_type ?? null, t.due_date ?? null, 1e6, user.id, time),
+    event(ctx.c.id, user.id, ctx.staff ? 'task.added' : 'request.created', { task: t.title, task_id: t.id, description: t.description ?? '' }, taskAudience(t)),
   ]);
   return { id: t.id };
 }
 
-export async function updateTask({ user, params, body }) {
-  const { ctx, t, tasks } = await loadTask(user, params.id);
+export async function updateTask(rq) {
+  const { user, params, body, sql, batch, event } = rq;
+  const { ctx, t, tasks } = await loadTask(rq, user, params.id);
   if (!ctx.staff) fail(403, 'Nur Bearbeiter können Aufgaben ändern');
-  const changes = await cleanTask(ctx, body, tasks, t.id);
+  const changes = await cleanTask(rq, ctx, body, tasks, t.id);
   if (!Object.keys(changes).length) fail(400, 'Keine Änderungen');
-  await DB.batch([
-    q(`UPDATE tasks SET ${Object.keys(changes).map(k => `${k} = ?`).join(', ')} WHERE id = ?`, ...Object.values(changes), t.id),
-    ev(ctx.c.id, user.id, 'task.updated', { task: t.title, changes }, taskAudience({ ...t, ...changes })),
+  await batch([
+    sql(`UPDATE tasks SET ${Object.keys(changes).map(k => `${k} = ?`).join(', ')} WHERE id = ?`, ...Object.values(changes), t.id),
+    event(ctx.c.id, user.id, 'task.updated', { task: t.title, changes }, taskAudience({ ...t, ...changes })),
   ]);
 }
 
-export async function deleteTask({ user, params }) {
-  const { ctx, t } = await loadTask(user, params.id);
+export async function deleteTask(rq) {
+  const { user, params, sql, batch, event } = rq;
+  const { ctx, t } = await loadTask(rq, user, params.id);
   if (!ctx.staff) fail(403, 'Nur Bearbeiter können Aufgaben entfernen');
-  await DB.batch([q('DELETE FROM tasks WHERE id = ?', t.id), ev(ctx.c.id, user.id, 'task.removed', { task: t.title }, taskAudience(t))]);
+  await batch([sql('DELETE FROM tasks WHERE id = ?', t.id), event(ctx.c.id, user.id, 'task.removed', { task: t.title }, taskAudience(t))]);
 }
 
 export async function taskAction(rq) {
-  const { user, params, body } = rq;
-  const { ctx, t, tasks } = await loadTask(user, params.id);
+  const { user, params, body, sql, batch, event, time } = rq;
+  const { ctx, t, tasks } = await loadTask(rq, user, params.id);
   if (ctx.c.status === 'closed') fail(409, CASE_CLOSED); // said first: the database refuses it anyway
   let { action } = body;
   const note = String(body.note ?? '').trim().slice(0, 5000);
@@ -135,19 +140,19 @@ export async function taskAction(rq) {
     // "Rückfrage": send the work back by reopening the direct dependencies; this task stays open and waits for them.
     if (!note) fail(400, 'Rückfrage braucht einen Text');
     stmts.push(
-      q("UPDATE tasks SET status = 'open', outcome = NULL, completed_at = NULL, completed_by = NULL WHERE id IN (SELECT value FROM json_each(?))", JSON.stringify(t.depends_on)),
-      q('DELETE FROM notifications WHERE task_id IN (SELECT value FROM json_each(?))', JSON.stringify(t.depends_on)), // reopened = new again in the digest
+      sql("UPDATE tasks SET status = 'open', outcome = NULL, completed_at = NULL, completed_by = NULL WHERE id IN (SELECT value FROM json_each(?))", JSON.stringify(t.depends_on)),
+      sql('DELETE FROM notifications WHERE task_id IN (SELECT value FROM json_each(?))', JSON.stringify(t.depends_on)), // reopened = new again in the digest
     );
   } else {
     const [status, outcome] = { complete: ['done', null], approve: ['done', 'approved'], reject: ['done', 'rejected'], skip: ['skipped', null], reopen: ['open', null] }[action];
     const closed = status !== 'open';
-    stmts.push(q('UPDATE tasks SET status = ?, outcome = ?, completed_at = ?, completed_by = ?, score = ? WHERE id = ?',
-      status, outcome, closed ? now() : null, closed ? user.id : null, closed ? score : null, t.id));
+    stmts.push(sql('UPDATE tasks SET status = ?, outcome = ?, completed_at = ?, completed_by = ?, score = ? WHERE id = ?',
+      status, outcome, closed ? time : null, closed ? user.id : null, closed ? score : null, t.id));
     if (action === 'complete') stmts.push(...await moneyStmts(rq, ctx, user, t, body.amount_cents));
-    if (action === 'reopen') stmts.push(q('DELETE FROM notifications WHERE task_id = ?', t.id));
+    if (action === 'reopen') stmts.push(sql('DELETE FROM notifications WHERE task_id = ?', t.id));
   }
-  stmts.push(ev(ctx.c.id, user.id, `task.${action}`, { task: t.title, task_id: t.id, type: t.type, note, ...(action === 'question' && { reopened: t.depends_on }),
+  stmts.push(event(ctx.c.id, user.id, `task.${action}`, { task: t.title, task_id: t.id, type: t.type, note, ...(action === 'question' && { reopened: t.depends_on }),
     ...(t.labels && ['approve', 'reject'].includes(action) && { verdict: t.labels[action === 'approve' ? 0 : 1] }),
     ...(score !== null && { score, score_label: formatScore(scale, score), verdict: t.labels?.[action === 'approve' ? 0 : 1] ?? verdict(scale, score) }) }, audience));
-  await DB.batch(stmts);
+  await batch(stmts);
 }

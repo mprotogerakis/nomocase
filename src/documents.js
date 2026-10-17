@@ -135,7 +135,7 @@ export async function upload(rq) {
 
   let task = null;
   if (form.get('task_id')) {
-    ({ t: task } = await loadTask(user, form.get('task_id')));
+    ({ t: task } = await loadTask(rq, user, form.get('task_id')));
     if (task.case_id !== ctx.c.id) fail(400, 'Aufgabe gehört zu einem anderen Vorgang');
     if (!canWork(ctx, task) || task.status !== 'open' || task.blocked) fail(409, 'Aufgabe kann gerade nicht bearbeitet werden');
     checkKind(task, f.filename);
@@ -171,8 +171,9 @@ export async function upload(rq) {
 // Spec 4.2 variant B: someone without an account (a practice, a workshop) uploads a file for exactly one task.
 // The link grants nothing else: no view of the case, the strict upload rules, single use by default, expires.
 
-export async function createUploadLink({ user, params, body, url }) {
-  const { ctx, t } = await loadTask(user, params.id);
+export async function createUploadLink(rq) {
+  const { user, params, body, url } = rq;
+  const { ctx, t } = await loadTask(rq, user, params.id);
   if (!ctx.staff) fail(403, 'Nur das Team erzeugt Upload-Links');
   if (!t.doc_type && !NEEDS_FILE.includes(t.type)) fail(400, 'Diese Aufgabe erwartet keine Datei');
   if (t.status !== 'open') fail(409, 'Die Aufgabe ist nicht offen');
@@ -249,8 +250,9 @@ export async function useUploadLink(rq) {
   return { ok: true };
 }
 
-export async function revokeUploadLinks({ user, params }) {
-  const { ctx, t } = await loadTask(user, params.id);
+export async function revokeUploadLinks(rq) {
+  const { user, params } = rq;
+  const { ctx, t } = await loadTask(rq, user, params.id);
   if (!ctx.staff) fail(403, 'Nur das Team');
   await DB.batch([
     q('UPDATE upload_links SET revoked_at = ? WHERE task_id = ? AND revoked_at IS NULL', now(), t.id),

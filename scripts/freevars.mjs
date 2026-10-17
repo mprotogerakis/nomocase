@@ -87,7 +87,9 @@ for (const entry of ENTRIES) {
     const name = m[0], before = code.slice(Math.max(0, m.index - 3), m.index), after = code.slice(m.index + name.length).trimStart();
     if (name.length < 3 || known.has(name)) continue;
     if (/(?<!\.\.)\.\s*$/.test(before) || /\?\.$/.test(before)) continue; // property access (but not spread ...x)
-    if (after.startsWith(':') && !after.startsWith('::')) continue; // object key (or label, or a ternary branch – rare)
+    if (before.endsWith('\\')) continue; // \u0141 – part of an escape in a name or key
+    // an object key ({ name: …, name: … }); `? name :` is a ternary branch, a use of the name
+    if (after.startsWith(':') && !after.startsWith('::') && /[{,]\s*$/.test(code.slice(Math.max(0, m.index - 20), m.index))) continue;
     if (/^\(/.test(after) && isMethod(code, m.index + name.length)) continue; // method shorthand: name(…) {
     unknown.set(name, (unknown.get(name) ?? 0) + 1);
   }
