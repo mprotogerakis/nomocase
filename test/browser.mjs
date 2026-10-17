@@ -9,7 +9,7 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // dialogs: every alert/confirm/prompt text (prompts with their default value), accepted automatically.
 // errors: uncaught exceptions and console.error output of the page.
-export async function openBrowser({ width = 1400, height = 1000, args = [] } = {}) {
+export async function openBrowser({ width = 1400, height = 1000, args = [], timeout = 60e3 } = {}) {
   const profile = mkdtempSync(join(tmpdir(), 'nomocase-chrome-'));
   const port = 9222 + Math.floor(Math.random() * 1000);
   const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run',
@@ -23,14 +23,16 @@ export async function openBrowser({ width = 1400, height = 1000, args = [] } = {
   await new Promise(r => ws.addEventListener('open', r));
   let seq = 0;
   const waiting = new Map(), dialogs = [], errors = [];
+  // Every call has an answer within `timeout`, or the test fails naming it (a lost request must not hang the whole run).
   const cdp = (method, params = {}) => new Promise((resolve, reject) => {
     const id = ++seq;
-    waiting.set(id, m => (m.error ? reject(new Error(`${method}: ${m.error.message}`)) : resolve(m.result)));
+    const timer = setTimeout(() => { waiting.delete(id); reject(new Error(`${method}: keine Antwort nach ${timeout / 1000} s ${params.expression?.slice(0, 120) ?? ''}`)); }, timeout);
+    waiting.set(id, m => { clearTimeout(timer); waiting.delete(id); if (m.error) reject(new Error(`${method}: ${m.error.message}`)); else resolve(m.result); });
     ws.send(JSON.stringify({ id, method, params }));
   });
   ws.addEventListener('message', ({ data }) => {
     const m = JSON.parse(data);
-    if (m.id) waiting.get(m.id)(m);
+    if (m.id) waiting.get(m.id)?.(m);
     if (m.method === 'Page.javascriptDialogOpening') {
       dialogs.push([m.params.message, m.params.defaultPrompt].filter(Boolean).join(' '));
       cdp('Page.handleJavaScriptDialog', { accept: true }).catch(() => {}); // the page may be navigating away already

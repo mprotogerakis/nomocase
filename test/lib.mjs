@@ -8,8 +8,10 @@ export const PDF = '%PDF-1.4\n% demo\n';
 
 // While sql() blocks the event loop (wrangler CLI), workerd drops idle keep-alive connections; such a request never
 // reached the server, so it is safe to send it once more.
-export const fetchOnce = async (...args) => {
-  try { return await fetch(...args); } catch (e) { if (!['ECONNRESET', 'UND_ERR_SOCKET'].includes(e.cause?.code)) throw e; return fetch(...args); }
+// Each request gets an answer within a minute, or the test fails (instead of hanging the whole run).
+export const fetchOnce = async (url, options = {}) => {
+  const send = () => fetch(url, { signal: AbortSignal.timeout(60e3), ...options });
+  try { return await send(); } catch (e) { if (!['ECONNRESET', 'UND_ERR_SOCKET'].includes(e.cause?.code)) throw e; return send(); }
 };
 
 // One logged-in browser: keeps its session cookie.
