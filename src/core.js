@@ -1,7 +1,7 @@
 // Shared basics: errors and JSON responses, D1 helpers, the event log, small value helpers.
 export { ACCESS, acceptedExtensions, DECISIONS, FILE_KIND_LABELS, FILE_KINDS, NEEDS_FILE, STAFF, TASK_TYPES, validFiles } from '../public/shared/vocab.js';
 
-// Bindings are constant per isolate; set once per request/cron run by worker.js.
+// Module-level bindings, for the modules not yet moved to the request context below (set by init in worker.js).
 export let DB, E;
 // Came the request through Cloudflare's network? There CF-Connecting-IP is the client's real address – never a
 // loopback one, which is what wrangler dev puts there (::1) unless the client sends its own.
@@ -10,11 +10,35 @@ export const viaCloudflare = req => { const ip = req?.headers.get('cf-connecting
 // DEV_LOGIN (login by e-mail, links in answers, the list of accounts) only counts for a local origin and a request
 // that did not come through Cloudflare's network. So a wrongly deployed variable, even together with a local ORIGIN,
 // opens nothing. (The request's host does not tell: wrangler dev rewrites it to the production route.)
-export const init = (env, req = null) => {
-  DB = env.DB;
+const appEnv = (env, req) => {
   const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(env.ORIGIN ?? '') && !viaCloudflare(req);
-  E = env.DEV_LOGIN && !local ? { ...env, DEV_LOGIN: undefined } : env;
+  return env.DEV_LOGIN && !local ? { ...env, DEV_LOGIN: undefined } : env;
 };
+export const init = (env, req = null) => { DB = env.DB; E = appEnv(env, req); };
+
+// The request context: what a handler and the helpers it calls work with, handed on explicitly instead of module state.
+// worker.js makes one per request (handlers get it together with req, url, user, body, params) and one per cron run or
+// incoming mail. Helpers outside a handler take it as their first parameter (`rq`). The names are long enough for the
+// free-variable check (scripts/freevars.mjs) to notice one that a function uses without taking it from the context.
+//   db, sql, row, rows, batch – D1, with the statement helpers bound to it (sql: one statement, e.g. for a batch)
+//   event, wsEvent            – a case event / a workspace log entry, as a statement for a batch
+//   env                       – bindings and vars (DEV_LOGIN only for a local request, see above)
+//   time                      – when the request started (ISO), the time its rows are stamped with
+//   rpId                      – the passkeys' domain (WebAuthn RP ID): the one of ORIGIN
+export function context(env, req = null) {
+  const db = env.DB, time = new Date().toISOString(), envHere = appEnv(env, req);
+  const sql = (text, ...args) => db.prepare(text).bind(...args);
+  return {
+    db, sql, env: envHere, time, rpId: envHere.ORIGIN ? new URL(envHere.ORIGIN).hostname : null,
+    row: (text, ...args) => sql(text, ...args).first(),
+    rows: async (text, ...args) => (await sql(text, ...args).all()).results,
+    batch: stmts => db.batch(stmts),
+    event: (caseId, actorId, type, payload, visibleTo = []) => sql('INSERT INTO events (case_id, actor_id, type, payload, visible_to, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      caseId, actorId, type, JSON.stringify(payload), JSON.stringify(visibleTo), time),
+    wsEvent: (workspaceId, actorId, type, payload = {}) => sql('INSERT INTO workspace_events (workspace_id, actor_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?)',
+      workspaceId, actorId, type, JSON.stringify(payload), time),
+  };
+}
 // Passkeys work only for the domain they were made on (WebAuthn RP ID): the one of ORIGIN.
 export const rpId = () => (E.ORIGIN ? new URL(E.ORIGIN).hostname : null);
 export const appVersion = () => E.CF_VERSION_METADATA?.id ?? 'dev';

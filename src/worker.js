@@ -1,6 +1,6 @@
 // NomoCase: JSON API on Cloudflare Workers, data in D1, files in R2. The UI is static (public/) and only talks to /api/*.
 // This file: routes, request handling (origin check, session, errors) and the cron entry.
-import { appVersion, CASE_CLOSED, DB, fail, HttpError, init, json, now, q, readBody, viaCloudflare } from './core.js';
+import { appVersion, CASE_CLOSED, context, DB, fail, HttpError, init, json, now, q, readBody, viaCloudflare } from './core.js';
 import { deletePasskey, devLogin, giveConsent, legalInfo, listPasskeys, loadUser, logout, me, originOf, passkeyLoginOptions, passkeyLoginVerify, passkeyRegisterOptions, passkeyRegisterVerify, requestLoginLink, sendParticipantLink, updateMe, useLoginLink, withdrawConsent } from './auth.js';
 import { addTemplateVersion, createTemplate, deleteTemplate, listTemplates, restoreTemplate, saveAsTemplate } from './templates.js';
 import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard, deleteCase, getCase, getChanges, moveCase, updateCase, updateFields } from './cases.js';
@@ -103,7 +103,7 @@ const ROUTES = [
 export default {
   async fetch(req, env, exec) {
     init(env, req);
-    const url = new URL(req.url);
+    const rq = context(env, req), url = new URL(req.url);
     // A former domain: permanent redirect to the canonical origin (the #fragment of the old link survives in the browser).
     if ((env.REDIRECT_HOSTS ?? '').split(',').filter(Boolean).includes(url.hostname)) return Response.redirect(`${env.ORIGIN}${url.pathname}${url.search}`, 301);
     const route = ROUTES.find(([method, re]) => method === req.method && re.test(url.pathname));
@@ -126,7 +126,7 @@ export default {
       const raw = req.headers.get('content-type')?.includes('application/json') ? await (await readBody(req, 1024 * 1024, 'Anfrage zu groß (höchstens 1 MB)')).text() : '';
       let body = {};
       if (raw) try { body = JSON.parse(raw); } catch { fail(400, 'Ungültiges JSON'); }
-      const res = await handler({ req, url, user, exec, body: body ?? {}, params: url.pathname.match(re).groups ?? {} });
+      const res = await handler({ ...rq, req, url, user, exec, body: body ?? {}, params: url.pathname.match(re).groups ?? {} });
       if (req.method !== 'GET') await processRules().catch(e => console.error('rules', e.message)); // the events this request wrote
       return res instanceof Response ? res : json(res ?? { ok: true });
     } catch (e) {
