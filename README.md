@@ -24,7 +24,7 @@ Dieselbe Software trägt deshalb eine Bachelor-Thesis genauso wie eine Arztrechn
   nur die erste Nachkommastelle zählt.
 - Ein angepasster Vorgang lässt sich als neue Vorlage speichern.
 - Ein Editor bearbeitet Vorlagen als Formular statt als JSON: Rollen, Angaben, Phasen, Schritte mit Sichtbarkeit,
-  Upload-Regeln und Bewertung, Verrechnungen, PDF-Formulare und Regeln. Nur Notenskalen und Geldschritte bleiben JSON.
+  Upload-Regeln und Bewertung, Skalen, Verrechnungen, PDF-Formulare und Regeln. Nur Geldschritte bleiben JSON.
 - Vorgänge lassen sich aus einer eingefügten Tabelle in großer Zahl anlegen, samt Einladungen.
 
 **Formulare**

@@ -180,6 +180,20 @@ try {
   await typeInto('aggregates.0"][data-input="tplFailValue', '5,0');
   await b.click('[data-on="tplRemove"][data-path="phases.1.tasks"][data-i="0"]');
   await waitFor(`!document.querySelector('[data-prop="from"][value="g1"]')`, 'Gutachten 1 entfernt');
+  // scales as a form: points (a range, German decimals, own verdict) and a list of named values
+  await b.click('[data-on="tplAddScale"]');
+  await waitFor(`!!document.querySelector('[data-path="scales.skala.label"]')`, 'neue Skala');
+  await typeInto('scales.skala.label', 'Punkte');
+  await typeInto('scales.skala.range.1', '60,5');
+  await typeInto('scales.skala.step', '0,5');
+  await typeInto('scales.skala"][data-i="0', 'erfüllt');
+  await b.click('[data-on="tplAddScale"]');
+  await waitFor(`!!document.querySelector('[data-path="scales.skala-2.label"]')`, 'zweite Skala');
+  await typeInto('scales.skala-2.label', 'Stufe');
+  await change('[data-change="tplScaleKind"][data-path="scales.skala-2"]', 'options');
+  await b.click('[data-on="tplAdd"][data-path="scales.skala-2.options"]');
+  await waitFor(`!!document.querySelector('[data-path="scales.skala-2.options.2.label"]')`, 'dritter Wert');
+  await typeInto('scales.skala-2.options.2.label', 'sehr gut');
   // a PDF form, built from lists, offered at "Beginn"; its preview is a real PDF with the placeholder's name in the field
   await b.click('[data-on="tplAdd"][data-path="forms"]');
   await waitFor(`!!document.querySelector('[data-path="forms.0.title"]')`, 'neues Formular');
@@ -237,6 +251,9 @@ try {
   assert.deepEqual(saved.definition.phases[0].tasks[1].visible_to, ['student']);
   assert.deepEqual(saved.definition.phases[1].tasks, [{ key: 'g2', title: 'Gutachten 2', type: 'review', assess: 'note' },
     { key: 'g3', title: 'Freigabe', type: 'approval', labels: ['Passt', 'Ablehnen'] }]);
+  assert.deepEqual([saved.definition.scales.skala, saved.definition.scales['skala-2']], [
+    { label: 'Punkte', range: [0, 60.5], step: 0.5, pass: { min: 50 }, verdicts: ['erfüllt', 'Nicht bestanden'] },
+    { label: 'Stufe', options: [{ value: 1, label: 'bestanden' }, { value: 0, label: 'nicht bestanden' }, { value: 2, label: 'sehr gut' }], pass: { min: 1 } }]);
   assert.deepEqual(saved.definition.aggregates, [{ key: 'gesamtnote', label: 'Gesamtnote', scale: 'note', from: ['g2'], method: 'mean', round: 'truncate', field: 'grade', fail_value: 5 }]);
   assert.deepEqual(saved.definition.rules, [{ id: 'start-melden', name: 'Start melden', trigger: 'task.complete',
     conditions: [{ field: 'task.key', operator: 'equals', value: 'start' }], actions: [{ type: 'add_comment', text: 'Gestartet: {task.title}', visible_to: ['*'] }] },

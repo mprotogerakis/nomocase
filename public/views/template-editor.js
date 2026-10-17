@@ -1,6 +1,6 @@
 // Template editor: roles, Angaben, document types, phases and steps, assessments, PDF forms and rules as a form instead
 // of JSON. It works on a copy of the latest version; saving creates the next version (the server checks it like any other).
-// Everything the editor does not show (the scales themselves, money) stays in the definition untouched – the JSON view edits those.
+// Everything the editor does not show (money steps) stays in the definition untouched – the JSON view edits those.
 import { parseScore } from '../shared/assess.js';
 import { ACCESS, DECISIONS, FILE_KIND_LABELS, NEEDS_FILE, RULE_ACTION_LABELS, RULE_FIELD_LABELS, RULE_MONEY_FIELDS, RULE_OP_LABELS, RULE_TRIGGER_LABELS } from '../shared/vocab.js';
 import { change, input, me, on } from '../state.js';
@@ -97,8 +97,8 @@ function editor() {
   return html`<main class="template-editor">
     <p class="small"><a href="#/templates">← Vorlagen</a></p>
     <h1>${tpl.name} <span class="muted small">· ${tpl.workspace} · Version ${tpl.version}</span></h1>
-    <p class="muted small">Speichern legt Version ${tpl.version + 1} an; laufende Vorgänge behalten ihre Version. Notenskalen und
-      Geldschritte bearbeiten Sie weiterhin in der JSON-Ansicht – sie bleiben hier unverändert erhalten.</p>
+    <p class="muted small">Speichern legt Version ${tpl.version + 1} an; laufende Vorgänge behalten ihre Version. Geldschritte
+      bearbeiten Sie weiterhin in der JSON-Ansicht – sie bleiben hier unverändert erhalten.</p>
 
     <h2>Rollen</h2>
     ${roles.map((r, i) => html`<div class="row">${text(`roles.${i}.label`, r.label, html`aria-label="Rolle" required`)}
@@ -232,6 +232,7 @@ on.tplAdd = ({ path }) => {
     : path === 'document_types' ? { key: uniqueKey('dokument', draft.document_types.map(d => d.key)), label: '', visible_to: [] }
     : path === 'phases' ? { title: '', tasks: [] }
     : path === 'aggregates' ? newAggregate()
+    : path.endsWith('.options') ? { value: Math.max(0, ...list.map(o => o.value)) + 1, label: '' }
     : path === 'forms' ? { key: uniqueKey('formular', draft.forms.map(f => f.key)), title: '', items: [{ heading: 'Angaben' }] }
     : path.endsWith('.items') ? { label: '' }
     : path === 'rules' ? { id: uniqueKey('regel', draft.rules.map(r => r.id)), name: '', trigger: 'task.complete', conditions: [],
@@ -246,7 +247,7 @@ on.tplAdd = ({ path }) => {
 
 // --- Assessments --------------------------------------------------------------------------------------------------
 // Steps are assessed on a scale (chosen at the step); an aggregate combines several of them into one value – e.g. the
-// grade of a thesis from both examiners' grades – and may hand it to an Angabe. The scales stay in the JSON view.
+// grade of a thesis from both examiners' grades – and may hand it to an Angabe.
 const METHODS = [['mean', 'Mittelwert'], ['min', 'kleinster Wert'], ['max', 'größter Wert'], ['sum', 'Summe']];
 const assessedOn = scale => draft.phases.flatMap(p => p.tasks).filter(t => t.assess === scale);
 function newAggregate() {
@@ -254,13 +255,46 @@ function newAggregate() {
   return { key: uniqueKey('verrechnung', draft.aggregates.map(a => a.key)), label: '', scale, from: assessedOn(scale).map(t => t.key), method: 'mean' };
 }
 
+// A scale is a range of numbers (from, to, step, extra values such as 5,0) or a list of values with names, plus which
+// values pass. Its key is fixed when it is created: it is part of every path below.
+const VERDICTS = ['Bestanden', 'Nicht bestanden'];
+const decimal = s => { const t = String(s).trim().replace(',', '.'); return t && Number.isFinite(Number(t)) ? Number(t) : null; };
+const shown = v => (v === undefined || v === null ? '' : String(v).replace('.', ','));
+const numInput = (path, v, label) => html`<input value="${shown(v)}" data-input="tplDecimal" data-path="${path}" aria-label="${label}" inputmode="decimal" style="width:5em">`;
+
+function scaleFields(k, sc) {
+  const path = `scales.${k}`, dir = sc.pass?.max !== undefined ? 'max' : 'min';
+  return html`<div class="step">
+    <div class="row">${text(`${path}.label`, sc.label, html`aria-label="Name der Skala" class="grow" placeholder="z. B. Note oder Punkte" required`)}
+      ${select(path, sc.options ? 'options' : 'range', [['range', 'Zahlenbereich'], ['options', 'Auswahl']], 'tplScaleKind', 'Art der Skala')}
+      <button type="button" class="link danger" data-on="tplRemoveScale" data-key="${k}" title="entfernen">✕</button></div>
+    ${sc.options ? html`${sc.options.map((o, i) => html`<div class="row small">Wert ${numInput(`${path}.options.${i}.value`, o.value, 'Wert')}
+        ${text(`${path}.options.${i}.label`, o.label, html`aria-label="Bezeichnung" placeholder="z. B. sehr gut" required`)} ${tools(`${path}.options`, i, sc.options.length)}</div>`)}
+      <button type="button" class="link small" data-on="tplAdd" data-path="${path}.options">+ Wert</button>`
+    : html`<div class="row small">von ${numInput(`${path}.range.0`, sc.range[0], 'von')} bis ${numInput(`${path}.range.1`, sc.range[1], 'bis')}
+        in Schritten von ${numInput(`${path}.step`, sc.step, 'Schrittweite')}
+        <label class="row">außerdem erlaubt <input value="${(sc.extra ?? []).map(shown).join('; ')}" data-input="tplScaleExtra" data-path="${path}"
+          placeholder="z. B. 5,0" style="width:7em"></label></div>`}
+    <div class="row small">bestanden bei ${select(path, dir, [['max', 'höchstens'], ['min', 'mindestens']], 'tplPassDir', 'bestanden bei')}
+      ${numInput(`${path}.pass.${dir}`, sc.pass?.[dir], 'Grenze')} · Urteil ${[0, 1].map(i => html`<input value="${sc.verdicts?.[i] ?? ''}" placeholder="${VERDICTS[i]}"
+        data-input="tplVerdict" data-path="${path}" data-i="${i}" aria-label="${i ? 'Urteil nicht bestanden' : 'Urteil bestanden'}" style="width:9em">`)}</div>
+    ${text(`${path}.hint`, sc.hint, html`aria-label="Hinweis" placeholder="Hinweis bei der Eingabe (optional), z. B. 1,0 bis 4,0 in Schritten von 0,1"`)}
+    <span class="muted small">Schlüssel: <code>${k}</code></span>
+  </div>`;
+}
+
 function assessSection() {
   const scales = Object.entries(draft.scales ?? {});
-  if (!scales.length) return '';
   return html`<h2>Bewertung</h2>
-    <p class="muted small">Skalen: ${scales.map(([, sc]) => sc.label).join(', ')}. Bei einem Entscheidungs-Schritt unter „Bewertung“ die Skala
-      wählen; eine Verrechnung fasst mehrere Bewertungen zu einem Wert zusammen.</p>
-    ${draft.aggregates.map((a, i) => {
+    <p class="muted small">Eine Skala legt fest, welche Werte eine Bewertung haben kann und welche bestehen. Bei einem Entscheidungs-Schritt
+      unter „Bewertung“ die Skala wählen; eine Verrechnung fasst mehrere Bewertungen zu einem Wert zusammen.</p>
+    ${scales.map(([k, sc]) => scaleFields(k, sc))}
+    <button type="button" class="link" data-on="tplAddScale">+ Skala</button>
+    ${scales.length ? html`<h3>Verrechnungen</h3>${aggregatesList(scales)}` : ''}`;
+}
+
+function aggregatesList(scales) {
+  return html`${draft.aggregates.map((a, i) => {
       const path = `aggregates.${i}`, steps = assessedOn(a.scale);
       return html`<div class="step">
         <div class="row">${text(`${path}.label`, a.label, html`aria-label="Name der Verrechnung" class="grow" placeholder="z. B. Note der Arbeit" required`)}
@@ -279,6 +313,48 @@ function assessSection() {
     })}
     <button type="button" class="link" data-on="tplAdd" data-path="aggregates">+ Verrechnung</button>`;
 }
+
+// Numbers typed the German way ("1,7"); a value that is no number stays out of the draft and marks the field.
+input.tplDecimal = el => {
+  const [obj, prop] = parentOf(el.dataset.path), v = decimal(el.value);
+  if (v !== null) obj[prop] = v;
+  el.setCustomValidity(v === null ? 'eine Zahl, z. B. 1,7' : '');
+};
+input.tplScaleExtra = el => {
+  const sc = at(el.dataset.path), values = el.value.split(/[;\s]+/).filter(Boolean).map(decimal);
+  if (!values.includes(null)) { if (values.length) sc.extra = values; else delete sc.extra; }
+  el.setCustomValidity(values.includes(null) ? 'Zahlen, getrennt durch ;' : '');
+};
+input.tplVerdict = el => {
+  const sc = at(el.dataset.path), words = [0, 1].map(i => (sc.verdicts?.[i] ?? '').trim());
+  words[el.dataset.i] = el.value.trim();
+  if (words.some(Boolean)) sc.verdicts = words.map((w, i) => w || VERDICTS[i]); else delete sc.verdicts;
+};
+change.tplPassDir = el => {
+  const sc = at(el.dataset.path);
+  sc.pass = { [el.value]: sc.pass?.max ?? sc.pass?.min ?? 0 };
+  render();
+};
+change.tplScaleKind = el => {
+  const sc = at(el.dataset.path);
+  for (const k of ['range', 'step', 'extra', 'options']) delete sc[k];
+  if (el.value === 'options') Object.assign(sc, { options: [{ value: 1, label: 'bestanden' }, { value: 0, label: 'nicht bestanden' }], pass: { min: 1 } });
+  else Object.assign(sc, { range: [0, 100], step: 1, pass: { min: 50 } });
+  render();
+};
+on.tplAddScale = () => {
+  draft.scales ??= {};
+  draft.scales[uniqueKey('skala', Object.keys(draft.scales))] = { label: '', range: [0, 100], step: 1, pass: { min: 50 } };
+  render();
+};
+on.tplRemoveScale = ({ key }) => {
+  if (referenced(key) && !confirm(`Die Skala „${draft.scales[key].label || key}“ wird verwendet. Trotzdem entfernen?
+Bewertungen auf dieser Skala und Verrechnungen mit ihr entfallen.`)) return;
+  delete draft.scales[key];
+  for (const t of draft.phases.flatMap(p => p.tasks)) if (t.assess === key) delete t.assess;
+  draft.aggregates = draft.aggregates.filter(a => a.scale !== key);
+  render();
+};
 
 change.tplAggScale = el => {
   const a = at(el.dataset.path);
