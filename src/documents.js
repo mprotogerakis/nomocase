@@ -56,7 +56,7 @@ export async function readUpload(file, strict, given) {
 // it belongs to (decisions only get it attached). `actorId` is null and `label` set for uploads through a link or
 // mails into the case (`channel: 'mail'`, `extra`: subject and attachment names for the log). `byTeam`: uploaded by the team.
 // `complete: false` keeps the task open (more files of a multi-file step follow). `uploadLink`: the link's token hash
-// – the database stores the version only while that link is still valid (trigger, migration 0040).
+// – the database stores the version only while that link is valid and its case and step are open (trigger, 0040/0041).
 export async function storeVersion({ c, actorId, uploadedBy, label = null, channel = null, extra = {}, f, task, doc, stmts = [], byTeam = false, complete = true, uploadLink = null }) {
   if (doc.isNew) {
     stmts.unshift(q('INSERT INTO documents (id, case_id, title, doc_type, visible_to, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -99,7 +99,7 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
   await DB.batch(stmts).catch(async e => {
     await E.FILES.delete(key).catch(e2 => console.error('R2 delete failed (the daily sweep retries)', key, e2.message));
     if (/UNIQUE constraint failed: document_versions/.test(e.message)) fail(409, 'Gerade kam eine andere Fassung dieses Dokuments an. Bitte noch einmal hochladen.');
-    if (/upload link no longer valid/.test(e.message)) fail(410, 'Dieser Upload-Link wurde inzwischen widerrufen oder ist abgelaufen.');
+    if (/upload link no longer valid/.test(e.message)) fail(410, 'Dieser Upload-Link gilt nicht mehr: widerrufen, abgelaufen, oder der Schritt bzw. Vorgang ist inzwischen abgeschlossen.');
     throw e;
   });
   return { document_id: doc.id, version: n, ...(form && { form: { title: form.title, differs: check.differs, taken: taken.changed.map(x => x.label) } }) };

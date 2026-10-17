@@ -62,17 +62,29 @@ const picked = db.prepare(`SELECT t.id FROM templates t JOIN template_versions v
 assert.equal(picked.id, 'a3', 'the rule query (rules.js) finds the template it found before');
 assert.throws(() => template('a4', 'w1', 'Antrag', 1), /UNIQUE/, 'from now on one active template per name');
 
-// 0040: a version through an upload link is stored only while the link is valid (checked in the same transaction).
-const link = (hash, revoked, expires) => db.prepare(`INSERT INTO upload_links (token_hash, case_id, task_id, label, created_by, created_at, expires_at, revoked_at)
-  VALUES (?, 'c1', 't1', 'x', 'u', '2026-01-01', ?, ?)`).run(hash, expires, revoked);
-link('valid', null, '2999-01-01T00:00:00.000Z');
-link('revoked', '2026-01-02', '2999-01-01T00:00:00.000Z');
+// 0040/0041: a version through an upload link is stored only while the link is valid and its case and step are open
+// (checked in the same transaction as the version row).
+const kase = (id, status) => db.prepare("INSERT INTO cases (id, workspace_id, title, definition, status, created_at) VALUES (?, 'w1', ?, '{}', ?, '2026-01-01')").run(id, id, status);
+kase('open-case', 'open');
+kase('closed-case', 'closed');
+task('open-step', 'open-case', null);
+task('done-step', 'open-case', null, 'done');
+task('step-of-closed', 'closed-case', null);
+const link = (hash, revoked, expires, caseId = 'open-case', taskId = 'open-step') => db.prepare(`INSERT INTO upload_links (token_hash, case_id, task_id, label, created_by, created_at, expires_at, revoked_at)
+  VALUES (?, ?, ?, 'x', 'u', '2026-01-01', ?, ?)`).run(hash, caseId, taskId, expires, revoked);
+const later = '2999-01-01T00:00:00.000Z';
+link('valid', null, later);
+link('revoked', '2026-01-02', later);
 link('expired', null, '2000-01-01T00:00:00.000Z');
+link('step-done', null, later, 'open-case', 'done-step');
+link('case-closed', null, later, 'closed-case', 'step-of-closed');
+link('step-gone', null, later, 'open-case', 'deleted-step');
 const version = (id, uploadLink) => db.prepare(`INSERT INTO document_versions (id, document_id, version, filename, content_type, size, r2_key, uploaded_by, created_at, upload_link)
   VALUES (?, 'd1', ?, 'a.pdf', 'application/pdf', 1, ?, 'u', '2026-01-01', ?)`).run(id, Number(id.slice(1)), id, uploadLink);
 version('v1', 'valid');
 version('v2', null); // not through a link: not affected
-assert.throws(() => version('v3', 'revoked'), /upload link no longer valid/);
-assert.throws(() => version('v4', 'expired'), /upload link no longer valid/);
+for (const [n, hash] of ['revoked', 'expired', 'step-done', 'case-closed', 'step-gone'].entries()) {
+  assert.throws(() => version(`v${n + 3}`, hash), /upload link no longer valid/, hash);
+}
 
 console.log(`ok – migrations test passed (${files.length} migrations)`);
