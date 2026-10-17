@@ -106,6 +106,9 @@ const versionStmt = (templateId, version, def, userId) =>
     templateId, version, JSON.stringify(def), now(), userId);
 const nextVersion = async templateId => (await row('SELECT MAX(version) + 1 AS v FROM template_versions WHERE template_id = ?', templateId)).v;
 
+// An active template name is unique in its workspace (index templates_name): rules name the template of a subcase.
+const nameTaken = name => e => { if (/UNIQUE/.test(e.message)) fail(409, `Im Workspace gibt es schon eine Vorlage „${name}“.`); throw e; };
+
 export async function createTemplate({ user, body }) {
   await requireWsOwner(user, body.workspace_id);
   const name = String(body.name ?? '').trim() || fail(400, 'Name fehlt');
@@ -115,7 +118,7 @@ export async function createTemplate({ user, body }) {
     q('INSERT INTO templates (id, workspace_id, name) VALUES (?, ?, ?)', id, body.workspace_id, name),
     versionStmt(id, 1, def, user.id),
     wsEv(body.workspace_id, user.id, 'template.created', { template: name }),
-  ]);
+  ]).catch(nameTaken(name));
   return { id };
 }
 
@@ -136,7 +139,8 @@ export async function deleteTemplate({ user, params }) {
 export async function restoreTemplate({ user, params }) {
   const t = (await row('SELECT * FROM templates WHERE id = ?', params.id)) ?? fail(404, 'Vorlage nicht gefunden');
   await requireWsOwner(user, t.workspace_id);
-  await DB.batch([q('UPDATE templates SET archived_at = NULL WHERE id = ?', t.id), wsEv(t.workspace_id, user.id, 'template.restored', { template: t.name })]);
+  await DB.batch([q('UPDATE templates SET archived_at = NULL WHERE id = ?', t.id), wsEv(t.workspace_id, user.id, 'template.restored', { template: t.name })])
+    .catch(nameTaken(t.name));
 }
 
 export async function addTemplateVersion({ user, params, body }) {
@@ -250,7 +254,7 @@ export async function saveAsTemplate({ user, params, body }) {
       q('INSERT INTO templates (id, workspace_id, name) VALUES (?, ?, ?)', templateId, ctx.c.workspace_id, name),
       versionStmt(templateId, 1, def, user.id),
       wsEv(ctx.c.workspace_id, user.id, 'template.created', { template: name }),
-    ]);
+    ]).catch(nameTaken(name));
   }
   await ev(ctx.c.id, user.id, 'case.saved_as_template', { template: name, version }, []).run();
   return { template_id: templateId, name, version };

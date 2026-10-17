@@ -97,6 +97,12 @@ if (new URL(BASE).hostname === 'localhost') sql("DELETE FROM mail_log WHERE kind
   assert.deepEqual(await expect(prof(`/templates/${tid}`, { method: 'DELETE' })), { archived: true, cases: 1 });
   assert.ok((await expect(prof('/templates'))).find(t => t.id === tid).archived_at);
   await expect(prof('/cases', { body: { template_id: tid, title: 'x' } }), 409);
+  // an archived template's name can be used again; restoring it then waits until the name is free (rules name templates)
+  const plain = { roles: [{ key: 'owner', label: 'Verantwortlich', access: 'case_owner' }], phases: [{ title: 'Allgemein', tasks: [] }] };
+  const { id: namesake } = await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Archivtest ${run}`, definition: plain } }));
+  assert.match((await expect(prof(`/templates/${tid}/restore`, { body: {} }), 409)).error, /gibt es schon eine Vorlage/);
+  await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Archivtest ${run}`, definition: plain } }), 409); // not two active ones
+  await expect(prof(`/templates/${namesake}`, { method: 'DELETE' }));
   await expect(prof(`/templates/${tid}/restore`, { body: {} }));
   await expect(prof('/cases', { body: { template_id: tid, title: `Archivfall 2 ${run}` } })).then(r => expect(prof(`/cases/${r.id}`, { method: 'DELETE' })));
   await expect(prof(`/cases/${used}`, { method: 'DELETE' }));
