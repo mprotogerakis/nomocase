@@ -101,7 +101,7 @@ gleichzeitig laufen.
 
 Die Suite umfasst:
 - **Bündeln:** Jeder Import hat seinen Export.
-- **Unit-Tests:** Upload-Prüfung, Bewertung, PDF-Signaturen, Formulare, Tabellen, Mails, Sitzungen und die Migrationen
+- **Unit-Tests:** Upload-Prüfung, Bewertung, PDF-Signaturen, Formulare, Tabellen, Mails, Sammelversand, Sitzungen und die Migrationen
   (alle nacheinander auf SQLite, mit Altdaten für die, die bestehende Zeilen umbauen).
 - **API-Tests:** Rechte, Regeln, Mails, Finanzen und die Beispielvorlagen von Anfang bis Ende.
 - **Browser-Test:** alle Ansichten in Headless Chrome.

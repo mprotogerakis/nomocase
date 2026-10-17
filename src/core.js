@@ -9,29 +9,49 @@ export const viaCloudflare = req => { const ip = req?.headers.get('cf-connecting
 // DEV_LOGIN (login by e-mail, links in answers, the list of accounts) only counts for a local origin and a request
 // that did not come through Cloudflare's network. So a wrongly deployed variable, even together with a local ORIGIN,
 // opens nothing. (The request's host does not tell: wrangler dev rewrites it to the production route.)
-const appEnv = (env, req) => {
-  const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(env.ORIGIN ?? '') && !viaCloudflare(req);
-  return env.DEV_LOGIN && !local ? { ...env, DEV_LOGIN: undefined } : env;
-};
+const isLocal = (env, req) => /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(env.ORIGIN ?? '') && !viaCloudflare(req);
+const appEnv = (env, req) => (env.DEV_LOGIN && !isLocal(env, req) ? { ...env, DEV_LOGIN: undefined } : env);
+
+// Subrequests: the free plan allows 50 per invocation (a request, a cron run, an incoming mail), and every D1 statement
+// or batch, R2 call and fetch counts. The context counts them. Loops that grow with the data ask `room(cost)` before
+// each item and leave the rest to the next cron run; a cron run keeps CRON_RESERVE for its later steps (digest,
+// progress mails, housekeeping: a fixed handful each). Locally going over fails, as it would in production, so the
+// tests notice.
+export const SUBREQUESTS = 50;
+const CRON_RESERVE = 12;
 
 // The request context: what a handler and the helpers it calls work with, handed on explicitly instead of module state.
 // worker.js makes one per request (handlers get it together with req, url, user, body, params) and one per cron run or
 // incoming mail. Helpers outside a handler take it as their first parameter (`rq`). The names are long enough for the
 // free-variable check (scripts/freevars.mjs) to notice one that a function uses without taking it from the context.
-//   db, sql, row, rows, batch – D1, with the statement helpers bound to it (sql: one statement, e.g. for a batch)
+//   sql, row, rows, batch     – D1 (sql: one statement, e.g. for a batch); no other way in, so every query is counted
 //   event, wsEvent            – a case event / a workspace log entry (the owners' log: members, roles, invitations,
 //                               look, issuers, templates, moved cases), as a statement for a batch
 //   env                       – bindings and vars (DEV_LOGIN only for a local request, see above)
 //   time                      – when the request started (ISO), the time its rows are stamped with
 //   rpId                      – the passkeys' domain (WebAuthn RP ID): the one of ORIGIN
+//   room, spend               – subrequests (see above): is there room for `cost` more; count one (a fetch)
 export function context(env, req = null) {
-  const db = env.DB, time = new Date().toISOString(), envHere = appEnv(env, req);
-  const sql = (text, ...args) => db.prepare(text).bind(...args);
+  const db = env.DB, time = new Date().toISOString(), local = isLocal(env, req), reserve = req ? 0 : CRON_RESERVE;
+  let spent = 0;
+  const spend = () => {
+    if (++spent > SUBREQUESTS && local) throw new Error(`Too many subrequests (more than ${SUBREQUESTS}, local check)`);
+  };
+  // R2 counts too: the bucket as seen through the context counts each call
+  const files = env.FILES && new Proxy(env.FILES, { get: (bucket, k) => (typeof bucket[k] === 'function' ? (...args) => { spend(); return bucket[k](...args); } : bucket[k]) });
+  const envHere = { ...appEnv(env, req), ...(files && { FILES: files }) };
+  // a statement counts when it runs on its own; in a batch the batch counts once
+  const sql = (text, ...args) => {
+    const st = db.prepare(text).bind(...args);
+    for (const m of ['first', 'all', 'run', 'raw']) { const run = st[m].bind(st); st[m] = (...a) => { spend(); return run(...a); }; }
+    return st;
+  };
   return {
-    db, sql, env: envHere, time, rpId: envHere.ORIGIN ? new URL(envHere.ORIGIN).hostname : null,
+    sql, env: envHere, time, rpId: envHere.ORIGIN ? new URL(envHere.ORIGIN).hostname : null,
+    room: cost => SUBREQUESTS - spent - reserve >= cost, spend,
     row: (text, ...args) => sql(text, ...args).first(),
     rows: async (text, ...args) => (await sql(text, ...args).all()).results,
-    batch: stmts => db.batch(stmts),
+    batch: stmts => { spend(); return db.batch(stmts); },
     event: (caseId, actorId, type, payload, visibleTo = []) => sql('INSERT INTO events (case_id, actor_id, type, payload, visible_to, created_at) VALUES (?, ?, ?, ?, ?, ?)',
       caseId, actorId, type, JSON.stringify(payload), JSON.stringify(visibleTo), time),
     wsEvent: (workspaceId, actorId, type, payload = {}) => sql('INSERT INTO workspace_events (workspace_id, actor_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?)',

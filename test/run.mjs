@@ -8,7 +8,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const ALL = ['validate', 'assess', 'pdfsig', 'forms', 'bulk', 'mime', 'session', 'migrations', 'smoke', 'praxisprojekt', 'ui', 'passkey'];
+const ALL = ['validate', 'assess', 'pdfsig', 'forms', 'bulk', 'mime', 'session', 'notify', 'migrations', 'smoke', 'praxisprojekt', 'ui', 'passkey'];
 const SERVER = ['smoke', 'praxisprojekt', 'ui', 'passkey'];
 const suites = process.argv.length > 2 ? process.argv.slice(2) : ALL;
 const unknown = suites.filter(s => !ALL.includes(s));

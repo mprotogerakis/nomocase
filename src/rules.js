@@ -120,36 +120,45 @@ async function recordFailure(rq, caseId, eventId, ruleId, attempts, detail) {
 
 // New events, each looked at once (the cursor); `retries` (the cron): also the failed runs that are due again. The
 // cursor is not what guarantees a run – a failed one stays in automation_runs until it succeeds or gives up.
+// As many as the invocation has room for (a run: up to five subrequests): the cursor only passes events looked at
+// completely, the next request or cron run goes on from there (rules that ran already are skipped).
 export async function processRules(rq, { retries = false } = {}) {
-  const { row, rows, sql } = rq;
+  const { row, rows, sql, room } = rq;
   const events = await rows(`SELECT e.*, u.name AS actor FROM events e LEFT JOIN users u ON u.id = e.actor_id
     WHERE e.id > (SELECT last_event_id FROM rule_cursor WHERE id = 1) ORDER BY e.id LIMIT 200`);
   if (events.length) {
     const cases = await loadCases(rq, events.map(e => e.case_id));
-    for (const e of events) {
+    let seen = null;
+    events: for (const e of events) {
       const c = cases.get(e.case_id);
       const p = JSON.parse(e.payload);
       const rules = (c?.def.rules ?? []).filter(r => r.trigger === e.type && r.enabled !== false);
-      if (!rules.length || p.rule) continue; // nothing to do, or caused by a rule (no chains)
-      const f = await ruleFacts(rq, c, e, p);
-      for (const rule of rules) {
-        if (!rule.conditions.every(cond => RULE_OPS[cond.operator](f[cond.field], cond.value))) continue;
-        if (await row('SELECT 1 FROM automation_runs WHERE event_id = ? AND rule_id = ?', e.id, rule.id)) continue; // ran already
-        await runRule(rq, c, e, rule, f);
+      if (rules.length && !p.rule) { // something to do, and not caused by a rule (no chains)
+        if (!room(8)) break; // the facts, one run, the cursor
+        const f = await ruleFacts(rq, c, e, p);
+        for (const rule of rules) {
+          if (!rule.conditions.every(cond => RULE_OPS[cond.operator](f[cond.field], cond.value))) continue;
+          if (!room(6)) break events;
+          if (await row('SELECT 1 FROM automation_runs WHERE event_id = ? AND rule_id = ?', e.id, rule.id)) continue; // ran already
+          await runRule(rq, c, e, rule, f);
+        }
       }
+      seen = e.id;
     }
-    await sql('UPDATE rule_cursor SET last_event_id = MAX(last_event_id, ?) WHERE id = 1', events.at(-1).id).run();
+    if (seen != null) await sql('UPDATE rule_cursor SET last_event_id = MAX(last_event_id, ?) WHERE id = 1', seen).run();
   }
   if (retries) await retryRules(rq);
 }
 
 // Failed runs that are due: the same rule on the same event (its conditions held then), with the facts of now.
 async function retryRules(rq) {
-  const { rows, time } = rq;
+  const { rows, room, time } = rq;
   const due = await rows(`SELECT r.rule_id, r.attempts, e.*, u.name AS actor FROM automation_runs r JOIN events e ON e.id = r.event_id
     LEFT JOIN users u ON u.id = e.actor_id WHERE r.status = 'retry' AND r.next_attempt_at <= ? ORDER BY r.next_attempt_at LIMIT 20`, time);
+  if (!due.length) return;
   const cases = await loadCases(rq, due.map(d => d.case_id));
   for (const { rule_id: ruleId, attempts, ...e } of due) {
+    if (!room(8)) break; // the rest is due again in the next run
     const c = cases.get(e.case_id), rule = c?.def.rules?.find(r => r.id === ruleId);
     if (!rule || rule.enabled === false) {
       await recordFailure(rq, e.case_id, e.id, ruleId, ATTEMPTS, 'nicht wiederholt: Regel inzwischen ausgeschaltet oder entfernt');

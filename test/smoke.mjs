@@ -801,12 +801,13 @@ if (new URL(BASE).hostname === 'localhost') {
   const { id: aging } = await expect(prof('/cases', { body: { template_id: short.id, title: 'Aufbewahrungstest' } }));
   await expect(prof(`/cases/${aging}`, { method: 'PATCH', body: { status: 'closed' } }));
   const closedAgo = days => sql(`UPDATE cases SET closed_at = '${new Date(Date.now() - days * 864e5).toISOString()}' WHERE id = '${aging}'`);
+  const runRetention = async () => assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=*/20+*+*+*+*`)).status, 200); // every 20 minutes
   closedAgo(20);
-  await runDigest();
+  await runRetention();
   assert.equal(sql(`SELECT COUNT(*) AS n FROM notifications WHERE task_id = '${aging}' AND stage = 'retention'`)[0].n, 1, 'deletion is announced');
   await expect(prof(`/cases/${aging}`));
   closedAgo(31);
-  await runDigest();
+  await runRetention();
   await expect(prof(`/cases/${aging}`), 404);
   assert.deepEqual(sql(`SELECT reason FROM case_deletions WHERE case_id = '${aging}'`), [{ reason: 'retention' }]);
 
@@ -935,6 +936,26 @@ if (new URL(BASE).hostname === 'localhost') {
 
   await expect(student('/me', { method: 'PATCH', body: { email_reminders: false } }));
   assert.equal((await expect(student('/me'))).user.email_reminders, false);
+}
+
+// Subrequests: an invocation may make 50 (free plan), D1 queries included; locally going over fails the run. Digests
+// and progress mails for many people still fit: all mails in one request to the provider, the bookkeeping in one batch.
+if (new URL(BASE).hostname === 'localhost') {
+  const { id: crowdTpl } = await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Viele ${run}`, definition: {
+    roles: [{ key: 'owner', label: 'Team', access: 'case_owner' }, { key: 'guest', label: 'Gast', access: 'guest_contributor' }],
+    phases: [{ title: 'Allgemein', tasks: [{ key: 'do', title: 'Gastschritt', type: 'task', role: 'guest' }] }] } } }));
+  const { id: crowdCase } = await expect(prof('/cases', { body: { template_id: crowdTpl, title: `Viele ${run}` } }));
+  const crowd = Array.from({ length: 15 }, (_, i) => `crowd${i}.${run}@example.org`);
+  for (const email of crowd) {
+    const { link } = await expect(prof(`/cases/${crowdCase}/invitations`, { body: { email, role: 'guest' } }));
+    await expect(client()('/invitations/accept', { body: { consent: true, token: tokenOf(link), name: email.split('.')[0] } }));
+  }
+  const reached = column => sql(`SELECT COUNT(*) AS n FROM users WHERE email LIKE 'crowd%.${run}@example.org' AND ${column} IS NOT NULL`)[0].n;
+  assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=0+5+*+*+*`)).status, 200, 'the daily run stays within its subrequests');
+  assert.equal(reached('last_digest_at'), 15, 'everyone got the digest');
+  await expect(prof(`/cases/${crowdCase}/comments`, { body: { body: 'An alle.', visible_to: ['*'] } }));
+  assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=*/20+*+*+*+*`)).status, 200, 'the 20-minute run too');
+  assert.equal(reached('progress_mail_at'), 15, 'everyone got the news');
 }
 
 // Praxisprojekt rule: uploading the approval informs the student automatically.

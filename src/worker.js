@@ -147,14 +147,14 @@ export default {
     }
   },
 
-  // Independent steps: one that fails is logged and the others still run; the run then counts as failed.
+  // Independent steps: one that fails is logged and the others still run; the run then counts as failed. Each step
+  // takes only what the run has room for (50 subrequests, core.js) and leaves the rest to the next run.
   async scheduled(controller, env) {
     const rq = context(env), { batch, sql, time } = rq, failed = [];
     const step = async (name, fn) => { try { await fn(); } catch (e) { console.error(`cron ${name}`, e.message); failed.push(name); } };
     await step('rules', () => processRules(rq, { retries: true })); // catch-up (e.g. after a request that failed midway) and retries
     await step('outbox', () => processOutbox(rq)); // mails with links the provider did not take yet
     if (controller.cron === DAILY_CRON) {
-      await step('retention', () => applyRetention(rq));
       await step('digests', () => sendDigests(rq));
       // housekeeping: old mail log, expired sessions, login links and passkey challenges
       await step('housekeeping', () => batch([
@@ -165,8 +165,9 @@ export default {
         sql("DELETE FROM mail_outbox WHERE status <> 'pending' AND created_at < ?", new Date(Date.now() - 30 * 864e5).toISOString()),
       ]));
       await step('file sweep', () => sweepOrphanFiles(rq));
-    } else {
+    } else { // every 20 minutes (also at 05:00, as its own run: so retention never runs twice at once)
       await step('progress', () => sendProgress(rq));
+      await step('retention', () => applyRetention(rq));
     }
     if (failed.length) throw new Error(`cron steps failed: ${failed.join(', ')}`);
   },

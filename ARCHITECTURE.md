@@ -17,7 +17,10 @@ Widerspruch ist, weiß nur die jeweilige Vorlage – nicht der Code.
 4. **Nachvollziehbar.** Das Ereignisprotokoll ist append-only, Geldbewegungen sind unveränderlich (Storno statt
    Änderung), Dateien sind versioniert und tragen ihre SHA-256-Prüfsumme.
 5. **Gratis-Tarif-tauglich.** Wenige gelesene Zeilen pro Anfrage, Polling mit konstanten Kosten, rechenintensive
-   Arbeit im Browser oder in R2 (z. B. Prüfsummen), Cron-Läufe mit gebündelten Schreibzugriffen.
+   Arbeit im Browser oder in R2 (z. B. Prüfsummen), Cron-Läufe mit gebündelten Schreibzugriffen. Höchstens 50
+   Subrequests je Aufruf (D1-Abfragen, R2, fetch): der Kontext zählt mit (`room()`), Schleifen über Daten hören
+   rechtzeitig auf und überlassen den Rest dem nächsten Cron-Lauf; Sammelmails gehen in einem Request an Resend.
+   Lokal scheitert ein Aufruf über 50 wie in Produktion, so merken es die Tests.
 6. **Kein Build-Schritt für die Oberfläche.** Native ES-Module; Fremdabhängigkeiten nur, wo es ohne nicht geht
    (WebAuthn auf dem Server).
 
@@ -72,7 +75,7 @@ und ein eigenes `wrangler dev` auf einem freien Port. Läufe nebeneinander sehen
 hinter einer anderen auf. Eine einzelne Suite: `node test/run.mjs smoke`.
 
 `check` (freie Variablen, Importzyklen; Server und Oberfläche bündeln: jeder Import hat seinen Export) · `validate` (Upload-Prüfung, ohne Server) ·
-`assess`, `pdfsig`, `forms` (Bewertung, Signaturen, Formular-PDFs, ohne Server) · `smoke` (Berechtigungen, Finanzen, Regeln, Mails) ·
+`assess`, `pdfsig`, `forms` (Bewertung, Signaturen, Formular-PDFs, ohne Server) · `notify` (Sammelmails an den Anbieter, Subrequest-Zähler) · `smoke` (Berechtigungen, Finanzen, Regeln, Mails) ·
 `praxisprojekt` (Beispielvorlagen von Anfang bis Ende) · `ui` (alle Ansichten im echten Browser, ohne Skriptfehler, auch in Handy-Breite, jedes Bedienelement mit Namen für Screenreader und per Tastatur erreichbar) ·
 `passkey` (Anmeldung, auch gegen Produktion). `test/browser.mjs` steuert Chrome über das DevTools-Protokoll.
 
@@ -111,6 +114,10 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
       nur an die, die den Schritt sehen
 - [x] Beispielvorlagen als JSON-Dateien (`templates/`), veröffentlicht mit `npm run templates [-- --remote]`;
       über die Oberfläche geänderte Versionen werden nur mit `--force` ersetzt
+- [x] Subrequests (50 je Aufruf im Gratis-Tarif, D1 zählt mit): Tagesübersicht und Fortschrittsmails als ein
+  Batch-Request an Resend (permissive: eine falsche Adresse trifft nur ihre Mail), Vermerke in einer D1-Batch; Regeln,
+  Outbox, Aufbewahrung (jetzt im 20-Minuten-Lauf) und Datei-Sweep nehmen nur, wofür der Lauf Platz hat. Vorher riss der
+  Lauf ab etwa 10 Empfängern einer Übersicht bzw. 40 Personen mit Fortschrittsmails
 - [ ] Kosten: Änderungsstand per Trigger, Übersicht in SQL verdichten, Aufräumen alter Benachrichtigungen
 - [x] Übersicht als Arbeitsliste: Suche ohne Neuaufbau, Filter, Sortierung nach Dringlichkeit, „wartet auf … seit“,
       überfällig bei anderen, „+ Neuer Vorgang“ oben

@@ -34,19 +34,15 @@ export async function checkSenderCap(rq, sender) {
   if (n >= cap) fail(429, `Über Ihr Konto gingen heute schon ${cap} E-Mails hinaus. Morgen geht es weiter.`);
 }
 
-export async function sendMail(rq, to, subject, paragraphs, { replyTo, bulk = false, kind = null, sender = null } = {}) {
-  return (await deliver(rq, to, subject, paragraphs, { replyTo, bulk, kind, sender })).ok;
+export async function sendMail(rq, to, subject, paragraphs, { replyTo, kind = null, sender = null } = {}) {
+  return (await deliver(rq, to, subject, paragraphs, { replyTo, kind, sender })).ok;
 }
 
 // Same, with the provider's answer (for the test mail on the account page). `outboxId`: the outbox mail this attempt
 // is for – sent as Idempotency-Key (its sender was counted when it was queued).
-export async function deliver(rq, to, subject, paragraphs, { replyTo, bulk = false, kind = null, sender = null, outboxId = null } = {}) {
+export async function deliver(rq, to, subject, paragraphs, { replyTo, kind = null, sender = null, outboxId = null } = {}) {
   const { sql, env, time } = rq;
   if (sender && !outboxId) await checkSenderCap(rq, sender);
-  if (bulk && (await mailsToday(rq, true)) >= bulkCap(rq)) {
-    console.error('sendMail skipped: daily cap for digest/progress mails reached');
-    return { ok: false, error: 'Tageskontingent für Sammelmails erreicht' };
-  }
   const text = paragraphs.join('\n\n');
   let r;
   if (!env.RESEND_API_KEY) {
@@ -54,6 +50,7 @@ export async function deliver(rq, to, subject, paragraphs, { replyTo, bulk = fal
     console.log(`[mail] to ${to}: ${subject}\n${text}`);
     r = await devProvider(rq, to, outboxId);
   } else {
+    rq.spend();
     try {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -68,8 +65,8 @@ export async function deliver(rq, to, subject, paragraphs, { replyTo, bulk = fal
     }
     if (!r.ok) console.error('sendMail failed', r.status, r.error);
   }
-  await sql('INSERT INTO mail_log (bulk, kind, sent_at, ok, status, error, sender_id, outbox_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    bulk ? 1 : 0, kind, time, r.ok ? 1 : 0, r.status ?? null, r.error ?? null, sender, outboxId).run();
+  await sql('INSERT INTO mail_log (bulk, kind, sent_at, ok, status, error, sender_id, outbox_id) VALUES (0, ?, ?, ?, ?, ?, ?, ?)',
+    kind, time, r.ok ? 1 : 0, r.status ?? null, r.error ?? null, sender, outboxId).run();
   return r;
 }
 
@@ -85,6 +82,54 @@ async function devProvider(rq, to, outboxId) {
   if (mode === 'timeout-once' && first) return { ok: false, error: 'The operation was aborted due to timeout (test)' };
   if (mode === 'lost' && first) return { ok: false, error: 'connection lost after the provider accepted the mail (test)' };
   return { ok: true, status: 200 };
+}
+
+// Digest and progress mails of a run, all in one request to the provider (batch endpoint, up to 100 per request): a
+// run costs the same few subrequests however many people get one. Permissive validation, so a bad address fails only
+// its own mail. Beyond the daily cap nothing goes out. mails: [{ to, subject, paragraphs }] → [ok, …] in that order;
+// every attempt is logged (one batch).
+const BATCH_MAX = 100;
+
+export async function sendBulk(rq, mails) {
+  const { sql, batch, time } = rq;
+  if (!mails.length) return [];
+  const room = Math.max(bulkCap(rq) - await mailsToday(rq, true), 0);
+  if (room < mails.length) console.error(`bulk mail: daily cap reached, ${mails.length - room} not sent`);
+  const results = [];
+  for (let i = 0; i < Math.min(room, mails.length); i += BATCH_MAX) results.push(...await bulkRequest(rq, mails.slice(i, Math.min(i + BATCH_MAX, room))));
+  if (results.length) {
+    await batch(results.map(r => sql('INSERT INTO mail_log (bulk, sent_at, ok, status, error) VALUES (1, ?, ?, ?, ?)', time, r.ok ? 1 : 0, r.status ?? null, r.error ?? null)));
+  }
+  return mails.map((m, i) => !!results[i]?.ok);
+}
+
+async function bulkRequest(rq, mails) {
+  const { env } = rq;
+  if (!env.RESEND_API_KEY) {
+    if (!env.DEV_LOGIN) return mails.map(() => ({ ok: false, error: 'kein Mail-Anbieter eingerichtet' }));
+    for (const m of mails) console.log(`[mail] to ${m.to}: ${m.subject}\n${m.paragraphs.join('\n\n')}`);
+    return Promise.all(mails.map(m => devProvider(rq, m.to, null)));
+  }
+  rq.spend();
+  try {
+    const res = await fetch('https://api.resend.com/emails/batch', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json', 'x-batch-validation': 'permissive' },
+      body: JSON.stringify(mails.map(m => ({ from: env.MAIL_FROM, to: [m.to], subject: m.subject, text: m.paragraphs.join('\n\n') }))),
+      signal: AbortSignal.timeout(20e3),
+    });
+    const body = await res.text();
+    if (!res.ok) {
+      console.error('bulk mail failed', res.status, body.slice(0, 300));
+      return mails.map(() => ({ ok: false, status: res.status, error: body.slice(0, 300) }));
+    }
+    // permissive: { data: [the ids of the mails taken], errors: [{ index, message }] for the others }
+    const refused = new Map((JSON.parse(body).errors ?? []).map(e => [e.index, String(e.message).slice(0, 300)]));
+    if (refused.size) console.error('bulk mail: refused', [...refused.values()].join(' | '));
+    return mails.map((m, i) => (refused.has(i) ? { ok: false, status: res.status, error: refused.get(i) } : { ok: true, status: res.status }));
+  } catch (e) {
+    return mails.map(() => ({ ok: false, error: String(e.message).slice(0, 300) }));
+  }
 }
 
 // --- Outbox: mails that carry a link (migration 0043) ---------------------------------------------------------------
@@ -125,10 +170,12 @@ export async function sendFromOutbox(rq, id) {
   return r;
 }
 
-// Cron: retries the pending mails that are due (a few per run: the free plan allows 50 subrequests per run).
+// Cron: retries the pending mails that are due, as many as the run has room for (four subrequests each); the rest
+// waits for the next run.
 export async function processOutbox(rq) {
-  const { rows, time } = rq;
+  const { rows, room, time } = rq;
   for (const { id } of await rows("SELECT id FROM mail_outbox WHERE status = 'pending' AND next_attempt_at <= ? ORDER BY next_attempt_at LIMIT 10", time)) {
+    if (!room(4)) break;
     await sendFromOutbox(rq, id);
   }
 }
@@ -193,27 +240,28 @@ export async function sendDigests(rq) {
     if (n && !p.email_progress) d.messages.push({ n, p });
   }
 
-  // ponytail: one request per mail; the free Workers plan allows 50 outbound requests per run,
-  // so past ~40 recipients a day switch to Resend's batch endpoint (100 mails per request).
-  for (const d of digests.values()) {
-    if (!d.items.length && !d.messages.length) continue;
-    const link = caseId => `${env.ORIGIN}/#/case/${caseId}`;
+  // all mails in one request, all bookkeeping in one batch (a few subrequests, however many people)
+  const due = [...digests.values()].filter(d => d.items.length || d.messages.length);
+  const link = caseId => `${env.ORIGIN}/#/case/${caseId}`;
+  const delivered = await sendBulk(rq, due.map(d => {
     const sections = STAGES.filter(([s]) => d.items.some(i => i.stage === s)).map(([s, label]) => [label, ...d.items.filter(i => i.stage === s)
       .map(({ t, p }) => `- ${t.title} (${p.case_title})${t.due_date ? `, Frist ${deDate(t.due_date)}` : ''}\n  ${link(p.case_id)}`)].join('\n'));
     if (d.messages.length) sections.push(['Neue Nachrichten', ...d.messages.map(({ n, p }) => `- ${n} in ${p.case_title}\n  ${link(p.case_id)}`)].join('\n'));
     const n = d.items.length;
     const subject = [n && `${n} ${n === 1 ? 'Aufgabe' : 'Aufgaben'}`, d.messages.length && 'neue Nachrichten'].filter(Boolean).join(', ');
-    const ok = await sendMail(rq, d.email, `NomoCase: ${subject}`, [
+    return { to: d.email, subject: `NomoCase: ${subject}`, paragraphs: [
       `Guten Morgen ${d.name},`,
       'hier ist Ihre Übersicht aus NomoCase.',
       ...sections,
       `Diese Erinnerungen können Sie hier abbestellen: ${env.ORIGIN}/#/account`,
-    ], { bulk: true });
-    if (!ok) continue; // try again tomorrow
-    await batch([
+    ] };
+  }));
+  const reached = due.filter((d, i) => delivered[i]); // the others: try again tomorrow
+  if (reached.length) {
+    await batch(reached.flatMap(d => [
       ...d.items.map(({ t, stage }) => sql('INSERT OR IGNORE INTO notifications (user_id, task_id, stage, sent_at) VALUES (?, ?, ?, ?)', d.user_id, t.id, stage, ts)),
       sql('UPDATE users SET last_digest_at = ? WHERE id = ?', ts, d.user_id),
-    ]);
+    ]));
   }
 }
 
@@ -242,7 +290,7 @@ const PROGRESS_TEXT = {
 };
 
 export async function sendProgress(rq) {
-  const { rows, sql, env, time } = rq;
+  const { rows, sql, batch, env, time } = rq;
   if (!env.ORIGIN) return console.error('progress skipped: ORIGIN not set');
   const ts = time;
   const fallback = new Date(Date.parse(ts) - PROGRESS_GAP).toISOString();
@@ -265,22 +313,26 @@ export async function sendProgress(rq) {
     const news = events.filter(e => e.case_id === p.case_id && e.created_at > (p.progress_cursor ?? fallback) && e.actor_id !== p.user_id && canSee(ctx, e));
     if (news.length) person.cases.push({ p, news });
   }
-  for (const person of people.values()) {
-    if (!person.cases.length) {
-      await sql('UPDATE users SET progress_cursor = ? WHERE id = ?', ts, person.user_id).run();
-      continue;
-    }
-    const ok = await sendMail(rq, person.email,
-      person.cases.length === 1 ? `Neues in „${person.cases[0].p.case_title}“` : `Neues in ${person.cases.length} Vorgängen`, [
-        `Guten Tag ${person.name},`,
-        ...person.cases.map(({ p, news }) => [p.case_title, ...news.map(e => {
-          const payload = JSON.parse(e.payload);
-          return `- ${e.actor ?? payload.via ?? 'NomoCase'} ${PROGRESS_TEXT[e.type](payload)}`;
-        }),
-          `  ${env.ORIGIN}/#/case/${p.case_id}`].join('\n')),
-        `Diese Benachrichtigungen (höchstens 3 pro Stunde) können Sie hier abbestellen: ${env.ORIGIN}/#/account`,
-      ], { bulk: true });
-    if (ok) await sql('UPDATE users SET progress_cursor = ?, progress_mail_at = ? WHERE id = ?', ts, ts, person.user_id).run();
-    // not ok (cap reached or mail failed): cursor stays, the news go out with the next run
-  }
+  // all mails in one request, all cursors in one batch (a few subrequests, however many people)
+  const quiet = [...people.values()].filter(person => !person.cases.length).map(person => person.user_id);
+  const due = [...people.values()].filter(person => person.cases.length);
+  const sent = await sendBulk(rq, due.map(person => ({
+    to: person.email,
+    subject: person.cases.length === 1 ? `Neues in „${person.cases[0].p.case_title}“` : `Neues in ${person.cases.length} Vorgängen`,
+    paragraphs: [
+      `Guten Tag ${person.name},`,
+      ...person.cases.map(({ p, news }) => [p.case_title, ...news.map(e => {
+        const payload = JSON.parse(e.payload);
+        return `- ${e.actor ?? payload.via ?? 'NomoCase'} ${PROGRESS_TEXT[e.type](payload)}`;
+      }),
+      `  ${env.ORIGIN}/#/case/${p.case_id}`].join('\n')),
+      `Diese Benachrichtigungen (höchstens 3 pro Stunde) können Sie hier abbestellen: ${env.ORIGIN}/#/account`,
+    ],
+  })));
+  // not sent (cap reached or mail failed): the cursor stays, the news go out with the next run
+  const done = due.filter((person, i) => sent[i]).map(person => person.user_id);
+  await batch([
+    sql('UPDATE users SET progress_cursor = ? WHERE id IN (SELECT value FROM json_each(?))', ts, JSON.stringify(quiet)),
+    sql('UPDATE users SET progress_cursor = ?, progress_mail_at = ? WHERE id IN (SELECT value FROM json_each(?))', ts, ts, JSON.stringify(done)),
+  ]);
 }

@@ -249,10 +249,11 @@ export async function deleteVersion(rq) {
 // upload), or an upload whose DB write never happened (Worker stopped in between). Daily; only files older than a
 // day, younger ones may belong to an upload still in progress.
 export async function sweepOrphanFiles(rq) {
-  const { rows, env } = rq;
+  const { rows, room, env } = rq;
   const before = Date.now() - 864e5;
   let cursor, removed = 0;
   do {
+    if (!room(3)) break; // ponytail: starts over each day; with more pages than a run has room for, resume from a stored cursor
     const page = await env.FILES.list({ cursor, limit: 1000 });
     const old = page.objects.filter(o => o.uploaded.getTime() < before).map(o => o.key);
     const known = new Set((await rows('SELECT r2_key FROM document_versions WHERE r2_key IN (SELECT value FROM json_each(?))', JSON.stringify(old))).map(r => r.r2_key));

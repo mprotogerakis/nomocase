@@ -233,27 +233,30 @@ async function purgeCase(rq, c, actorId, reason) {
   }
 }
 
-// Closed cases whose template sets retention_days: announce 14 days ahead, then delete.
+// Closed cases whose template sets retention_days: announce 14 days ahead, then delete. As many as the run has room
+// for (the cohort of a semester may expire on one day); the rest follows in the next run.
 export async function applyRetention(rq) {
-  const { rows, sql, env, time } = rq;
+  const { rows, sql, room, env, time } = rq;
   const today = time.slice(0, 10);
-  const cases = await rows(`SELECT c.id, c.workspace_id, c.title, c.closed_at, json_extract(c.definition, '$.retention_days') AS days, t.name AS template_name
+  const cases = (await rows(`SELECT c.id, c.workspace_id, c.title, c.closed_at, json_extract(c.definition, '$.retention_days') AS days, t.name AS template_name
     FROM cases c LEFT JOIN templates t ON t.id = c.template_id
-    WHERE c.status = 'closed' AND c.closed_at IS NOT NULL AND json_extract(c.definition, '$.retention_days') IS NOT NULL`);
-  for (const c of cases) {
-    const deleteOn = new Date(Date.parse(c.closed_at) + c.days * 864e5).toISOString().slice(0, 10);
-    if (deleteOn <= today) {
-      await purgeCase(rq, c, null, 'retention');
-      continue;
-    }
-    if (Date.parse(deleteOn) - Date.parse(today) > 14 * 864e5) continue;
-    const owners = await rows(`SELECT u.id, u.email, u.name FROM case_participants p JOIN users u ON u.id = p.user_id
-      WHERE p.case_id = ? AND p.access = 'case_owner' AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?)
-      AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.user_id = u.id AND n.task_id = p.case_id AND n.stage = 'retention')`, c.id, time);
-    for (const o of owners) {
+    WHERE c.status = 'closed' AND c.closed_at IS NOT NULL AND json_extract(c.definition, '$.retention_days') IS NOT NULL`))
+    .map(c => ({ ...c, deleteOn: new Date(Date.parse(c.closed_at) + c.days * 864e5).toISOString().slice(0, 10) }));
+  for (const c of cases.filter(c => c.deleteOn <= today)) {
+    if (!room(8)) return; // a purge: its versions, people and sub-cases, the batch, the files
+    await purgeCase(rq, c, null, 'retention');
+  }
+  const soon = cases.filter(c => c.deleteOn > today && Date.parse(c.deleteOn) - Date.parse(today) <= 14 * 864e5);
+  // the owners not told yet, of all those cases in one query
+  const owners = soon.length ? await rows(`SELECT p.case_id, u.id, u.email, u.name FROM case_participants p JOIN users u ON u.id = p.user_id
+    WHERE p.case_id IN (SELECT value FROM json_each(?)) AND p.access = 'case_owner' AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?)
+    AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.user_id = u.id AND n.task_id = p.case_id AND n.stage = 'retention')`, JSON.stringify(soon.map(c => c.id)), time) : [];
+  for (const c of soon) {
+    for (const o of owners.filter(o => o.case_id === c.id)) {
+      if (!room(3)) return; // the mail, its log, the note
       const ok = await sendMail(rq, o.email, `Wird gelöscht: ${c.title}`, [
         `Guten Tag ${o.name},`,
-        `der abgeschlossene Vorgang „${c.title}“ wird gemäß Aufbewahrungsfrist am ${deDate(deleteOn)} endgültig gelöscht, mit allen Dokumenten und Nachrichten.`,
+        `der abgeschlossene Vorgang „${c.title}“ wird gemäß Aufbewahrungsfrist am ${deDate(c.deleteOn)} endgültig gelöscht, mit allen Dokumenten und Nachrichten.`,
         `Wenn Sie ihn behalten möchten, öffnen Sie ihn wieder:
 ${env.ORIGIN}/#/case/${c.id}`,
       ]);
