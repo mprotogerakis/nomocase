@@ -41,7 +41,7 @@ export async function me(rq) {
   const workspaces = await rows('SELECT w.id, w.name, m.role FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = ? ORDER BY w.name', user.id);
   const { n } = await row('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ? AND rp_id IS ?', user.id, rpId);
   const consent = await row('SELECT accepted_at FROM consents WHERE user_id = ? AND version = ? AND withdrawn_at IS NULL', user.id, CONSENT_VERSION);
-  return { user: { id: user.id, name: user.name, email: user.email, email_reminders: !!user.email_reminders, email_progress: !!user.email_progress }, workspaces, passkeys: n, dev: !!env.DEV_LOGIN, version: appVersion(),
+  return { user: { id: user.id, name: user.name, email: user.email, email_reminders: !!user.email_reminders, email_progress: !!user.email_progress }, workspaces, passkeys: n, dev: !!env.DEV_LOGIN, version: appVersion(env),
     consent: { version: CONSENT_VERSION, accepted: !!consent, accepted_at: consent?.accepted_at ?? null } };
 }
 
@@ -101,7 +101,7 @@ export async function requestLoginLink(rq) {
 
 export async function sendParticipantLink(rq) {
   const { user, params, url, row, event, env, time } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
   const p = (await row(`SELECT u.id, u.email, u.name FROM case_participants p JOIN users u ON u.id = p.user_id
     WHERE p.case_id = ? AND p.user_id = ? AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?)`, ctx.c.id, params.userId, time))
@@ -164,7 +164,7 @@ export async function passkeyRegisterVerify(rq) {
 
 // Login challenges are signed instead of stored ("<expiry>.<nonce>.<HMAC>"): asking for one writes nothing, so anonymous
 // requests cannot fill D1. Only a successful login writes, to use its challenge up (no replay of a recorded response).
-let loginKey = null; // per isolate; the key itself is made once and kept in D1 (app_secrets)
+let loginKey = null; // a cache, not request state: the key is made once, kept in D1 (app_secrets) and never changes
 async function challengeKey(rq) {
   const { row, sql } = rq;
   if (loginKey) return loginKey;

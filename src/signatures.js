@@ -69,7 +69,7 @@ async function loadSignature(rq, user, versionId, position) {
   const { row } = rq;
   const v = (await row(`SELECT v.id, d.case_id, d.visible_to, d.created_by, d.title FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE v.id = ?`, versionId))
     ?? fail(404, 'Fassung nicht gefunden');
-  const ctx = await caseCtx(user, v.case_id);
+  const ctx = await caseCtx(rq, user, v.case_id);
   if (!canSee(ctx, v)) fail(404, 'Fassung nicht gefunden');
   const sig = (await row('SELECT * FROM document_signatures WHERE version_id = ? AND position = ?', versionId, Number(position))) ?? fail(404, 'Signatur nicht gefunden');
   if (sig.status !== 'valid' || !sig.key_fingerprint) fail(400, 'Diese Signatur ist nicht gültig und lässt sich nicht zuordnen.');
@@ -131,8 +131,9 @@ export async function removeSigningKey({ user, params, sql }) {
 }
 
 // Workspace owners: issuers whose certificates count as identified (PEM or base64 DER of the issuer certificate).
-export async function addTrustedIssuer({ user, params, body, sql, batch, wsEvent, time }) {
-  await requireWsOwner(user, params.id);
+export async function addTrustedIssuer(rq) {
+  const { user, params, body, sql, batch, wsEvent, time } = rq;
+  await requireWsOwner(rq, user, params.id);
   const b64 = String(body.certificate ?? '').replace(/-----(BEGIN|END) CERTIFICATE-----/g, '').replace(/\s+/g, '');
   let cert;
   try { cert = parseCertificate(der(b64)); } catch { fail(400, 'Das ist kein lesbares Zertifikat (PEM oder DER).'); }
@@ -143,8 +144,9 @@ export async function addTrustedIssuer({ user, params, body, sql, batch, wsEvent
   return { name: cert.subject.cn ?? cert.subject.o, fingerprint };
 }
 
-export async function removeTrustedIssuer({ user, params, row, sql, batch, wsEvent }) {
-  await requireWsOwner(user, params.id);
+export async function removeTrustedIssuer(rq) {
+  const { user, params, row, sql, batch, wsEvent } = rq;
+  await requireWsOwner(rq, user, params.id);
   const issuer = await row('SELECT name FROM trusted_issuers WHERE workspace_id = ? AND fingerprint = ?', params.id, params.fp);
   if (!issuer) return;
   await batch([sql('DELETE FROM trusted_issuers WHERE workspace_id = ? AND fingerprint = ?', params.id, params.fp),

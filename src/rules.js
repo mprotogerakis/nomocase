@@ -173,8 +173,9 @@ async function retryRules(rq) {
   }
 }
 
-export async function toggleRule({ user, params, body, sql, batch, event }) {
-  const ctx = await caseCtx(user, params.id);
+export async function toggleRule(rq) {
+  const { user, params, body, sql, batch, event } = rq;
+  const ctx = await caseCtx(rq, user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
   if (typeof body.enabled !== 'boolean') fail(400, 'enabled muss true oder false sein');
   const rule = (ctx.def.rules ?? []).find(r => r.id === params.ruleId) ?? fail(404, 'Regel nicht gefunden');

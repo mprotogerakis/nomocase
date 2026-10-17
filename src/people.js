@@ -8,7 +8,7 @@ import { CONSENT_VERSION } from '../public/shared/consent.js';
 
 export async function invite(rq) {
   const { user, params, body, url, row, sql, batch, event, env, time } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche können einladen');
   const email = String(body.email ?? '').trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(400, 'E-Mail ungültig');
@@ -147,8 +147,9 @@ async function acceptWorkspaceInvitation(rq, hash) {
   return json({ workspace_id: ws.workspace_id }, 200, { 'set-cookie': await sessionCookie(rq, userId, url) });
 }
 
-export async function revoke({ user, params, row, sql, batch, event, time }) {
-  const ctx = await caseCtx(user, params.id);
+export async function revoke(rq) {
+  const { user, params, row, sql, batch, event, time } = rq;
+  const ctx = await caseCtx(rq, user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
   if (params.userId === user.id) fail(400, 'Eigenen Zugang nicht widerrufbar');
   const p = (await row('SELECT u.name, u.email FROM case_participants p JOIN users u ON u.id = p.user_id WHERE p.case_id = ? AND p.user_id = ?', ctx.c.id, params.userId))
@@ -160,8 +161,9 @@ export async function revoke({ user, params, row, sql, batch, event, time }) {
   ]);
 }
 
-export async function withdrawInvitation({ user, params, sql, event }) {
-  const ctx = await caseCtx(user, params.id);
+export async function withdrawInvitation(rq) {
+  const { user, params, sql, event } = rq;
+  const ctx = await caseCtx(rq, user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
   const email = decodeURIComponent(params.email).toLowerCase();
   const { meta } = await sql('DELETE FROM invitations WHERE case_id = ? AND email = ? AND accepted_at IS NULL', ctx.c.id, email).run();

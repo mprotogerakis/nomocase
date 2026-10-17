@@ -1,6 +1,6 @@
 // NomoCase: JSON API on Cloudflare Workers, data in D1, files in R2. The UI is static (public/) and only talks to /api/*.
 // This file: routes, request handling (origin check, session, errors) and the cron entry.
-import { appVersion, CASE_CLOSED, context, DB, fail, HttpError, init, json, now, q, readBody, viaCloudflare } from './core.js';
+import { appVersion, CASE_CLOSED, context, fail, HttpError, json, readBody, viaCloudflare } from './core.js';
 import { deletePasskey, devLogin, giveConsent, legalInfo, listPasskeys, loadUser, logout, me, originOf, passkeyLoginOptions, passkeyLoginVerify, passkeyRegisterOptions, passkeyRegisterVerify, requestLoginLink, sendParticipantLink, updateMe, useLoginLink, withdrawConsent } from './auth.js';
 import { addTemplateVersion, createTemplate, deleteTemplate, listTemplates, restoreTemplate, saveAsTemplate } from './templates.js';
 import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard, deleteCase, getCase, getChanges, moveCase, updateCase, updateFields } from './cases.js';
@@ -20,7 +20,7 @@ const CONSENT_FREE = new Set([me, logout, giveConsent, withdrawConsent]);
 
 const ROUTES = [
   ['GET', '/api/me', me, true],
-  ['GET', '/api/version', () => ({ version: appVersion() }), true],
+  ['GET', '/api/version', ({ env }) => ({ version: appVersion(env) }), true],
   ['GET', '/api/legal', legalInfo, true],
   ['POST', '/api/consent', giveConsent],
   ['POST', '/api/consent/withdraw', withdrawConsent],
@@ -102,7 +102,6 @@ const ROUTES = [
 
 export default {
   async fetch(req, env, exec) {
-    init(env, req);
     const rq = context(env, req), url = new URL(req.url);
     // A former domain: permanent redirect to the canonical origin (the #fragment of the old link survives in the browser).
     if ((env.REDIRECT_HOSTS ?? '').split(',').filter(Boolean).includes(url.hostname)) return Response.redirect(`${env.ORIGIN}${url.pathname}${url.search}`, 301);
@@ -140,7 +139,6 @@ export default {
 
   // Mail to a case address (Cloudflare Email Routing → this Worker). A failure bounces with a reason, nothing is lost silently.
   async email(message, env) {
-    init(env);
     try {
       await receiveMail(context(env), message);
     } catch (e) {
@@ -151,7 +149,6 @@ export default {
 
   // Independent steps: one that fails is logged and the others still run; the run then counts as failed.
   async scheduled(controller, env) {
-    init(env);
     const rq = context(env), { batch, sql, time } = rq, failed = [];
     const step = async (name, fn) => { try { await fn(); } catch (e) { console.error(`cron ${name}`, e.message); failed.push(name); } };
     await step('rules', () => processRules(rq, { retries: true })); // catch-up (e.g. after a request that failed midway) and retries

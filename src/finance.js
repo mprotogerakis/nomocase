@@ -59,7 +59,7 @@ export function financeSummary(claims) {
 
 async function loadClaim(rq, user, claimId) {
   const c = (await rq.row('SELECT * FROM financial_claims WHERE id = ?', claimId)) ?? fail(404, 'Forderung nicht gefunden');
-  const ctx = await caseCtx(user, c.case_id);
+  const ctx = await caseCtx(rq, user, c.case_id);
   if (!ctx.staff) fail(404, 'Forderung nicht gefunden');
   return { ctx, c };
 }
@@ -135,7 +135,7 @@ export async function taskMoney(rq) {
 
 export async function addClaim(rq) {
   const { user, params, body, batch } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   if (!ctx.staff) fail(404, 'Vorgang nicht gefunden');
   const title = String(body.title ?? '').trim() || fail(400, 'Titel fehlt');
   if (!['payable', 'receivable'].includes(body.direction)) fail(400, 'Richtung ungültig');

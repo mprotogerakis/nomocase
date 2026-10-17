@@ -111,7 +111,7 @@ const nameTaken = name => e => { if (/UNIQUE/.test(e.message)) fail(409, `Im Wor
 
 export async function createTemplate(rq) {
   const { user, body, sql, batch, wsEvent } = rq;
-  await requireWsOwner(user, body.workspace_id);
+  await requireWsOwner(rq, user, body.workspace_id);
   const name = String(body.name ?? '').trim() || fail(400, 'Name fehlt');
   const def = checkDef(body.definition);
   const id = uid();
@@ -124,9 +124,10 @@ export async function createTemplate(rq) {
 }
 
 // A template no case uses is deleted; one that cases use is archived: gone from "new case", the cases keep their copy.
-export async function deleteTemplate({ user, params, row, sql, batch, wsEvent, time }) {
+export async function deleteTemplate(rq) {
+  const { user, params, row, sql, batch, wsEvent, time } = rq;
   const t = (await row('SELECT * FROM templates WHERE id = ?', params.id)) ?? fail(404, 'Vorlage nicht gefunden');
-  await requireWsOwner(user, t.workspace_id);
+  await requireWsOwner(rq, user, t.workspace_id);
   const { n } = await row('SELECT COUNT(*) AS n FROM cases WHERE template_id = ?', t.id);
   if (n) {
     await batch([sql('UPDATE templates SET archived_at = COALESCE(archived_at, ?) WHERE id = ?', time, t.id), wsEvent(t.workspace_id, user.id, 'template.archived', { template: t.name })]);
@@ -137,9 +138,10 @@ export async function deleteTemplate({ user, params, row, sql, batch, wsEvent, t
   return { deleted: true };
 }
 
-export async function restoreTemplate({ user, params, row, sql, batch, wsEvent }) {
+export async function restoreTemplate(rq) {
+  const { user, params, row, sql, batch, wsEvent } = rq;
   const t = (await row('SELECT * FROM templates WHERE id = ?', params.id)) ?? fail(404, 'Vorlage nicht gefunden');
-  await requireWsOwner(user, t.workspace_id);
+  await requireWsOwner(rq, user, t.workspace_id);
   await batch([sql('UPDATE templates SET archived_at = NULL WHERE id = ?', t.id), wsEvent(t.workspace_id, user.id, 'template.restored', { template: t.name })])
     .catch(nameTaken(t.name));
 }
@@ -147,7 +149,7 @@ export async function restoreTemplate({ user, params, row, sql, batch, wsEvent }
 export async function addTemplateVersion(rq) {
   const { user, params, body, row, batch, wsEvent } = rq;
   const t = (await row('SELECT * FROM templates WHERE id = ?', params.id)) ?? fail(404, 'Vorlage nicht gefunden');
-  await requireWsOwner(user, t.workspace_id);
+  await requireWsOwner(rq, user, t.workspace_id);
   const def = checkDef(body.definition);
   const v = await nextVersion(rq, t.id);
   await batch([versionStmt(rq, t.id, v, def, user.id), wsEvent(t.workspace_id, user.id, 'template.version', { template: t.name, version: v })]);
@@ -238,9 +240,9 @@ function caseDefinition(c, def, phases, tasks) {
 
 export async function saveAsTemplate(rq) {
   const { user, params, body, row, sql, batch, event, wsEvent } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
-  await requireWsOwner(user, ctx.c.workspace_id);
+  await requireWsOwner(rq, user, ctx.c.workspace_id);
   const [phases, tasks] = (await batch([
     sql('SELECT * FROM phases WHERE case_id = ? ORDER BY position', ctx.c.id),
     sql('SELECT t.* FROM tasks t LEFT JOIN phases p ON p.id = t.phase_id WHERE t.case_id = ? ORDER BY p.position, t.position, t.created_at', ctx.c.id),

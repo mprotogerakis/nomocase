@@ -28,7 +28,7 @@ Widerspruch ist, weiß nur die jeweilige Vorlage – nicht der Code.
 | Modul | Aufgabe |
 |---|---|
 | `worker.js` | Routen, Anfrage-Rahmen (Origin-Prüfung, Sitzung, Fehler → JSON), Cron-Einstieg |
-| `core.js` | Fehler, JSON-Antworten, D1-Helfer, Ereignisprotokoll, Bindings (`init(env)`) |
+| `core.js` | Anfragekontext (`context()`: D1-Helfer, Ereignis-Anweisungen, `env`, Anfragezeit), Fehler, JSON-Antworten – kein Modulzustand |
 | `access.js` | Vorgangskontext, wer was sehen und tun darf |
 | `auth.js` | Sitzungen, Passkeys, Anmeldelinks, eigenes Konto |
 | `templates.js` | Vorlagenprüfung (`checkDef`), Versionen, Vorgang anlegen, Vorgang → Vorlage |
@@ -148,11 +148,10 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   1/5/30 min mit den Fakten von jetzt; danach bleibt `error` sichtbar („× fehlgeschlagen“, vorher „× wird wiederholt“).
   Lauf-Eintrag und Wirkung in einer Transaktion, Idempotenz über `(event_id, rule_id)` – auch für gleichzeitige
   Wiederholungen. Nach Schreibanfragen nur neue Ereignisse (Cursor in derselben Abfrage), Wiederholungen nur im Cron.
-- [ ] Expliziter Anfragekontext statt `DB`/`E` (`context()` in core.js, je Anfrage, Cron-Lauf, Mail): Handler holen sich
-  `row`, `rows`, `sql`, `batch`, `event`, `wsEvent`, `env`, `time`, `rpId` aus ihrem Argument, Helfer bekommen ihn als
-  `rq`. Lange Namen, damit die Prüfung auf freie Variablen ein vergessenes Holen bemerkt. Modul für Modul, von oben:
-  people ✓ · workspaces ✓ · forms ✓ · signatures ✓ · inbox ✓ · finance ✓ · tasks ✓ · templates ✓ · rules ✓ · documents ✓ · cases ✓ ·
-  notify ✓ · auth ✓ · access, dann `DB`/`E`/`init` und die globalen Helfer in core.js entfernen
+- [x] Expliziter Anfragekontext statt `DB`/`E` (`context()` in core.js, je Anfrage, Cron-Lauf, Mail): Handler holen sich
+  `row`, `rows`, `sql`, `batch`, `event`, `wsEvent`, `env`, `time`, `rpId` aus ihrem Argument, Hilfsfunktionen bekommen ihn
+  als ersten Parameter `rq`. Kein Modul hält mehr veränderlichen Zustand (einzig ein Cache des festen Passkey-Schlüssels).
+  Lange Namen, damit die Prüfung auf freie Variablen ein vergessenes Holen bemerkt; sie wertet `? name :` jetzt als Gebrauch.
 - [ ] Danach aus dem Review: Importzyklen auflösen (+ Prüfung); Testisolation je Lauf
 - [x] Passkey-Anmeldung ohne Schreibzugriff für Anonyme: Challenges sind signiert („Ablauf.Nonce.HMAC“, Schlüssel in
   `app_secrets`, beim ersten Gebrauch erzeugt); erst eine erfolgreiche Anmeldung verbraucht ihre Challenge (kein Replay)

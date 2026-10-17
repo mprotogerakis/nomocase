@@ -44,8 +44,9 @@ export async function getBranding(rq) {
   return branding(rq, params.id);
 }
 
-export async function setBranding({ user, params, body, sql, batch, wsEvent }) {
-  await requireWsOwner(user, params.id);
+export async function setBranding(rq) {
+  const { user, params, body, sql, batch, wsEvent } = rq;
+  await requireWsOwner(rq, user, params.id);
   const set = {};
   if ('accent' in body) set.accent = body.accent ? (/^#[0-9a-f]{6}$/i.test(body.accent) ? body.accent.toLowerCase() : fail(400, 'Farbe als #rrggbb')) : null;
   if ('logo' in body) {
@@ -67,8 +68,9 @@ export async function setBranding({ user, params, body, sql, batch, wsEvent }) {
 }
 
 // The workspace's log, newest first (owners only).
-export async function workspaceLog({ user, params, rows }) {
-  await requireWsOwner(user, params.id);
+export async function workspaceLog(rq) {
+  const { user, params, rows } = rq;
+  await requireWsOwner(rq, user, params.id);
   return (await rows(`SELECT e.id, e.type, e.payload, e.created_at, u.name AS actor FROM workspace_events e LEFT JOIN users u ON u.id = e.actor_id
     WHERE e.workspace_id = ? ORDER BY e.id DESC LIMIT 200`, params.id)).map(e => ({ ...e, payload: JSON.parse(e.payload) }));
 }
@@ -85,16 +87,18 @@ export async function createWorkspace({ user, body, row, sql, batch, wsEvent }) 
   return { id };
 }
 
-export async function renameWorkspace({ user, params, body, row, sql, batch, wsEvent }) {
-  await requireWsOwner(user, params.id);
+export async function renameWorkspace(rq) {
+  const { user, params, body, row, sql, batch, wsEvent } = rq;
+  await requireWsOwner(rq, user, params.id);
   const { name } = await row('SELECT name FROM workspaces WHERE id = ?', params.id);
   await batch([sql('UPDATE workspaces SET name = ? WHERE id = ?', checkName(body.name), params.id),
     wsEvent(params.id, user.id, 'workspace.renamed', { from: name, to: checkName(body.name) })]);
 }
 
 // Only without cases (deleted cases leave just a tombstone): its templates go along.
-export async function deleteWorkspace({ user, params, row, sql, batch }) {
-  await requireWsOwner(user, params.id);
+export async function deleteWorkspace(rq) {
+  const { user, params, row, sql, batch } = rq;
+  await requireWsOwner(rq, user, params.id);
   if ((await row('SELECT COUNT(*) AS n FROM cases WHERE workspace_id = ?', params.id)).n) fail(409, 'Der Workspace enthält noch Vorgänge.');
   await batch([
     sql('DELETE FROM template_versions WHERE template_id IN (SELECT id FROM templates WHERE workspace_id = ?)', params.id),
@@ -109,7 +113,7 @@ export async function deleteWorkspace({ user, params, row, sql, batch }) {
 
 export async function setMemberRole(rq) {
   const { user, params, body, row, sql, batch, wsEvent } = rq;
-  await requireWsOwner(user, params.id);
+  await requireWsOwner(rq, user, params.id);
   const role = checkRole(body.role);
   const m = (await row('SELECT m.role, u.name FROM workspace_members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ? AND m.user_id = ?', params.id, params.userId))
     ?? fail(404, 'Kein Mitglied');
@@ -121,7 +125,7 @@ export async function setMemberRole(rq) {
 // Leaves the person's part in single cases untouched: those are ended per case.
 export async function removeMember(rq) {
   const { user, params, row, sql, batch, wsEvent } = rq;
-  await requireWsOwner(user, params.id);
+  await requireWsOwner(rq, user, params.id);
   const m = (await row('SELECT m.role, u.name FROM workspace_members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ? AND m.user_id = ?', params.id, params.userId))
     ?? fail(404, 'Kein Mitglied');
   if (m.role === 'owner' && (await owners(rq, params.id)) === 1) fail(409, 'Ein Workspace braucht mindestens einen Owner.');
@@ -131,7 +135,7 @@ export async function removeMember(rq) {
 
 export async function inviteToWorkspace(rq) {
   const { user, params, body, url, row, sql, batch, wsEvent, env, time } = rq;
-  await requireWsOwner(user, params.id);
+  await requireWsOwner(rq, user, params.id);
   const ws = await row('SELECT name FROM workspaces WHERE id = ?', params.id);
   const email = String(body.email ?? '').trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(400, 'E-Mail ungültig');
@@ -169,8 +173,9 @@ export async function inviteToWorkspace(rq) {
   return env.DEV_LOGIN ? { ...answer, link } : answer;
 }
 
-export async function withdrawWorkspaceInvitation({ user, params, sql, wsEvent, time }) {
-  await requireWsOwner(user, params.id);
+export async function withdrawWorkspaceInvitation(rq) {
+  const { user, params, sql, wsEvent, time } = rq;
+  await requireWsOwner(rq, user, params.id);
   const email = decodeURIComponent(params.email).toLowerCase();
   const { meta } = await sql('UPDATE workspace_invitations SET revoked_at = ? WHERE workspace_id = ? AND email = ? AND accepted_at IS NULL AND revoked_at IS NULL',
     time, params.id, email).run();

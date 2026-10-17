@@ -125,7 +125,7 @@ async function taskDocument(rq, ctx, task, title, filename) {
 
 export async function upload(rq) {
   const { req, user, params, row, event } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   if (ctx.access === 'guest_viewer') fail(403, 'Keine Upload-Berechtigung');
   if (ctx.c.status === 'closed') fail(409, CASE_CLOSED); // before the file is read; the database refuses it anyway
   const form = await uploadForm(req);
@@ -270,7 +270,7 @@ export async function deleteVersion(rq) {
   const { user, params, row, sql, batch, event, env } = rq;
   const v = (await row(`SELECT v.*, d.case_id, d.title, d.visible_to, d.created_by, d.final FROM document_versions v JOIN documents d ON d.id = v.document_id
     WHERE v.id = ?`, params.id)) ?? fail(404, 'Datei nicht gefunden');
-  const ctx = await caseCtx(user, v.case_id);
+  const ctx = await caseCtx(rq, user, v.case_id);
   if (!canSee(ctx, v)) fail(404, 'Datei nicht gefunden');
   const latest = await row('SELECT id FROM document_versions WHERE document_id = ? ORDER BY version DESC LIMIT 1', v.document_id);
   if (!ctx.staff && (v.uploaded_by !== user.id || latest.id !== v.id || v.final)) fail(403, 'Nur eigene, aktuelle Fassungen');
@@ -306,7 +306,7 @@ export async function sweepOrphanFiles(rq) {
 export async function updateDocument(rq) {
   const { user, params, body, row, sql, batch, event } = rq;
   const d = (await row('SELECT * FROM documents WHERE id = ?', params.id)) ?? fail(404, 'Dokument nicht gefunden');
-  const ctx = await caseCtx(user, d.case_id);
+  const ctx = await caseCtx(rq, user, d.case_id);
   if (!ctx.staff) fail(canSee(ctx, d) ? 403 : 404, 'Keine Berechtigung');
   const visible = 'visible_to' in body ? roleList(body.visible_to) : arr(d.visible_to);
   const final = 'final' in body ? (body.final ? 1 : 0) : d.final;
@@ -321,7 +321,7 @@ export async function download(rq) {
   const { user, params, row, env } = rq;
   const v = (await row(`SELECT v.*, d.case_id, d.visible_to, d.created_by FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE v.id = ?`, params.id))
     ?? fail(404, 'Datei nicht gefunden');
-  const ctx = await caseCtx(user, v.case_id);
+  const ctx = await caseCtx(rq, user, v.case_id);
   if (!canSee(ctx, v)) fail(404, 'Datei nicht gefunden');
   const obj = (await env.FILES.get(v.r2_key)) ?? fail(404, 'Datei nicht gefunden');
   return new Response(obj.body, {

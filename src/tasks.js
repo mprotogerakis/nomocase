@@ -24,7 +24,7 @@ export function markBlocked(tasks) {
 export async function loadTask(rq, user, taskId) {
   const { row, rows } = rq;
   const { case_id } = (await row('SELECT case_id FROM tasks WHERE id = ?', taskId)) ?? fail(404, 'Aufgabe nicht gefunden');
-  const ctx = await caseCtx(user, case_id);
+  const ctx = await caseCtx(rq, user, case_id);
   const tasks = markBlocked(await rows('SELECT * FROM tasks WHERE case_id = ?', case_id));
   const t = tasks.find(x => x.id === taskId);
   if (!canSeeTask(ctx, t)) fail(404, 'Aufgabe nicht gefunden');
@@ -63,7 +63,7 @@ async function cleanTask(rq, ctx, b, tasks, selfId) {
 
 export async function addTask(rq) {
   const { user, params, body, rows, sql, batch, event, time } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   const tasks = await rows('SELECT id FROM tasks WHERE case_id = ?', ctx.c.id);
   let t;
   if (ctx.staff) {

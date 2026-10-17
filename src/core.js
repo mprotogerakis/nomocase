@@ -1,8 +1,7 @@
-// Shared basics: errors and JSON responses, D1 helpers, the event log, small value helpers.
+// Shared basics: the request context (D1 helpers, event statements, env, time), errors and JSON responses, small value
+// helpers. No module state: everything that depends on the deployment or the request travels in the context.
 export { ACCESS, acceptedExtensions, DECISIONS, FILE_KIND_LABELS, FILE_KINDS, NEEDS_FILE, STAFF, TASK_TYPES, validFiles } from '../public/shared/vocab.js';
 
-// Module-level bindings, for the modules not yet moved to the request context below (set by init in worker.js).
-export let DB, E;
 // Came the request through Cloudflare's network? There CF-Connecting-IP is the client's real address – never a
 // loopback one, which is what wrangler dev puts there (::1) unless the client sends its own.
 export const viaCloudflare = req => { const ip = req?.headers.get('cf-connecting-ip'); return !!ip && !/^(::1$|127\.|::ffff:127\.)/.test(ip); };
@@ -14,14 +13,14 @@ const appEnv = (env, req) => {
   const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(env.ORIGIN ?? '') && !viaCloudflare(req);
   return env.DEV_LOGIN && !local ? { ...env, DEV_LOGIN: undefined } : env;
 };
-export const init = (env, req = null) => { DB = env.DB; E = appEnv(env, req); };
 
 // The request context: what a handler and the helpers it calls work with, handed on explicitly instead of module state.
 // worker.js makes one per request (handlers get it together with req, url, user, body, params) and one per cron run or
 // incoming mail. Helpers outside a handler take it as their first parameter (`rq`). The names are long enough for the
 // free-variable check (scripts/freevars.mjs) to notice one that a function uses without taking it from the context.
 //   db, sql, row, rows, batch – D1, with the statement helpers bound to it (sql: one statement, e.g. for a batch)
-//   event, wsEvent            – a case event / a workspace log entry, as a statement for a batch
+//   event, wsEvent            – a case event / a workspace log entry (the owners' log: members, roles, invitations,
+//                               look, issuers, templates, moved cases), as a statement for a batch
 //   env                       – bindings and vars (DEV_LOGIN only for a local request, see above)
 //   time                      – when the request started (ISO), the time its rows are stamped with
 //   rpId                      – the passkeys' domain (WebAuthn RP ID): the one of ORIGIN
@@ -39,9 +38,8 @@ export function context(env, req = null) {
       workspaceId, actorId, type, JSON.stringify(payload), time),
   };
 }
-// Passkeys work only for the domain they were made on (WebAuthn RP ID): the one of ORIGIN.
-export const rpId = () => (E.ORIGIN ? new URL(E.ORIGIN).hostname : null);
-export const appVersion = () => E.CF_VERSION_METADATA?.id ?? 'dev';
+// The id of the deployed version (open pages reload when it changes).
+export const appVersion = env => env.CF_VERSION_METADATA?.id ?? 'dev';
 
 export class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -77,8 +75,6 @@ export const json = (data, status = 200, headers = {}) => {
 // sibling subdomain for the whole domain (and even stand first in the header). Locally over http only "sid".
 export const sessionFrom = (cookie, secure) => cookie?.match(secure ? /(?:^|;\s*)__Host-sid=([0-9a-f]+)/ : /(?:^|;\s*)sid=([0-9a-f]+)/)?.[1];
 
-export const now = () => new Date().toISOString();
-
 export const uid = () => crypto.randomUUID();
 
 export const arr = v => (Array.isArray(v) ? v : JSON.parse(v ?? '[]'));
@@ -92,17 +88,3 @@ export const sha256 = async s => hex(await crypto.subtle.digest('SHA-256', new T
 export const token = () => hex(crypto.getRandomValues(new Uint8Array(32)));
 
 export const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s);
-
-export const q = (sql, ...args) => DB.prepare(sql).bind(...args);
-
-export const row = (sql, ...args) => q(sql, ...args).first();
-
-export const rows = async (sql, ...args) => (await q(sql, ...args).all()).results;
-
-// The workspace's own log (owners): members, roles, invitations, look, issuers, templates, moved cases.
-export const wsEv = (workspaceId, actorId, type, payload = {}) =>
-  q('INSERT INTO workspace_events (workspace_id, actor_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?)', workspaceId, actorId, type, JSON.stringify(payload), now());
-
-export const ev = (caseId, actorId, type, payload, visibleTo = []) =>
-  q('INSERT INTO events (case_id, actor_id, type, payload, visible_to, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    caseId, actorId, type, JSON.stringify(payload), JSON.stringify(visibleTo), now());

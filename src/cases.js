@@ -22,7 +22,7 @@ export async function createCase(rq) {
 // A subcase is a case of its own (template, participants, rules); the parent only knows it exists.
 export async function addSubcase(rq) {
   const { user, params, body, batch, event } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
   const tpl = (await latestTemplate(rq, body.template_id)) ?? fail(404, 'Vorlage nicht gefunden');
   if (tpl.workspace_id !== ctx.c.workspace_id) fail(400, 'Die Vorlage gehört zu einem anderen Workspace');
@@ -53,16 +53,16 @@ const dashboardStamp = async (rq, user) => {
 export async function getChanges(rq) {
   const { user, url } = rq;
   const caseId = url.searchParams.get('case');
-  if (!caseId) return { stamp: await dashboardStamp(rq, user), version: appVersion() };
-  await caseCtx(user, caseId);
-  return { stamp: await caseStamp(rq, caseId, user), version: appVersion() };
+  if (!caseId) return { stamp: await dashboardStamp(rq, user), version: appVersion(rq.env) };
+  await caseCtx(rq, user, caseId);
+  return { stamp: await caseStamp(rq, caseId, user), version: appVersion(rq.env) };
 }
 
 const currentPhase = (phases, tasks) => phases.find(p => tasks.some(t => t.phase_id === p.id && t.status === 'open'))?.title ?? null;
 
 export async function getCase(rq) {
   const { user, params, row, rows, sql, batch, time } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   const id = ctx.c.id;
   const [phases, tasks, docs, versions, events, parts, invites] = (await batch([
     sql('SELECT * FROM phases WHERE case_id = ? ORDER BY position', id),
@@ -159,7 +159,7 @@ export function fieldStmts(rq, c, def, input, actorId, extra = {}) {
 // Edit the case's field values (Angaben).
 export async function updateFields(rq) {
   const { user, params, body, batch } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   if (!ctx.staff) fail(403, 'Nur das Team bearbeitet die Angaben');
   const input = body.fields && typeof body.fields === 'object' ? body.fields : fail(400, 'fields fehlt');
   const { changed, stmts } = fieldStmts(rq, ctx.c, ctx.def, input, user.id);
@@ -172,11 +172,11 @@ export async function updateFields(rq) {
 // (their storage keys only record where they began); logo, colour and trusted issuers now come from the new workspace.
 export async function moveCase(rq) {
   const { user, params, body, row, rows, sql, batch, event, wsEvent, time } = rq;
-  const ctx = await caseCtx(user, params.id);
-  await requireWsOwner(user, ctx.c.workspace_id);
+  const ctx = await caseCtx(rq, user, params.id);
+  await requireWsOwner(rq, user, ctx.c.workspace_id);
   const to = (await row('SELECT id, name FROM workspaces WHERE id = ?', body.workspace_id ?? null)) ?? fail(404, 'Workspace nicht gefunden');
   if (to.id === ctx.c.workspace_id) fail(400, 'Der Vorgang ist schon in diesem Workspace.');
-  await requireWsOwner(user, to.id);
+  await requireWsOwner(rq, user, to.id);
   const from = await row('SELECT name FROM workspaces WHERE id = ?', ctx.c.workspace_id);
   const ids = (await rows(`WITH RECURSIVE tree(id) AS (SELECT ?1 UNION SELECT c.id FROM cases c JOIN tree ON c.parent_case_id = tree.id WHERE c.workspace_id = ?2)
     SELECT id FROM tree`, ctx.c.id, ctx.c.workspace_id)).map(r => r.id);
@@ -196,7 +196,7 @@ export async function moveCase(rq) {
 
 export async function updateCase(rq) {
   const { user, params, body, sql, batch, event, time } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche');
   if (!['open', 'closed'].includes(body.status)) fail(400, 'Status ungültig');
   const closing = body.status === 'closed';
@@ -211,7 +211,7 @@ export async function updateCase(rq) {
 
 export async function deleteCase(rq) {
   const { user, params } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   if (!ctx.owner) fail(403, 'Nur Vorgangsverantwortliche können löschen');
   await purgeCase(rq, ctx.c, user.id, 'manual');
 }
@@ -341,7 +341,7 @@ export async function dashboard(rq) {
 
 export async function addPhase(rq) {
   const { user, params, body, sql, batch, event } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   if (!ctx.staff) fail(403, 'Nur Bearbeiter');
   const title = String(body.title ?? '').trim() || fail(400, 'Titel fehlt');
   await batch([
@@ -352,7 +352,7 @@ export async function addPhase(rq) {
 
 export async function addComment(rq) {
   const { user, params, body, event } = rq;
-  const ctx = await caseCtx(user, params.id);
+  const ctx = await caseCtx(rq, user, params.id);
   if (ctx.access === 'guest_viewer') fail(403, 'Mit Lesezugriff können Sie keine Nachrichten schreiben');
   const text = String(body.body ?? '').trim() || fail(400, 'Nachricht ist leer');
   if (text.length > 10000) fail(413, 'Nachricht zu lang (höchstens 10.000 Zeichen)');
