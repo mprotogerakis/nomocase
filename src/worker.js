@@ -172,6 +172,9 @@ export default {
       await step('progress', () => sendProgress(rq));
       await step('retention', () => applyRetention(rq));
     }
+    // for the operator (people page): when this schedule last ran, and what failed
+    await sql('INSERT INTO cron_runs (cron, ran_at, failed) VALUES (?, ?, ?) ON CONFLICT (cron) DO UPDATE SET ran_at = excluded.ran_at, failed = excluded.failed',
+      controller.cron, time, JSON.stringify(failed)).run().catch(e => console.error('cron status', e.message));
     if (failed.length) throw new Error(`cron steps failed: ${failed.join(', ')}`);
   },
 };

@@ -121,6 +121,9 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Löschen eines Vorgangs mit Teilvorgängen in festen Kosten: Baum per rekursiver Abfrage, Dateien und Personen in
   einer Lese-Batch, alle Zeilen in einer Lösch-Batch, verwaiste Konten zusammen (einzeln nur, wenn eines anderswo noch
   gebraucht wird). Vorher ~7 Subrequests je Teilvorgang: ab etwa 7 Teilvorgängen brach das Löschen ab
+- [x] Hintergrundläufe sichtbar: jeder Cron-Lauf hält fest, wann er lief und welche Schritte scheiterten (`cron_runs`,
+  nur Schrittnamen). Der Betreiber sieht auf „Personen“ eine Warnung bei Fehlern oder wenn ein Lauf ausbleibt
+  (20-Minuten-Lauf über 70 min, täglicher über 26 h alt) – ohne Zugriff auf das Worker-Log
 - [x] Aufräumen alter Benachrichtigungen: das tägliche Aufräumen löscht Vermerke zu Schritten, die nicht mehr offen
   sind oder in geschlossenen Vorgängen liegen (Wiederöffnen löscht sie ohnehin); so bleibt die Tabelle so groß wie
   die offene Arbeit

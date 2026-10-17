@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BASE, fetchOnce, run, PDF } from './lib.mjs';
+import { BASE, fetchOnce, run, PDF, sql } from './lib.mjs';
 import { openBrowser, sleep } from './browser.mjs';
 
 const J = JSON.stringify;
@@ -440,8 +440,12 @@ try {
   await b.click('[data-on="caseFilter"][data-id="open"]');
   await waitFor(onCard, 'Filter offen');
 
-  // People, account, phone layout
+  // People, account, phone layout. The operator learns about failed or missing background runs.
+  sql(`INSERT OR REPLACE INTO cron_runs (cron, ran_at, failed) VALUES ('0 5 * * *', '${new Date().toISOString()}', '["digests", "file sweep"]'),
+    ('*/20 * * * *', '${new Date(Date.now() - 2 * 36e5).toISOString()}', '[]')`);
   await go('#/people', has(guestEmail));
+  assert.ok(await evaluate(has('Tagesübersicht, Dateien aufräumen fehlgeschlagen')), 'failed steps named');
+  assert.ok(await evaluate(has('Der Hintergrundlauf alle 20 Minuten kam zuletzt')), 'a missing run is noticed');
   await evaluate(`(() => { const s = document.querySelector('[data-input="peopleSearch"]'); s.value = 'prof@example.org'; s.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
   assert.equal(await evaluate(`[...document.querySelectorAll('main .card[data-search]')].filter(c => !c.hidden).length`), 1, 'people search');
   await b.click('[data-on="peopleFilter"][data-id="nopasskey"]');

@@ -10,6 +10,18 @@ const PEOPLE_FILTERS = [['all', 'Alle'], ['nopasskey', 'Ohne Passkey'], ['never'
 const peopleMatch = (u, f) => ({ all: true, nopasskey: !u.passkeys, never: !u.last_seen,
   former: !u.workspaces && !u.cases.some(c => c.active) })[f];
 
+// The background runs (every 20 minutes, and daily at 05:00 UTC): the operator learns when one failed or stopped coming.
+const CRON_STEPS = { rules: 'Regeln', outbox: 'Mail-Ausgang', digests: 'Tagesübersicht', housekeeping: 'Aufräumen',
+  'file sweep': 'Dateien aufräumen', progress: 'Fortschrittsmails', retention: 'Aufbewahrung' };
+const cronNote = runs => {
+  if (!runs?.length) return '';
+  const late = runs.filter(r => Date.now() - Date.parse(r.ran_at) > (r.daily ? 26 * 36e5 : 70 * 60e3));
+  const failed = runs.filter(r => r.failed.length);
+  if (!late.length && !failed.length) return html`<p class="muted small">Hintergrundläufe: zuletzt ${dateTime(runs.map(r => r.ran_at).sort().at(-1))}, ohne Fehler.</p>`;
+  return html`${failed.map(r => html`<p class="warn small">Hintergrundlauf ${r.daily ? '(täglich) ' : ''}am ${dateTime(r.ran_at)}: ${r.failed.map(s => CRON_STEPS[s] ?? s).join(', ')} fehlgeschlagen. Einzelheiten stehen im Log des Workers.</p>`)}
+    ${late.map(r => html`<p class="warn small">${r.daily ? 'Der tägliche Hintergrundlauf' : 'Der Hintergrundlauf alle 20 Minuten'} kam zuletzt am ${dateTime(r.ran_at)}.</p>`)}`;
+};
+
 export async function peopleView() {
   const { people, invitations, stats } = await api('/people');
   const shown = people.filter(u => peopleMatch(u, peopleFilter));
@@ -28,7 +40,8 @@ export async function peopleView() {
     </section>
     ${'mails_today' in stats ? html`${stats.mails_failed ? html`<p class="warn small">Heute ${count(stats.mails_failed, 'Mail', 'Mails')} nicht verschickt. Letzter Fehler (${dateTime(stats.last_error_at)}): ${stats.last_error}</p>` : ''}
     <p class="muted small">Sammelmails (Tagesübersicht, Fortschritt) heute: ${stats.bulk_today} von ${stats.bulk_cap}.
-      ${stats.bulk_today >= stats.bulk_cap ? 'Sie pausieren bis morgen; Einladungen und Anmeldelinks gehen weiter.' : 'Ist die Grenze erreicht, pausieren sie bis morgen; Einladungen und Anmeldelinks gehen weiter.'}</p>` : ''}
+      ${stats.bulk_today >= stats.bulk_cap ? 'Sie pausieren bis morgen; Einladungen und Anmeldelinks gehen weiter.' : 'Ist die Grenze erreicht, pausieren sie bis morgen; Einladungen und Anmeldelinks gehen weiter.'}</p>
+    ${cronNote(stats.cron)}` : ''}
     ${invitations.length ? html`<h2>Einladungen</h2><ul class="list">${invitations.map(i => html`<li>${i.email}
       <span class="muted small">als ${i.role ?? '–'} in</span> <a href="#/case/${i.case_id}">${i.title}</a>
       <span class="small ${i.expired ? 'warn' : 'muted'}">· ${i.expired ? `abgelaufen am ${date(i.expires_at)}` : `eingeladen ${date(i.created_at)}, gültig bis ${date(i.expires_at)}`}</span>

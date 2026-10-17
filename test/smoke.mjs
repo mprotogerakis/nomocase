@@ -956,6 +956,10 @@ if (new URL(BASE).hostname === 'localhost') {
   await expect(prof(`/cases/${crowdCase}/comments`, { body: { body: 'An alle.', visible_to: ['*'] } }));
   assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=*/20+*+*+*+*`)).status, 200, 'the 20-minute run too');
   assert.equal(reached('progress_mail_at'), 15, 'everyone got the news');
+  // the operator sees both schedules' last runs, here without failures
+  const { cron: runs } = (await expect(prof('/people'))).stats;
+  assert.deepEqual(runs.map(r => [r.daily, r.failed]).sort(), [[false, []], [true, []]]);
+  assert.ok(runs.every(r => Date.now() - Date.parse(r.ran_at) < 10 * 60e3));
   // the digest notes of a step go once it is done (the daily housekeeping); those of open steps stay
   const notes = taskId => sql(`SELECT COUNT(*) AS n FROM notifications WHERE task_id = '${taskId}'`)[0].n;
   const [step] = (await expect(prof(`/cases/${crowdCase}`))).tasks;
