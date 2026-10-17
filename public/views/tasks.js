@@ -120,7 +120,7 @@ function amountInput(t, d) {
 function moneyField(t, d) {
   if (!hasMoney(t, d)) return '';
   if (!t.money.claim && !claimFor(t, d)) {
-    return html`<span class="small warn">Es gibt noch keine Forderung „${t.money.decision ?? t.money.payment}“ – erst bei der Aufgabe davor den Betrag eintragen.</span>`;
+    return html`<span class="small warn">Es gibt noch keine Forderung „${t.money.decision ?? t.money.payment}“ aus der Aufgabe davor – dort erst den Betrag eintragen oder direkt bei der Forderung buchen.</span>`;
   }
   return amountInput(t, d);
 }

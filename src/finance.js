@@ -108,7 +108,7 @@ export async function moneyStmts(ctx, user, t, amount) {
   const name = m.decision ?? m.payment;
   const c = (await row(`SELECT * FROM financial_claims WHERE case_id = ? AND task_id IS NOT NULL AND title = ?
     ORDER BY created_at DESC, rowid DESC LIMIT 1`, ctx.c.id, name))
-    ?? fail(409, `Es gibt noch keine Forderung „${name}“. Bitte zuerst die vorherige Aufgabe mit Betrag erledigen.`);
+    ?? fail(409, `Es gibt noch keine Forderung „${name}“ aus der Aufgabe davor. Bitte dort zuerst den Betrag eintragen – oder direkt bei der Forderung buchen.`);
   return m.decision ? decisionStmts(ctx, user, c, cts) : transactionStmts(ctx, user, c, cts || fail(400, 'Betrag muss größer als 0 sein'));
 }
 

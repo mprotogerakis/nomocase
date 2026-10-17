@@ -14,6 +14,9 @@ export async function openBrowser({ width = 1400, height = 1000, args = [], time
   const port = 9222 + Math.floor(Math.random() * 1000);
   const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run',
     `--window-size=${width},${height}`, ...args, 'about:blank'], { stdio: 'ignore' });
+  // Chrome goes when the test process does, however it ends: a failed start or assertion must not leave it running
+  // (leftovers slow down every later start)
+  process.once('exit', () => { chrome.kill(); rmSync(profile, { recursive: true, force: true }); });
   let target;
   for (let i = 0; i < 50 && !target; i++) {
     await sleep(200);
