@@ -88,7 +88,7 @@ export async function dashboardView() {
     </div>
     <section class="stats">
       <div class="${overdue ? 'warn' : ''}"><b>${String(overdue)}</b>überfällig bei Ihnen</div>
-      ${overdueOthers ? html`<div class="warn link-tile" data-on="caseFilter" data-id="late" title="Vorgänge mit überschrittener Frist zeigen"><b>${String(overdueOthers)}</b>überfällig bei anderen</div>` : ''}
+      ${overdueOthers ? html`<button type="button" class="warn link-tile" data-on="caseFilter" data-id="late" title="Vorgänge mit überschrittener Frist zeigen"><b>${String(overdueOthers)}</b>überfällig bei anderen</button>` : ''}
       <div><b>${String(myTasks.length)}</b>offene Aufgaben</div>
       <div><b>${String(inWs.filter(c => c.status !== 'closed').length)}</b>offene Vorgänge</div>
       ${money ? html`<div><b>${eur(money)}</b>offen zu erhalten</div>` : ''}

@@ -427,6 +427,9 @@ try {
       return !(el.getAttribute('aria-label')?.trim() || [...(el.labels ?? [])].map(labelText).find(Boolean) || (el.tagName === 'BUTTON' && el.textContent.trim())
         || el.title?.trim() || el.placeholder?.trim());
     }).map(el => el.tagName + ' ' + (el.name || el.dataset.path || el.dataset.on || ''))`), [], `${hash}: every control has a name`);
+    // everything clickable is reachable with the keyboard (no click handlers on plain boxes)
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('[data-on]:not(button):not(a):not(summary):not(input):not(select):not(textarea)')].map(el => el.dataset.on)`),
+      [], `${hash}: clickable only through keyboard-reachable elements`);
   }
   await b.cdp('Emulation.clearDeviceMetricsOverride');
 
