@@ -121,8 +121,8 @@ export async function getCase({ user, params }) {
     upload_links: ctx.staff ? await rows(`SELECT task_id, label, expires_at, single_use FROM upload_links
       WHERE case_id = ? AND revoked_at IS NULL AND expires_at > ? AND (single_use = 0 OR used_at IS NULL)`, id, now()) : [],
     rule_runs: ctx.staff ? await rows(`SELECT rule_id, SUM(status = 'done') AS n, MAX(CASE WHEN status = 'done' THEN created_at END) AS last,
-        SUM(status = 'error') AS errors, (SELECT detail FROM automation_runs x WHERE x.case_id = r.case_id AND x.rule_id = r.rule_id
-          AND x.status = 'error' ORDER BY x.created_at DESC LIMIT 1) AS error
+        SUM(status = 'error') AS errors, SUM(status = 'retry') AS retrying, (SELECT detail FROM automation_runs x WHERE x.case_id = r.case_id
+          AND x.rule_id = r.rule_id AND x.status IN ('error', 'retry') ORDER BY x.created_at DESC LIMIT 1) AS error
       FROM automation_runs r WHERE case_id = ? GROUP BY rule_id`, id) : [],
   };
 }

@@ -830,16 +830,33 @@ if (new URL(BASE).hostname === 'localhost') {
     rules: [{ id: 'r', name: 'Nach dem Prüfen', trigger: 'task.complete', conditions: [{ field: 'task.key', operator: 'equals', value: 'pruefn' }],
       actions: [{ type: 'add_comment', text: 'geprüft' }] }] } } }), 400);
   assert.match(typo.error, /Schritt "pruefn" gibt es nicht/);
-  // A rule whose action fails is recorded as failed and shown with the reason; it is not retried forever.
+  // A rule whose action fails is retried by the cron (after 1, 5, 30 minutes) and shown as "wird wiederholt" with the
+  // reason; after the last attempt it stays an error. A failure that goes away (the template exists now) is made good.
   const brokenTpl = tpls.find(t => t.name === 'Regeltest Fehlerfall') ?? { id: (await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: 'Regeltest Fehlerfall', definition: {
     roles: [{ key: 'owner', label: 'Verantwortlich', access: 'case_owner' }], phases: [{ title: 'Allgemein', tasks: [] }],
     rules: [{ id: 'kaputt', name: 'Kaputt', trigger: 'comment', conditions: [], actions: [{ type: 'create_subcase', template: 'Gibt es nicht', title: 'Widerspruch' }] }] } } }))).id };
   const { id: brokenCase } = await expect(prof('/cases', { body: { template_id: brokenTpl.id, title: 'Regeltest Fehlerfall' } }));
   await expect(prof(`/cases/${brokenCase}/comments`, { body: { body: 'löst die Regel aus', visible_to: ['*'] } }));
-  await runDigest(); // the cron catch-up must not run it again
-  const [broken] = (await expect(prof(`/cases/${brokenCase}`))).rule_runs;
-  assert.deepEqual([broken.rule_id, broken.n, broken.errors], ['kaputt', 0, 1]);
+  const runsOf = async id => (({ rule_id, n, errors, retrying, error }) => ({ rule_id, n, errors, retrying, error }))((await expect(prof(`/cases/${id}`))).rule_runs[0]);
+  await runDigest(); // not due yet: the cron leaves it
+  let broken = await runsOf(brokenCase);
+  assert.deepEqual([broken.rule_id, broken.n, broken.errors, broken.retrying], ['kaputt', 0, 0, 1]);
   assert.match(broken.error, /Gibt es nicht/);
+  const dueNow = () => sql("UPDATE automation_runs SET next_attempt_at = '2000-01-01T00:00:00.000Z' WHERE status = 'retry'");
+  for (let i = 0; i < 3; i++) { dueNow(); await runDigest(); }
+  broken = await runsOf(brokenCase);
+  assert.deepEqual([broken.n, broken.errors, broken.retrying], [0, 1, 0], 'after the last attempt it stays an error');
+  // the same failure, but the template turns up in between: the retry makes the subcase after all
+  const { id: lateCase } = await expect(prof('/cases', { body: { template_id: brokenTpl.id, title: `Regeltest spät ${run}` } }));
+  await expect(prof(`/cases/${lateCase}/comments`, { body: { body: 'löst die Regel aus', visible_to: ['*'] } }));
+  const { id: lateTpl } = await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: 'Gibt es nicht', definition: {
+    roles: [{ key: 'owner', label: 'Verantwortlich', access: 'case_owner' }], phases: [{ title: 'Allgemein', tasks: [] }] } } }));
+  dueNow();
+  await runDigest();
+  assert.deepEqual((({ n, errors, retrying }) => [n, errors, retrying])(await runsOf(lateCase)), [1, 0, 0], 'done on the retry');
+  assert.deepEqual((await expect(prof(`/cases/${lateCase}`))).subcases.map(s => s.title), ['Widerspruch']);
+  await expect(prof(`/cases/${lateCase}`, { method: 'DELETE' })); // with its subcase
+  await expect(prof(`/templates/${lateTpl}`, { method: 'DELETE' })); // so the next run fails again
   await expect(prof(`/cases/${echoCase}/comments`, { body: { body: 'Hallo Welt', visible_to: ['*'] } }));
   await expect(prof(`/cases/${echoCase}/comments`, { body: { body: 'ohne Stichwort', visible_to: ['*'] } }));
   const echoes = () => sql(`SELECT COUNT(*) AS n FROM events WHERE case_id = '${echoCase}' AND json_extract(payload, '$.rule') = 'Echo'`)[0].n;

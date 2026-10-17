@@ -329,7 +329,8 @@ function rulesSection(d) {
         <label class="row"><input type="checkbox" data-change="rule" data-id="${r.id}" ${r.enabled === false ? '' : 'checked'} ${d.me.owner ? '' : 'disabled'}> <b>${r.name}</b></label>
         <div class="muted">Wenn ${RULE_TRIGGER_LABELS[r.trigger] ?? r.trigger}${r.conditions.length ? ` und ${r.conditions.map(c => `${RULE_FIELD_LABELS[c.field] ?? c.field} ${RULE_OP_LABELS[c.operator]} ${ruleValue(c.field, c.value, d)}`).join(' und ')}` : ''}:
           ${r.actions.map(a => ruleAction(a, d)).join('; ')}.${runs?.n ? ` Bisher ${runs.n}× ausgeführt, zuletzt ${dateTime(runs.last)}.` : ''}</div>
-        ${runs?.errors ? html`<div><span class="tag rejected">${runs.errors}× fehlgeschlagen</span> <span class="muted">${runs.error}</span></div>` : ''}
+        ${runs?.errors || runs?.retrying ? html`<div>${runs.errors ? html`<span class="tag rejected">${runs.errors}× fehlgeschlagen</span> ` : ''}${
+          runs.retrying ? html`<span class="tag">${runs.retrying}× wird wiederholt</span> ` : ''}<span class="muted">${runs.error}</span></div>` : ''}
       </li>`;
     })}</ul>
     <p class="muted small">Regeln stehen in der Vorlage. Sie reagieren nicht auf das, was andere Regeln auslösen.</p>`;

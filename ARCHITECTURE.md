@@ -144,8 +144,12 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   Versuch, Wiederholung im Cron (1/5/15/60 min), nach 5 Versuchen aufgegeben und Link entwertet; Text mit Link nur bis
   zur Übergabe gespeichert; `Idempotency-Key` = Eintrags-ID (keine Doppelmail bei verlorener Antwort); erneutes
   Einladen/Anfordern setzt eine ausstehende Mail fort (derselbe Link). Upload-Link-Mails nicht: Team bekommt den Link.
-- [ ] Architektur-Review 17.10., weiter in dieser Reihenfolge: Regel-Wiederholung mit Dauerfehler; expliziter
-  Anfragekontext statt `DB`/`E`; Importzyklen auflösen (+ Prüfung); Testisolation je Lauf
+- [x] Regel-Wiederholung: ein fehlgeschlagener Lauf wird `retry` (Versuche, Fälligkeit), der Cron wiederholt nach
+  1/5/30 min mit den Fakten von jetzt; danach bleibt `error` sichtbar („× fehlgeschlagen“, vorher „× wird wiederholt“).
+  Lauf-Eintrag und Wirkung in einer Transaktion, Idempotenz über `(event_id, rule_id)` – auch für gleichzeitige
+  Wiederholungen. Nach Schreibanfragen nur neue Ereignisse (Cursor in derselben Abfrage), Wiederholungen nur im Cron.
+- [ ] Architektur-Review 17.10., weiter in dieser Reihenfolge: expliziter Anfragekontext statt `DB`/`E`; Importzyklen
+  auflösen (+ Prüfung); Testisolation je Lauf
 - [x] Passkey-Anmeldung ohne Schreibzugriff für Anonyme: Challenges sind signiert („Ablauf.Nonce.HMAC“, Schlüssel in
   `app_secrets`, beim ersten Gebrauch erzeugt); erst eine erfolgreiche Anmeldung verbraucht ihre Challenge (kein Replay)
 - [x] Vorlagen-Editor, Stufe 1: Rollen, Angaben, Dokumenttypen, Phasen und Schritte (Typ, Rolle, Reihenfolge, Frist,

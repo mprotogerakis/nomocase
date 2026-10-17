@@ -44,7 +44,11 @@ const stepClaim = (id, taskId) => db.prepare(`INSERT INTO financial_claims (id, 
   VALUES (?, 'c3', 'Rechnung', 'payable', 100, 'u', '2026-01-04', ?)`).run(id, taskId);
 stepClaim('k5', 't9');
 stepClaim('k6', 't9');
+// Before 0044: rule runs knew no retries (the table is rebuilt for its new CHECK).
+db.prepare("INSERT INTO automation_runs (event_id, rule_id, case_id, status, detail, created_at) VALUES (1, 'r', 'c1', 'error', 'alt', '2026-01-01')").run();
 applyUpTo('9999');
+assert.deepEqual(all('SELECT event_id, status, detail, attempts FROM automation_runs'), [{ event_id: 1, status: 'error', detail: 'alt', attempts: 1 }], 'old runs kept');
+db.prepare("INSERT INTO automation_runs (event_id, rule_id, case_id, status, attempts, next_attempt_at, created_at) VALUES (2, 'r', 'c1', 'retry', 1, '2026-01-02', '2026-01-01')").run();
 assert.deepEqual(all("SELECT id, task_id FROM financial_claims WHERE case_id = 'c3' ORDER BY id"), [{ id: 'k5', task_id: 't9' }, { id: 'k6', task_id: null }],
   'the first claim stays the step\'s, the later one becomes a claim of its own');
 assert.throws(() => stepClaim('k7', 't9'), /UNIQUE/, 'a step books once from now on');

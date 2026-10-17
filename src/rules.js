@@ -96,37 +96,75 @@ async function ruleStmts(c, def, rule, f) {
   return stmts;
 }
 
-export async function processRules() {
-  const { last } = await row('SELECT last_event_id AS last FROM rule_cursor WHERE id = 1');
-  const events = await rows('SELECT e.*, u.name AS actor FROM events e LEFT JOIN users u ON u.id = e.actor_id WHERE e.id > ? ORDER BY e.id LIMIT 200', last);
-  if (!events.length) return;
-  const cases = new Map((await rows('SELECT id, title, workspace_id, definition FROM cases WHERE id IN (SELECT value FROM json_each(?))',
-    JSON.stringify([...new Set(events.map(e => e.case_id))]))).map(c => [c.id, { ...c, def: JSON.parse(c.definition) }]));
-  for (const e of events) {
-    const c = cases.get(e.case_id);
-    const p = JSON.parse(e.payload);
-    const rules = (c?.def.rules ?? []).filter(r => r.trigger === e.type && r.enabled !== false);
-    if (!rules.length || p.rule) continue; // nothing to do, or caused by a rule (no chains)
-    const f = await ruleFacts(c, e, p);
-    for (const rule of rules) {
-      if (!rule.conditions.every(cond => RULE_OPS[cond.operator](f[cond.field], cond.value))) continue;
-      if (await row('SELECT 1 FROM automation_runs WHERE event_id = ? AND rule_id = ?', e.id, rule.id)) continue; // ran already
-      try {
-        // Run record and effects commit together (a batch is one transaction): a crash leaves neither behind,
-        // and a parallel run of the same rule fails on the primary key without changing anything.
-        await DB.batch([
-          q("INSERT INTO automation_runs (event_id, rule_id, case_id, status, created_at) VALUES (?, ?, ?, 'done', ?)", e.id, rule.id, c.id, now()),
-          ...await ruleStmts(c, c.def, rule, f),
-        ]);
-      } catch (err) {
-        if (/UNIQUE constraint/i.test(err.message)) continue;
-        console.error('rule failed', rule.id, err.message);
-        await q("INSERT OR IGNORE INTO automation_runs (event_id, rule_id, case_id, status, detail, created_at) VALUES (?, ?, ?, 'error', ?, ?)",
-          e.id, rule.id, c.id, String(err.message).slice(0, 500), now()).run();
+// A failed run is tried again after these minutes (by the cron), then it stays an error, shown at the case's rules.
+const RETRY_MINUTES = [1, 5, 30];
+const ATTEMPTS = RETRY_MINUTES.length + 1;
+
+const loadCases = async ids => new Map((await rows('SELECT id, title, workspace_id, definition FROM cases WHERE id IN (SELECT value FROM json_each(?))',
+  JSON.stringify([...new Set(ids)]))).map(c => [c.id, { ...c, def: JSON.parse(c.definition) }]));
+
+// One rule on one event. Run record and effects commit together (a batch is one transaction): a crash leaves neither
+// behind, and a parallel run of the same rule fails on the primary key without changing anything – also for a retry,
+// whose 'retry' record is swapped for the 'done' one in the same batch. A failure is recorded for the next attempt.
+async function runRule(c, e, rule, f, attemptsBefore = 0) {
+  try {
+    await DB.batch([
+      ...(attemptsBefore ? [q("DELETE FROM automation_runs WHERE event_id = ? AND rule_id = ? AND status = 'retry'", e.id, rule.id)] : []),
+      q("INSERT INTO automation_runs (event_id, rule_id, case_id, status, created_at) VALUES (?, ?, ?, 'done', ?)", e.id, rule.id, c.id, now()),
+      ...await ruleStmts(c, c.def, rule, f),
+    ]);
+  } catch (err) {
+    if (/UNIQUE constraint/i.test(err.message)) return; // done meanwhile
+    await recordFailure(c.id, e.id, rule.id, attemptsBefore + 1, String(err.message).slice(0, 500));
+  }
+}
+
+async function recordFailure(caseId, eventId, ruleId, attempts, detail) {
+  const last = attempts >= ATTEMPTS;
+  console.error('rule failed', ruleId, `attempt ${attempts}${last ? ' (last)' : ''}`, detail);
+  await q(`INSERT INTO automation_runs (event_id, rule_id, case_id, status, detail, attempts, next_attempt_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (event_id, rule_id) DO UPDATE SET status = excluded.status, detail = excluded.detail, attempts = excluded.attempts,
+      next_attempt_at = excluded.next_attempt_at WHERE automation_runs.status = 'retry'`,
+  eventId, ruleId, caseId, last ? 'error' : 'retry', detail, attempts, last ? null : new Date(Date.now() + RETRY_MINUTES[attempts - 1] * 60e3).toISOString(), now()).run();
+}
+
+// New events, each looked at once (the cursor); `retries` (the cron): also the failed runs that are due again. The
+// cursor is not what guarantees a run – a failed one stays in automation_runs until it succeeds or gives up.
+export async function processRules({ retries = false } = {}) {
+  const events = await rows(`SELECT e.*, u.name AS actor FROM events e LEFT JOIN users u ON u.id = e.actor_id
+    WHERE e.id > (SELECT last_event_id FROM rule_cursor WHERE id = 1) ORDER BY e.id LIMIT 200`);
+  if (events.length) {
+    const cases = await loadCases(events.map(e => e.case_id));
+    for (const e of events) {
+      const c = cases.get(e.case_id);
+      const p = JSON.parse(e.payload);
+      const rules = (c?.def.rules ?? []).filter(r => r.trigger === e.type && r.enabled !== false);
+      if (!rules.length || p.rule) continue; // nothing to do, or caused by a rule (no chains)
+      const f = await ruleFacts(c, e, p);
+      for (const rule of rules) {
+        if (!rule.conditions.every(cond => RULE_OPS[cond.operator](f[cond.field], cond.value))) continue;
+        if (await row('SELECT 1 FROM automation_runs WHERE event_id = ? AND rule_id = ?', e.id, rule.id)) continue; // ran already
+        await runRule(c, e, rule, f);
       }
     }
+    await q('UPDATE rule_cursor SET last_event_id = MAX(last_event_id, ?) WHERE id = 1', events.at(-1).id).run();
   }
-  await q('UPDATE rule_cursor SET last_event_id = MAX(last_event_id, ?) WHERE id = 1', events.at(-1).id).run();
+  if (retries) await retryRules();
+}
+
+// Failed runs that are due: the same rule on the same event (its conditions held then), with the facts of now.
+async function retryRules() {
+  const due = await rows(`SELECT r.rule_id, r.attempts, e.*, u.name AS actor FROM automation_runs r JOIN events e ON e.id = r.event_id
+    LEFT JOIN users u ON u.id = e.actor_id WHERE r.status = 'retry' AND r.next_attempt_at <= ? ORDER BY r.next_attempt_at LIMIT 20`, now());
+  const cases = await loadCases(due.map(d => d.case_id));
+  for (const { rule_id: ruleId, attempts, ...e } of due) {
+    const c = cases.get(e.case_id), rule = c?.def.rules?.find(r => r.id === ruleId);
+    if (!rule || rule.enabled === false) {
+      await recordFailure(e.case_id, e.id, ruleId, ATTEMPTS, 'nicht wiederholt: Regel inzwischen ausgeschaltet oder entfernt');
+      continue;
+    }
+    await runRule(c, e, rule, await ruleFacts(c, e, JSON.parse(e.payload)), attempts);
+  }
 }
 
 export async function toggleRule({ user, params, body }) {
