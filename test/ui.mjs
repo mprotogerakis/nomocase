@@ -162,6 +162,25 @@ try {
   await evaluate(`(() => { const c = document.querySelector('[data-change="tplAccept"][data-path="phases.0.tasks.1"][value="pdf"]');
     c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
   await change('[data-path="phases.0.tasks.1.doc_type"]', 'att');
+  // a PDF form, built from lists, offered at "Beginn"; its preview is a real PDF with the placeholder's name in the field
+  await b.click('[data-on="tplAdd"][data-path="forms"]');
+  await waitFor(`!!document.querySelector('[data-path="forms.0.title"]')`, 'neues Formular');
+  await typeInto('forms.0.title', 'Bestätigung');
+  await b.click('[data-on="tplAdd"][data-path="forms.0.items"]');
+  await waitFor(`!!document.querySelector('[data-path="forms.0.items.1.label"]')`, 'neuer Eintrag');
+  await typeInto('forms.0.items.1.label', 'Vorgang');
+  await change('[data-change="tplFormValue"][data-path="forms.0.items.1"]', '{case.title}');
+  await b.click('[data-on="tplAdd"][data-path="forms.0.items"]');
+  await waitFor(`!!document.querySelector('[data-change="tplItemKind"][data-path="forms.0.items.2"]')`, 'dritter Eintrag');
+  await change('[data-change="tplItemKind"][data-path="forms.0.items.2"]', 'sign');
+  await waitFor(`!!document.querySelector('[data-path="forms.0.items.2.sign"]')`, 'Unterschrift');
+  await typeInto('forms.0.items.2.sign', 'Unterschrift Team');
+  await change('[data-path="phases.0.tasks.0.form"]', 'bestatigung');
+  await evaluate(`(() => { window.pdfs = []; const make = URL.createObjectURL; URL.createObjectURL = blob => { pdfs.push(blob); return make(blob); }; return true; })()`);
+  await b.click('[data-on="tplPreview"][data-i="0"]');
+  await waitFor('pdfs.length === 1', 'Vorschau aus dem Editor');
+  assert.equal(await evaluate(`import('/vendor/pdf-lib.esm.min.js').then(async ({ PDFDocument }) =>
+    (await PDFDocument.load(await pdfs[0].arrayBuffer())).getForm().getTextField('Vorgang').getText())`), '‹Titel des Vorgangs›');
   // a rule, built from lists: when "Beginn" is done, a message to everyone
   await b.click('[data-on="tplAdd"][data-path="rules"]');
   await waitFor(`!!document.querySelector('[data-path="rules.0.name"]')`, 'neue Regel');
@@ -177,6 +196,9 @@ try {
   const saved = (await api('/templates')).find(t => t.id === edId);
   assert.deepEqual(saved.definition.phases[0].tasks.map(t => [t.key, t.title, t.type, t.files ?? null, t.doc_type ?? null]),
     [['start', 'Beginn', 'task', null, null], ['anlagen-hochladen', 'Anlagen hochladen', 'upload', { multiple: true, accept: ['pdf'] }, 'att']]);
+  assert.deepEqual(saved.definition.forms, [{ key: 'bestatigung', title: 'Bestätigung',
+    items: [{ heading: 'Angaben' }, { label: 'Vorgang', value: '{case.title}' }, { sign: 'Unterschrift Team', place: 'Düsseldorf' }] }]);
+  assert.equal(saved.definition.phases[0].tasks[0].form, 'bestatigung');
   assert.deepEqual(saved.definition.rules, [{ id: 'start-melden', name: 'Start melden', trigger: 'task.complete',
     conditions: [{ field: 'task.key', operator: 'equals', value: 'start' }], actions: [{ type: 'add_comment', text: 'Gestartet: {task.title}', visible_to: ['*'] }] }]);
   // … and in a case from it: the step takes several PDFs at once, each one a document, the step done after the last

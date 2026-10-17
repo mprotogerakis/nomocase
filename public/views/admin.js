@@ -137,7 +137,11 @@ on.previewForm = async ({ id, key }) => {
   const t = shownTemplates.find(x => x.id === id);
   let def = t.definition;
   try { def = JSON.parse(document.querySelector(`form[data-id="${id}"] textarea`)?.value ?? '') ?? def; } catch { /* the saved version */ }
-  const form = def.forms?.find(f => f.key === key) ?? t.definition.forms.find(f => f.key === key);
+  await previewForm(def, def.forms?.find(f => f.key === key) ?? t.definition.forms.find(f => f.key === key), t);
+};
+
+// A form of a template as PDF, with the placeholders' names instead of values (also used by the template editor).
+export async function previewForm(def, form, t) {
   const label = k => {
     if (k === 'case.title') return '‹Titel des Vorgangs›';
     if (k.startsWith('date')) return new Date(Date.now() + Number(k.split('+')[1] ?? 0) * 864e5).toLocaleDateString('de-DE');
@@ -147,7 +151,7 @@ on.previewForm = async ({ id, key }) => {
   const [{ formPdf, formFilename, saveFile }, look] = await Promise.all([import('../formpdf.js'), api(`/workspaces/${t.workspace_id}/branding`)]);
   const f = { ...fillForm(form, label), ...look, case_title: 'Vorschau', template: t.name, created: new Date().toLocaleDateString('de-DE') };
   saveFile(await formPdf(f), formFilename(f));
-};
+}
 // A copy is a template of its own in the other workspace (version 1); later changes stay on their side.
 submit.copyTemplate = async (fd, form) => {
   const t = shownTemplates.find(x => x.id === form.dataset.id);

@@ -1,9 +1,10 @@
-// Template editor: roles, Angaben, document types, phases and steps, and rules as a form instead of JSON. It works on a
-// copy of the latest version; saving creates the next version (the server checks it like any other). Everything the
-// editor does not show (forms, scales, money, labels …) stays in the definition untouched – the JSON view edits those.
+// Template editor: roles, Angaben, document types, phases and steps, PDF forms and rules as a form instead of JSON. It
+// works on a copy of the latest version; saving creates the next version (the server checks it like any other).
+// Everything the editor does not show (scales, money, labels …) stays in the definition untouched – the JSON view edits those.
 import { ACCESS, FILE_KIND_LABELS, NEEDS_FILE, RULE_ACTION_LABELS, RULE_FIELD_LABELS, RULE_MONEY_FIELDS, RULE_OP_LABELS, RULE_TRIGGER_LABELS } from '../shared/vocab.js';
 import { change, input, me, on } from '../state.js';
 import { ACCESS_LABELS, api, go, html, page, plainEur, toCents, TYPES } from '../lib.js';
+import { previewForm } from './admin.js';
 
 let tpl = null, draft = null, wsTemplates = [];
 const fresh = new WeakSet(); // items created here: their key still follows their name
@@ -23,7 +24,7 @@ export async function templateEditorView(id) {
     const all = await api('/templates');
     tpl = all.find(t => t.id === id) ?? null;
     draft = tpl && structuredClone(tpl.definition);
-    if (draft) draft.rules ??= [];
+    if (draft) { draft.rules ??= []; draft.forms ??= []; }
     wsTemplates = all.filter(t => t.workspace_id === tpl?.workspace_id && !t.archived_at).map(t => t.name); // sub-case templates
   }
   if (!tpl) return page(html`<main class="narrow"><p>Vorlage nicht gefunden.</p><a href="#/templates">Zu den Vorlagen</a></main>`);
@@ -60,6 +61,7 @@ function editor() {
         <label class="row">Frist ${select(`${path}`, deadline, [['', 'keine'], ['days', 'Tage ab Start'], ...dates.map(f => [`field:${f.key}`, `aus „${f.label}“`])], 'tplDeadline')}</label>
         ${deadline === 'days' ? html`<input type="number" min="0" max="3650" value="${t.due_days}" data-input="tplDays" data-path="${path}" aria-label="Tage" style="width:5em"> Tage` : ''}
         <label class="row">Dokument ${select(`${path}.doc_type`, t.doc_type, docOptions)}</label>
+        ${draft.forms.length ? html`<label class="row">Formular ${select(`${path}.form`, t.form, [['', '– keins –'], ...draft.forms.map(f => [f.key, f.title || f.key])])}</label>` : ''}
         ${before.length ? html`<label class="row">startet nach <select multiple size="${Math.min(3, before.length)}" data-change="tplAfter" data-path="${path}" aria-label="startet nach">
           ${before.map(k => html`<option value="${k}" ${(t.after ?? []).includes(k) ? 'selected' : ''}>${titleOf(k)}</option>`)}</select></label>` : ''}
       </div>
@@ -101,6 +103,8 @@ function editor() {
     </fieldset>`)}
     <button type="button" class="link" data-on="tplAdd" data-path="phases">+ Phase</button>
 
+    ${formsSection()}
+
     ${rulesSection()}
 
     <div class="row editor-save"><button data-on="tplSave">Als Version ${tpl.version + 1} speichern</button>
@@ -112,9 +116,16 @@ function editor() {
 input.tplSet = change.tplSet = el => {
   const [obj, prop] = parentOf(el.dataset.path);
   const value = el.value;
-  if (value === '' && !['title', 'label', 'name', 'text'].includes(prop)) delete obj[prop]; else obj[prop] = value;
+  // emptied texts stay (the server names what is missing); a form item keeps its kind
+  if (value === '' && !['title', 'label', 'name', 'text', 'heading', 'sign'].includes(prop)) delete obj[prop]; else obj[prop] = value;
   if (el.tagName === 'SELECT' && (prop === 'type' || prop === 'doc_type')) render(); // file settings show for steps that take files
   if (fresh.has(obj) && prop === 'name' && el.dataset.path.startsWith('rules.')) obj.id = uniqueKey(value, draft.rules.filter(r => r !== obj).map(r => r.id));
+  if (fresh.has(obj) && obj.key && prop === 'title' && /^forms\.\d+\.title$/.test(el.dataset.path)) { // a new form: key from its title
+    const old = obj.key;
+    obj.key = uniqueKey(value, draft.forms.filter(f => f !== obj).map(f => f.key));
+    for (const t of draft.phases.flatMap(p => p.tasks)) if (t.form === old) t.form = obj.key;
+    return;
+  }
   if (fresh.has(obj) && obj.key && (prop === 'title' || prop === 'label')) {
     const isStep = el.dataset.path.startsWith('phases.') || el.dataset.path.startsWith('rules.');
     const list = isStep ? [...stepKeys(), ...ruleTaskKeys()] : (el.dataset.path.startsWith('roles.') ? draft.roles
@@ -163,10 +174,11 @@ on.tplMove = ({ path, i, dir }) => {
 };
 on.tplRemove = ({ path, i }) => {
   const [item] = at(path).splice(Number(i), 1);
-  // steps that waited for a removed step no longer do
+  // steps that waited for a removed step no longer do; steps that offered a removed form no longer do
   for (const key of path === 'phases' ? item.tasks.map(t => t.key) : [item.key]) {
     for (const t of draft.phases.flatMap(p => p.tasks)) if (t.after?.includes(key)) t.after = t.after.filter(k => k !== key);
   }
+  if (path === 'forms') for (const t of draft.phases.flatMap(p => p.tasks)) if (t.form === item.key) delete t.form;
   render();
 };
 on.tplAdd = ({ path }) => {
@@ -175,6 +187,8 @@ on.tplAdd = ({ path }) => {
     : path === 'fields' ? { key: uniqueKey('angabe', draft.fields.map(f => f.key)), label: '' }
     : path === 'document_types' ? { key: uniqueKey('dokument', draft.document_types.map(d => d.key)), label: '', visible_to: [] }
     : path === 'phases' ? { title: '', tasks: [] }
+    : path === 'forms' ? { key: uniqueKey('formular', draft.forms.map(f => f.key)), title: '', items: [{ heading: 'Angaben' }] }
+    : path.endsWith('.items') ? { label: '' }
     : path === 'rules' ? { id: uniqueKey('regel', draft.rules.map(r => r.id)), name: '', trigger: 'task.complete', conditions: [],
       actions: [{ type: 'add_comment', text: '', visible_to: [] }] }
     : path.endsWith('.conditions') ? { field: 'task.key', operator: 'equals', value: '' }
@@ -184,6 +198,68 @@ on.tplAdd = ({ path }) => {
   list.push(item);
   render();
 };
+
+// --- PDF forms --------------------------------------------------------------------------------------------------
+// Items top to bottom: heading, text, field, checkbox, signature. Values come from the case through placeholders
+// (chosen from a list), or are a fixed text; they always land in form fields, so they stay correctable.
+const KINDS = [['heading', 'Überschrift'], ['text', 'Text'], ['label', 'Feld'], ['check', 'Ankreuzfeld'], ['sign', 'Unterschrift']];
+const kindOf = it => (it.heading !== undefined ? 'heading' : it.text !== undefined ? 'text' : it.sign !== undefined ? 'sign' : it.check ? 'check' : 'label');
+const customValue = new WeakSet(); // items whose value is a fixed text being typed
+const placeholderChoices = () => [['{case.title}', 'Titel des Vorgangs'], ...draft.fields.map(f => [`{field.${f.key}}`, f.label]),
+  ...draft.roles.flatMap(r => [[`{role.${r.key}}`, `${r.label} (Name)`], [`{role.${r.key}.email}`, `${r.label} (E-Mail)`]]), ['{date}', 'heutiges Datum']];
+
+function valueInput(it, path, prop = 'value', allowCustom = true, empty = '– leer –') {
+  const known = placeholderChoices(), v = it[prop] ?? '';
+  const custom = allowCustom && (customValue.has(it) || (v && !known.some(([p]) => p === v)));
+  return html`${select(path, custom ? 'custom' : v, [['', empty], ...known.map(([p, l]) => [p, `aus: ${l}`]),
+    ...(allowCustom ? [['custom', 'fester Text …']] : [])], prop === 'value' ? 'tplFormValue' : 'tplFormName')}
+    ${custom ? text(`${path}.${prop}`, v, html`aria-label="fester Text" placeholder="fester Text"`) : ''}`;
+}
+
+function itemFields(it, path) {
+  const kind = kindOf(it);
+  if (kind === 'heading') return html`${text(`${path}.heading`, it.heading, html`aria-label="Überschrift" class="grow" required`)}
+    ${text(`${path}.hint`, it.hint, html`aria-label="Hinweis" placeholder="Hinweis rechts, z. B. „Von der Hochschule auszufüllen“"`)}`;
+  if (kind === 'text') return html`<textarea rows="2" class="grow" data-input="tplSet" data-path="${path}.text" aria-label="Text" required>${it.text ?? ''}</textarea>`;
+  if (kind === 'sign') return html`${text(`${path}.sign`, it.sign, html`aria-label="Unterschrift" class="grow" placeholder="z. B. Unterschrift Erstprüfer/in" required`)}
+    <label class="row">Name ${valueInput(it, path, 'name', false)}</label> <label class="row">Ort ${text(`${path}.place`, it.place, html`aria-label="Ort" style="width:8em"`)}</label>`;
+  return html`${text(`${path}.label`, it.label, html`aria-label="Beschriftung" class="grow" placeholder="Beschriftung" required`)}
+    <label class="row">${kind === 'check' ? html`vorab angekreuzt ${valueInput(it, path, 'value', false, '– nie –')}` : html`Wert ${valueInput(it, path)}`}</label>
+    ${kind === 'label' ? html`<label class="row"><input type="checkbox" data-change="tplFlag" data-path="${path}.half" ${it.half ? 'checked' : ''}> halbe Breite</label>
+      <label class="row">Zeilen <input type="number" min="1" max="12" value="${it.lines ?? 1}" data-input="tplNumber" data-path="${path}.lines" style="width:4em"></label>` : ''}`;
+}
+
+function formsSection() {
+  return html`<h2>Formulare</h2>
+    <p class="muted small">NomoCase erzeugt diese Formulare als ausfüllbare PDF, vorausgefüllt aus dem Vorgang. Bei einem Schritt
+      unter „Formular“ auswählen, wo es angeboten wird. Logo und Farbe kommen vom Workspace.</p>
+    ${draft.forms.map((f, fi) => html`<div class="step form">
+      <div class="row">${text(`forms.${fi}.title`, f.title, html`aria-label="Titel des Formulars" class="grow" placeholder="Titel des Formulars" required`)}
+        <button type="button" class="link" data-on="tplPreview" data-i="${fi}">Vorschau</button> ${tools('forms', fi, draft.forms.length)}</div>
+      ${text(`forms.${fi}.subtitle`, f.subtitle, html`aria-label="Untertitel" placeholder="Untertitel (optional), z. B. wohin das Formular geht"`)}
+      ${f.items.map((it, ii) => html`<div class="row small item">${select(`forms.${fi}.items.${ii}`, kindOf(it), KINDS, 'tplItemKind')}
+        ${itemFields(it, `forms.${fi}.items.${ii}`)} ${tools(`forms.${fi}.items`, ii, f.items.length)}</div>`)}
+      <button type="button" class="link small" data-on="tplAdd" data-path="forms.${fi}.items">+ Eintrag</button>
+      <span class="muted small">Schlüssel: <code>${f.key}</code></span>
+    </div>`)}
+    <button type="button" class="link" data-on="tplAdd" data-path="forms">+ Formular</button>`;
+}
+
+change.tplItemKind = el => {
+  const [list, i] = parentOf(el.dataset.path);
+  const old = list[i], words = old.heading ?? old.text ?? old.sign ?? old.label ?? '';
+  list[i] = el.value === 'heading' ? { heading: words } : el.value === 'text' ? { text: words } : el.value === 'sign' ? { sign: words, place: 'Düsseldorf' }
+    : el.value === 'check' ? { label: words, check: true } : { label: words };
+  render();
+};
+change.tplFormValue = change.tplFormName = el => {
+  const it = at(el.dataset.path), prop = el.dataset.change === 'tplFormName' ? 'name' : 'value';
+  customValue.delete(it);
+  if (el.value === 'custom') { customValue.add(it); it[prop] = ''; } else if (el.value) it[prop] = el.value; else delete it[prop];
+  render();
+};
+change.tplFlag = el => { const [obj, prop] = parentOf(el.dataset.path); if (el.checked) obj[prop] = true; else delete obj[prop]; };
+on.tplPreview = ({ i }) => previewForm(draft, draft.forms[Number(i)], tpl);
 
 // --- Rules ------------------------------------------------------------------------------------------------------
 // "Wenn <trigger> und <conditions>: <actions>". Values come from lists where the template knows them (steps, document
@@ -282,7 +358,9 @@ change.tplActionType = el => {
 };
 
 on.tplSave = async () => {
-  const { version } = await api(`/templates/${tpl.id}/versions`, { body: { definition: draft } });
+  const definition = structuredClone(draft);
+  if (!definition.forms.length) delete definition.forms;
+  const { version } = await api(`/templates/${tpl.id}/versions`, { body: { definition } });
   alert(`Gespeichert als Version ${version}. Laufende Vorgänge bleiben unverändert.`);
   tpl = null;
   go('#/templates');
