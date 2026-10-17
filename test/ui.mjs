@@ -155,7 +155,7 @@ try {
       { key: 'g3', title: 'Freigabe', type: 'approval' }] }] } });
   await go(`#/templates/${edId}`, `!!document.querySelector('.template-editor .step')`);
   const typeInto = (path, value) => evaluate(`(() => { const i = document.querySelector('[data-path="${path}"]'); i.value = ${J(value)};
-    i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+    i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`); // typed, then left
   await typeInto('phases.0.tasks.0.title', 'Beginn');
   await b.click('[data-on="tplAdd"][data-path="phases.0.tasks"]');
   await waitFor(`!!document.querySelector('[data-path="phases.0.tasks.1.title"]')`, 'neuer Schritt');
@@ -208,7 +208,7 @@ try {
   await change('[data-change="tplCondValue"][data-path="rules.0.conditions.0"]', 'start');
   await typeInto('rules.0.actions.0.text', 'Gestartet: {task.title}');
   await change('[data-change="tplAudience"][data-path="rules.0.actions.0"]', '*');
-  // a rule on the new step follows it when the step is renamed (its key follows the title)
+  // a new step's key follows its title until a rule refers to it; renamed afterwards, it keeps the key (no broken rule)
   await typeInto('phases.0.tasks.1.title', 'Anlagen später');
   await b.click('[data-on="tplAdd"][data-path="rules"]');
   await waitFor(`!!document.querySelector('[data-path="rules.1.name"]')`, 'zweite Regel');
@@ -218,12 +218,19 @@ try {
   await change('[data-change="tplCondValue"][data-path="rules.1.conditions.0"]', 'anlagen-spater');
   await typeInto('rules.1.actions.0.text', 'Anlagen sind da.');
   await typeInto('phases.0.tasks.1.title', 'Anlagen hochladen');
+  // the same for a new role: given to a step, then its name corrected
+  await b.click('[data-on="tplAdd"][data-path="roles"]');
+  await waitFor(`!!document.querySelector('[data-path="roles.2.label"]')`, 'neue Rolle');
+  await typeInto('roles.2.label', 'Gutachter');
+  await change('[data-path="phases.0.tasks.0.role"]', 'gutachter');
+  await typeInto('roles.2.label', 'Gutachter:in');
   const shown = dialogs.length;
   await b.click('[data-on="tplSave"]');
   await until(() => dialogs.length > shown && dialogs.at(-1).startsWith('Gespeichert als Version 2'), 'im Editor gespeichert');
   const saved = (await api('/templates')).find(t => t.id === edId);
   assert.deepEqual(saved.definition.phases[0].tasks.map(t => [t.key, t.title, t.type, t.files ?? null, t.doc_type ?? null]),
-    [['start', 'Beginn', 'task', null, null], ['anlagen-hochladen', 'Anlagen hochladen', 'upload', { multiple: true, accept: ['pdf'] }, 'att']]);
+    [['start', 'Beginn', 'task', null, null], ['anlagen-spater', 'Anlagen hochladen', 'upload', { multiple: true, accept: ['pdf'] }, 'att']]);
+  assert.deepEqual([saved.definition.roles[2], saved.definition.phases[0].tasks[0].role], [{ key: 'gutachter', label: 'Gutachter:in', access: 'guest_contributor' }, 'gutachter']);
   assert.deepEqual(saved.definition.forms, [{ key: 'bestatigung', title: 'Bestätigung',
     items: [{ heading: 'Angaben' }, { label: 'Vorgang', value: '{case.title}' }, { sign: 'Unterschrift Team', place: 'Düsseldorf' }] }]);
   assert.equal(saved.definition.phases[0].tasks[0].form, 'bestatigung');
@@ -233,7 +240,7 @@ try {
   assert.deepEqual(saved.definition.aggregates, [{ key: 'gesamtnote', label: 'Gesamtnote', scale: 'note', from: ['g2'], method: 'mean', round: 'truncate', field: 'grade', fail_value: 5 }]);
   assert.deepEqual(saved.definition.rules, [{ id: 'start-melden', name: 'Start melden', trigger: 'task.complete',
     conditions: [{ field: 'task.key', operator: 'equals', value: 'start' }], actions: [{ type: 'add_comment', text: 'Gestartet: {task.title}', visible_to: ['*'] }] },
-  { id: 'anlagen-da', name: 'Anlagen da', trigger: 'task.complete', conditions: [{ field: 'task.key', operator: 'equals', value: 'anlagen-hochladen' }],
+  { id: 'anlagen-da', name: 'Anlagen da', trigger: 'task.complete', conditions: [{ field: 'task.key', operator: 'equals', value: 'anlagen-spater' }],
     actions: [{ type: 'add_comment', text: 'Anlagen sind da.', visible_to: [] }] }]);
   // … and in a case from it: the step takes several PDFs at once, each one a document, the step done after the last
   const { id: edCase } = await post('/cases', { template_id: edId, title: `UI-Anlagen ${run}` });

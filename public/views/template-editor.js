@@ -8,7 +8,7 @@ import { ACCESS_LABELS, api, DECISION_LABELS, go, html, page, plainEur, toCents,
 import { previewForm } from './admin.js';
 
 let tpl = null, draft = null, wsTemplates = [];
-const fresh = new WeakSet(); // items created here: their key still follows their name
+const fresh = new WeakSet(); // items created here: their key follows their name until something refers to it
 
 const slug = s => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'neu';
 const uniqueKey = (base, taken) => { let k = slug(base); while (taken.includes(k)) k += '-2'; return k; };
@@ -19,16 +19,9 @@ const guestKeys = () => draft.roles.filter(r => r.access.startsWith('guest_')).m
 // Rules name steps by key: in a "Schritt" condition and in "Aufgabe abhaken".
 const rulesUsing = key => draft.rules.filter(r => r.conditions.some(c => c.field === 'task.key' && [c.value].flat().includes(key))
   || r.actions.some(a => a.type === 'complete_tasks' && a.key === key));
-// A new step's key follows its title; everything that refers to the step follows the key.
-function renameStep(old, key) {
-  const swap = k => (k === old ? key : k);
-  for (const t of draft.phases.flatMap(p => p.tasks)) if (t.after) t.after = t.after.map(swap);
-  for (const a of draft.aggregates) a.from = a.from.map(swap);
-  for (const r of draft.rules) {
-    for (const c of r.conditions) if (c.field === 'task.key') c.value = Array.isArray(c.value) ? c.value.map(swap) : swap(c.value);
-    for (const a of r.actions) if (a.type === 'complete_tasks') a.key = swap(a.key);
-  }
-}
+// Is a key used anywhere besides its own item – a whole value (role of a step, rule condition, "startet nach" …) or a
+// {role.…}/{field.…} placeholder? A false alarm only keeps a key unchanged, which is harmless (keys are internal).
+const referenced = key => { const json = JSON.stringify(draft); return json.split(`"${key}"`).length > 2 || json.includes(`.${key}}`) || json.includes(`.${key}.`); };
 // a step that is no longer assessed on an aggregate's scale (or gone) leaves that aggregate
 const dropFromAggregates = (key, keepScale) => { for (const a of draft.aggregates) if (a.scale !== keepScale) a.from = a.from.filter(k => k !== key); };
 
@@ -54,7 +47,10 @@ export async function templateEditorView(id) {
 // Re-render keeps the scroll position (structure changes: add, remove, move, deadline kind).
 const render = () => { const y = scrollY; page(editor()); scrollTo(0, y); };
 
-const text = (path, value, attrs = html``) => html`<input value="${value ?? ''}" data-input="tplSet" data-path="${path}" ${attrs}>`;
+const text = (path, value, attrs = html``) => html`<input value="${value ?? ''}" data-input="tplSet" data-change="tplNamed" data-path="${path}" ${attrs}>`;
+// Names show up in other lists (a role at the steps, a step in "startet nach" and rules …); typing leaves the page alone
+// so the cursor stays, leaving the field brings every list up to date (also a new item's key, which follows its name).
+change.tplNamed = el => { if (/\.(label|title)$/.test(el.dataset.path)) render(); };
 // `label`: the name screen readers announce, where no visible label wraps the list
 const select = (path, value, options, handler = 'tplSet', label = '') => html`<select data-change="${handler}" data-path="${path}" ${label ? html`aria-label="${label}"` : ''}>${options.map(([v, label]) =>
   html`<option value="${v}" ${String(value ?? '') === v ? 'selected' : ''}>${label}</option>`)}</select>`;
@@ -151,19 +147,13 @@ input.tplSet = change.tplSet = el => {
   }
   if (el.tagName === 'SELECT' && (prop === 'type' || prop === 'doc_type' || prop === 'role')) render(); // settings that depend on these
   if (fresh.has(obj) && prop === 'name' && el.dataset.path.startsWith('rules.')) obj.id = uniqueKey(value, draft.rules.filter(r => r !== obj).map(r => r.id));
-  if (fresh.has(obj) && obj.key && prop === 'title' && /^forms\.\d+\.title$/.test(el.dataset.path)) { // a new form: key from its title
-    const old = obj.key;
-    obj.key = uniqueKey(value, draft.forms.filter(f => f !== obj).map(f => f.key));
-    for (const t of draft.phases.flatMap(p => p.tasks)) if (t.form === old) t.form = obj.key;
-    return;
-  }
+  // a new item's key follows its name until something refers to it; then it stays, so no reference breaks
+  if (fresh.has(obj) && obj.key && (prop === 'title' || prop === 'label') && referenced(obj.key)) fresh.delete(obj);
   if (fresh.has(obj) && obj.key && (prop === 'title' || prop === 'label')) {
-    const isStep = el.dataset.path.startsWith('phases.') || el.dataset.path.startsWith('rules.');
-    const list = isStep ? [...stepKeys(), ...ruleTaskKeys()] : (el.dataset.path.startsWith('roles.') ? draft.roles
-      : el.dataset.path.startsWith('fields.') ? draft.fields : el.dataset.path.startsWith('aggregates.') ? draft.aggregates : draft.document_types).map(x => x.key);
-    const old = obj.key;
-    obj.key = uniqueKey(value, list.filter(k => k !== old));
-    if (isStep) renameStep(old, obj.key);
+    const p = el.dataset.path, isStep = p.startsWith('phases.') || p.startsWith('rules.');
+    const list = isStep ? [...stepKeys(), ...ruleTaskKeys()] : (p.startsWith('roles.') ? draft.roles : p.startsWith('fields.') ? draft.fields
+      : p.startsWith('aggregates.') ? draft.aggregates : p.startsWith('forms.') ? draft.forms : draft.document_types).map(x => x.key);
+    obj.key = uniqueKey(value, list.filter(k => k !== obj.key));
   }
 };
 input.tplDays = el => { at(el.dataset.path).due_days = Math.max(0, Number(el.value) || 0); };
@@ -223,6 +213,9 @@ on.tplRemove = ({ path, i }) => {
   const users = [...new Set(steps.flatMap(t => rulesUsing(t.key)))];
   if (users.length && !confirm(`${path === 'phases' ? 'Schritte dieser Phase werden' : 'Der Schritt wird'} in ${users.map(r => `„${r.name}“`).join(', ')} verwendet.
 Trotzdem entfernen? Die Regel muss danach angepasst werden, sonst lässt sich die Vorlage nicht speichern.`)) return;
+  // roles, Angaben and document types: steps, rules and forms may still name them
+  if (['roles', 'fields', 'document_types'].includes(path) && referenced(item.key) && !confirm(`„${item.label || item.key}“ wird in der Vorlage noch verwendet
+(bei Schritten, in Regeln oder Formularen). Trotzdem entfernen? Die Stellen müssen danach angepasst werden, sonst lässt sich die Vorlage nicht speichern.`)) return;
   at(path).splice(Number(i), 1);
   // steps that waited for a removed step no longer do; steps that offered a removed form no longer do
   for (const key of path === 'phases' ? item.tasks.map(t => t.key) : [item.key]) {
