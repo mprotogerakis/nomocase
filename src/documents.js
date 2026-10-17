@@ -97,7 +97,7 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
   // no row points at the file if the batch fails (e.g. two uploads took the same version number): it must not stay behind
   await DB.batch(stmts).catch(async e => {
     await E.FILES.delete(key).catch(e2 => console.error('R2 delete failed (the daily sweep retries)', key, e2.message));
-    if (/UNIQUE/.test(e.message)) fail(409, 'Gerade kam eine andere Fassung dieses Dokuments an. Bitte noch einmal hochladen.');
+    if (/UNIQUE constraint failed: document_versions/.test(e.message)) fail(409, 'Gerade kam eine andere Fassung dieses Dokuments an. Bitte noch einmal hochladen.');
     throw e;
   });
   return { document_id: doc.id, version: n, ...(form && { form: { title: form.title, differs: check.differs, taken: taken.changed.map(x => x.label) } }) };

@@ -74,26 +74,35 @@ function claimStmts(ctx, user, { id = uid(), title, direction, amount, counterpa
 }
 
 // What follows from a decision (e.g. a review task for a cut) is up to the case's rules.
-function decisionStmts(ctx, user, c, approved, { day, note } = {}) {
+function decisionStmts(ctx, user, c, approved, { day, note, taskId = null } = {}) {
   return [
-    q('INSERT INTO financial_decisions (id, claim_id, approved_cents, decided_on, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      uid(), c.id, approved, dayOrToday(day), String(note ?? '').trim() || null, user.id, now()),
+    q('INSERT INTO financial_decisions (id, claim_id, approved_cents, decided_on, note, created_by, created_at, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      uid(), c.id, approved, dayOrToday(day), String(note ?? '').trim() || null, user.id, now(), taskId),
     ev(ctx.c.id, user.id, 'decision.added', { claim: c.title, claim_id: c.id, approved_cents: approved, amount_cents: c.amount_cents }, []),
   ];
 }
 
-function transactionStmts(ctx, user, c, amount, { day, note } = {}) {
+function transactionStmts(ctx, user, c, amount, { day, note, taskId = null } = {}) {
   return [
-    q('INSERT INTO financial_transactions (id, claim_id, amount_cents, booked_on, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      uid(), c.id, amount, dayOrToday(day), String(note ?? '').trim() || null, user.id, now()),
+    q('INSERT INTO financial_transactions (id, claim_id, amount_cents, booked_on, note, created_by, created_at, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      uid(), c.id, amount, dayOrToday(day), String(note ?? '').trim() || null, user.id, now(), taskId),
     ev(ctx.c.id, user.id, 'transaction.booked', { claim: c.title, claim_id: c.id, direction: c.direction, amount_cents: amount }, []),
   ];
 }
+
+// A money step books once (unique task_id on claims, decisions and payments, so also for simultaneous requests).
+export const BOOKED_ONCE = 'Für diese Aufgabe ist schon ein Betrag gebucht. Korrekturen bitte direkt bei der Forderung.';
 
 // The money step of a template task, done together with the task. Staff only; no amount = no booking.
 export async function moneyStmts(ctx, user, t, amount) {
   const m = t.money;
   if (!m || !ctx.def.finance || !ctx.staff) return [];
+  const booked = await row(`SELECT 1 FROM financial_claims WHERE task_id = ?1 UNION ALL SELECT 1 FROM financial_decisions WHERE task_id = ?1
+    UNION ALL SELECT 1 FROM financial_transactions WHERE task_id = ?1 LIMIT 1`, t.id);
+  if (booked) { // done again after reopening: fine without an amount, a second amount is refused
+    if (amount == null || amount === '') return [];
+    fail(409, BOOKED_ONCE);
+  }
   if (amount == null || amount === '') {
     if (m.claim) fail(400, `Bitte den Betrag angeben – daraus entsteht die Forderung „${m.claim}“.`);
     return [];
@@ -109,7 +118,7 @@ export async function moneyStmts(ctx, user, t, amount) {
   const c = (await row(`SELECT * FROM financial_claims WHERE case_id = ? AND task_id IS NOT NULL AND title = ?
     ORDER BY created_at DESC, rowid DESC LIMIT 1`, ctx.c.id, name))
     ?? fail(409, `Es gibt noch keine Forderung „${name}“ aus der Aufgabe davor. Bitte dort zuerst den Betrag eintragen – oder direkt bei der Forderung buchen.`);
-  return m.decision ? decisionStmts(ctx, user, c, cts) : transactionStmts(ctx, user, c, cts || fail(400, 'Betrag muss größer als 0 sein'));
+  return m.decision ? decisionStmts(ctx, user, c, cts, { taskId: t.id }) : transactionStmts(ctx, user, c, cts || fail(400, 'Betrag muss größer als 0 sein'), { taskId: t.id });
 }
 
 // Book the money step of a task afterwards (e.g. the task was done before the amount was known).

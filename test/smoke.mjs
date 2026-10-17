@@ -501,7 +501,15 @@ const twinTask = async title => (await expect(prof(`/cases/${twin}`))).tasks.fin
 await expect(prof(`/cases/${twin}/documents`, { form: file('Rechnung-Zwei.pdf', PDF, { task_id: await twinTask('Rechnung erfassen'), amount_cents: '20000' }) }));
 await expect(prof(`/cases/${twin}/claims`, { body: { title: 'Rechnung', direction: 'payable', amount_cents: 999 } }));
 await expect(prof(`/tasks/${await twinTask('Rechnung erfassen')}`, { method: 'DELETE' }));
-await expect(prof(`/tasks/${await twinTask('Rechnung bezahlen')}/action`, { body: { action: 'complete', amount_cents: 20000 } }));
+const pay = await twinTask('Rechnung bezahlen');
+await expect(prof(`/tasks/${pay}/action`, { body: { action: 'complete' } })); // the amount is added afterwards
+// A money step books once, also when two requests come at the same time; done again after reopening, it books nothing.
+const twice = await Promise.all([1, 2].map(() => prof(`/tasks/${pay}/money`, { body: { amount_cents: 20000 } })));
+assert.deepEqual(twice.map(r => r.status).sort(), [200, 409], JSON.stringify(twice.map(r => r.data)));
+await expect(prof(`/tasks/${pay}/action`, { body: { action: 'reopen' } }));
+await expect(prof(`/tasks/${pay}/action`, { body: { action: 'complete' } }));
+assert.match((await expect(prof(`/tasks/${pay}/action`, { body: { action: 'reopen' } })).then(() => prof(`/tasks/${pay}/action`, { body: { action: 'complete', amount_cents: 5 } }))
+  .then(r => r.data)).error, /schon ein Betrag gebucht/);
 assert.deepEqual((await expect(prof(`/cases/${twin}`))).finance.claims.filter(c => c.title === 'Rechnung').map(c => [c.amount_cents, c.settled_cents]),
   [[20000, 20000], [999, 0]]);
 await expect(prof(`/cases/${twin}`, { method: 'DELETE' }));
@@ -611,6 +619,27 @@ assert.ok(movedParent.events.some(e => e.type === 'case.moved' && e.payload.to =
 const { id: toMove } = await expect(prof(`/cases`, { body: { template_id: med.id, title: "Rechnung zum Verschieben" } }));
 assert.deepEqual((await expect(prof(`/cases/${toMove}/move`, { body: { workspace_id: 'ws_hs' } }))).missing_templates, ['Widerspruch'], 'sub-case template missing there');
 await expect(prof(`/cases/${toMove}`, { method: 'DELETE' }));
+
+// Guests see the phases of the steps they may see, and the current phase among those: the title of a phase with only
+// hidden steps (e.g. the examiners' "Bewertung") stays with the team.
+{
+  const { id: tpl } = await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Phasen ${run}`, definition: {
+    roles: [{ key: 'owner', label: 'Team', access: 'case_owner' }, { key: 'student', label: 'Studierende:r', access: 'guest_contributor' }],
+    phases: [{ title: 'Offen', tasks: [{ key: 'mine', title: 'Mein Schritt', type: 'task', role: 'student' }] },
+      { title: 'Intern', tasks: [{ key: 'secret', title: 'Interner Schritt', type: 'task', role: 'owner' }] }] } } }));
+  const { id } = await expect(prof('/cases', { body: { template_id: tpl, title: `Phasen ${run}` } }));
+  const { link: invite } = await expect(prof(`/cases/${id}/invitations`, { body: { email: `max.${run}@example.org`, role: 'student' } }));
+  await expect(student('/invitations/accept', { body: { consent: true, token: tokenOf(invite) } }));
+  let seen = await expect(student(`/cases/${id}`));
+  assert.deepEqual([seen.phases.map(p => p.title), seen.case.phase], [['Offen'], 'Offen']);
+  await expect(student(`/tasks/${seen.tasks[0].id}/action`, { body: { action: 'complete' } }));
+  seen = await expect(student(`/cases/${id}`));
+  assert.equal(seen.case.phase, null, 'not "Intern"');
+  assert.equal((await expect(student('/dashboard'))).cases.find(c => c.id === id).phase, null, 'nor on the dashboard');
+  assert.equal((await expect(prof(`/cases/${id}`))).case.phase, 'Intern', 'the team sees it');
+  await expect(prof(`/cases/${id}`, { method: 'DELETE' }));
+  await expect(prof(`/templates/${tpl}`, { method: 'DELETE' }));
+}
 
 // Uploads configured per step: kinds of files and several files – checked by the server, also through upload links.
 const filesDef = { roles: [{ key: 'owner', label: 'Team', access: 'case_owner' }], fields: [],

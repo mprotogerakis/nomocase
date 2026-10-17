@@ -67,6 +67,9 @@ export async function getCase({ user, params }) {
     q('SELECT email, role, access, access_until, expires_at, expires_at <= ? AS expired FROM invitations WHERE case_id = ? AND accepted_at IS NULL', now(), id),
   ])).map(r => r.results);
   markBlocked(tasks);
+  // Guests see the phases (and the current one) of the steps they may see: titles of the others tell too much.
+  const visibleTasks = tasks.filter(t => canSeeTask(ctx, t));
+  const visiblePhases = ctx.staff ? phases : phases.filter(p => visibleTasks.some(t => t.phase_id === p.id));
   const roleLabel = key => ctx.def.roles.find(r => r.key === key)?.label ?? key;
   // Guests may add versions only through a task, or on top of their own latest, non-final version:
   // otherwise a guest file could silently replace a signed or approved one.
@@ -79,7 +82,7 @@ export async function getCase({ user, params }) {
     stamp: String(events.at(-1)?.id ?? 0), // same value as caseStamp(), read in the same batch as the data
     case: {
       id, title: ctx.c.title, status: ctx.c.status, fields: ctx.staff ? JSON.parse(ctx.c.fields) : {}, created_at: ctx.c.created_at,
-      template_name: ctx.c.template_name, template_version: ctx.c.template_version, phase: currentPhase(phases, tasks),
+      template_name: ctx.c.template_name, template_version: ctx.c.template_version, phase: currentPhase(visiblePhases, visibleTasks),
       template_id: ctx.c.template_id, workspace_id: ctx.c.workspace_id, inbox: ctx.staff ? inboxAddress(ctx.c) : null,
       closed_at: ctx.c.closed_at, retention_days: ctx.def.retention_days ?? null,
       // who the case is waiting for (role labels only, no task titles of other roles)
@@ -89,8 +92,8 @@ export async function getCase({ user, params }) {
     definition: ctx.staff ? ctx.def : { roles: ctx.def.roles, document_types: ctx.def.document_types, scales: ctx.def.scales,
       forms: (ctx.def.forms ?? []).map(f => ({ key: f.key, title: f.title })) },
     me: { role: ctx.role, access: ctx.access, staff: ctx.staff, owner: ctx.owner, can_upload: ctx.access !== 'guest_viewer' },
-    phases,
-    tasks: tasks.filter(t => canSeeTask(ctx, t)),
+    phases: visiblePhases,
+    tasks: visibleTasks,
     documents: visibleDocs.map(d => {
       const vs = versions.filter(v => v.document_id === d.id);
       return { ...d, visible_to: arr(d.visible_to), can_version: canVersion(d, vs),
@@ -102,9 +105,11 @@ export async function getCase({ user, params }) {
     invitations: ctx.owner ? invites : [],
     finance: ctx.staff ? financeSummary(await loadFinance([id])) : null, // guests never see money
     parent: ctx.c.parent_case_id ? await row(`SELECT c.id, c.title FROM cases c WHERE c.id = ?1 AND ${ACCESSIBLE}`, ctx.c.parent_case_id, user.id, now()) : null,
-    subcases: await rows(`SELECT c.id, c.title, c.status, t.name AS template,
+    // the phase of a subcase only for the team (it is computed from all its steps)
+    subcases: (await rows(`SELECT c.id, c.title, c.status, t.name AS template,
         (SELECT ph.title FROM phases ph WHERE ph.case_id = c.id AND EXISTS (SELECT 1 FROM tasks k WHERE k.phase_id = ph.id AND k.status = 'open') ORDER BY ph.position LIMIT 1) AS phase
-      FROM cases c LEFT JOIN templates t ON t.id = c.template_id WHERE c.parent_case_id = ?1 AND ${ACCESSIBLE} ORDER BY c.created_at`, id, user.id, now()),
+      FROM cases c LEFT JOIN templates t ON t.id = c.template_id WHERE c.parent_case_id = ?1 AND ${ACCESSIBLE} ORDER BY c.created_at`, id, user.id, now()))
+      .map(s => (ctx.staff ? s : { ...s, phase: null })),
     templates: ctx.owner ? await rows('SELECT id, name FROM templates WHERE workspace_id = ? AND archived_at IS NULL ORDER BY name', ctx.c.workspace_id) : [],
     upload_links: ctx.staff ? await rows(`SELECT task_id, label, expires_at, single_use FROM upload_links
       WHERE case_id = ? AND revoked_at IS NULL AND expires_at > ? AND (single_use = 0 OR used_at IS NULL)`, id, now()) : [],
@@ -294,7 +299,7 @@ export async function dashboard({ user }) {
     const ctx = { user, role: c.role, staff: c.staff };
     const all = tasks.filter(t => t.case_id === c.id);
     const open = c.status === 'closed' ? [] : all.filter(t => t.status === 'open' && canSeeTask(ctx, t)); // closed: nothing left to do
-    c.phase = currentPhase(phases.filter(p => p.case_id === c.id), all);
+    c.phase = currentPhase(phases.filter(p => p.case_id === c.id), all.filter(t => canSeeTask(ctx, t))); // a guest: of the steps they see
     c.next_due = open.map(t => t.due_date).filter(Boolean).sort()[0] ?? null;
     c.open_tasks = open.length;
     c.open_receivable_cents = openReceivable(claims.filter(x => x.case_id === c.id));

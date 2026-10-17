@@ -5,7 +5,7 @@ import { deletePasskey, devLogin, giveConsent, legalInfo, listPasskeys, loadUser
 import { addTemplateVersion, createTemplate, deleteTemplate, listTemplates, restoreTemplate, saveAsTemplate } from './templates.js';
 import { addComment, addPhase, addSubcase, applyRetention, createCase, dashboard, deleteCase, getCase, getChanges, moveCase, updateCase, updateFields } from './cases.js';
 import { addTask, deleteTask, taskAction, updateTask } from './tasks.js';
-import { addClaim, addDecision, addTransaction, reverseTransaction, taskMoney } from './finance.js';
+import { addClaim, addDecision, addTransaction, BOOKED_ONCE, reverseTransaction, taskMoney } from './finance.js';
 import { processRules, toggleRule } from './rules.js';
 import { createUploadLink, deleteVersion, download, getUploadLink, revokeUploadLinks, sweepOrphanFiles, updateDocument, upload, useUploadLink } from './documents.js';
 import { acceptInvitation, declineInvitation, getInvitation, invite, peopleOverview, revoke, withdrawInvitation } from './people.js';
@@ -132,6 +132,7 @@ export default {
       return res instanceof Response ? res : json(res ?? { ok: true });
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, e.status);
+      if (/UNIQUE constraint failed: financial_/.test(e.message)) return json({ error: BOOKED_ONCE }, 409); // a step booked twice at once
       console.error(e);
       return json({ error: 'Interner Fehler' }, 500);
     }

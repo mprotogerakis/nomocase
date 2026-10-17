@@ -38,7 +38,22 @@ template('a3', 'w1', 'Antrag', 2); // same version, newest: the tie goes to it
 template('b1', 'w1', 'Bericht', 3, '2026-01-01'); // archived …
 template('b2', 'w1', 'Bericht', 1); // … and an active one: fine
 template('c1', 'w2', 'Antrag', 1); // another workspace: fine
+
+// Before 0039: a step done, reopened and done again made a second claim with its task_id.
+const stepClaim = (id, taskId) => db.prepare(`INSERT INTO financial_claims (id, case_id, title, direction, amount_cents, created_by, created_at, task_id)
+  VALUES (?, 'c3', 'Rechnung', 'payable', 100, 'u', '2026-01-04', ?)`).run(id, taskId);
+stepClaim('k5', 't9');
+stepClaim('k6', 't9');
 applyUpTo('9999');
+assert.deepEqual(all("SELECT id, task_id FROM financial_claims WHERE case_id = 'c3' ORDER BY id"), [{ id: 'k5', task_id: 't9' }, { id: 'k6', task_id: null }],
+  'the first claim stays the step\'s, the later one becomes a claim of its own');
+assert.throws(() => stepClaim('k7', 't9'), /UNIQUE/, 'a step books once from now on');
+for (const table of ['financial_decisions', 'financial_transactions']) {
+  const book = id => db.prepare(`INSERT INTO ${table} (id, claim_id, ${table === 'financial_decisions' ? 'approved_cents, decided_on' : 'amount_cents, booked_on'}, created_by, created_at, task_id)
+    VALUES (?, 'k5', 1, '2026-01-05', 'u', '2026-01-05', 't8')`).run(id);
+  book(`${table}-1`);
+  assert.throws(() => book(`${table}-2`), /UNIQUE/, `${table}: one per step`);
+}
 const state = Object.fromEntries(all('SELECT id, name, archived_at FROM templates').map(t => [t.id, `${t.name}${t.archived_at ? ' (archiviert)' : ''}`]));
 assert.deepEqual(state, { a0: 'Antrag (3)', a1: 'Antrag (archiviert)', a2: 'Antrag (archiviert)', a3: 'Antrag', b1: 'Bericht (archiviert)', b2: 'Bericht', c1: 'Antrag' },
   'nothing renamed; of one name the template a rule picked stays active, the others are archived');
