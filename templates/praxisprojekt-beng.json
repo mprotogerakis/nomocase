@@ -35,6 +35,10 @@
         "label": "Matrikelnummer"
       },
       {
+        "key": "programme",
+        "label": "Studiengang (z. B. B. Eng. Elektrotechnik)"
+      },
+      {
         "key": "company_name",
         "label": "Unternehmen/Institution"
       },
@@ -48,7 +52,7 @@
       },
       {
         "key": "po",
-        "label": "Prüfungsordnung"
+        "label": "Prüfungsordnung (PO-Version)"
       },
       {
         "key": "start",
@@ -73,7 +77,7 @@
       },
       {
         "key": "laufzettel",
-        "label": "Laufzettel (Antrag auf Praxisprojekt)",
+        "label": "Antrag auf Zulassung zur Praxisphase",
         "visible_to": [
           "student",
           "company",
@@ -105,7 +109,7 @@
       },
       {
         "key": "result",
-        "label": "Laufzettel mit Bewertung",
+        "label": "Bewertung der Praxisphase",
         "visible_to": [
           "office"
         ]
@@ -120,7 +124,7 @@
             "title": "Thema, Unternehmen und Zweitprüfer:in klären",
             "type": "task",
             "role": "student",
-            "description": "Welches Thema? Welche:r Dozent:in betreut es? Welches Unternehmen hat Interesse? Ihre Ansprechperson im Unternehmen wird Zweitprüfer:in. Fragen an praxisprojekt.ei@hs-duesseldorf.de"
+            "description": "Welches Thema? Welche:r Dozent:in betreut es? Welches Unternehmen hat Interesse? Ihre Ansprechperson im Unternehmen wird Zweitprüfer:in. Fragen an den Prüfungssupport: pruefung.ei@hs-duesseldorf.de"
           },
           {
             "key": "expose",
@@ -152,18 +156,19 @@
         "tasks": [
           {
             "key": "form",
-            "title": "Laufzettel ausfüllen und unterschreiben",
+            "title": "Antrag auf Zulassung ausfüllen und unterschreiben",
             "type": "upload",
             "role": "student",
             "doc_type": "laufzettel",
             "after": [
               "expose_review"
             ],
-            "description": "Antrag auf Praxisprojekt maschinell ausfüllen (Name, Matrikel-Nr., Unternehmen, Projekttitel, Erst- und Zweitprüfer:in), unterschreiben und als PDF hochladen. Formular: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Antrag_Praxisprojekt_221025.pdf"
+            "description": "NomoCase erzeugt den Antrag vorausgefüllt („Formular … herunterladen“). In einem PDF-Reader wie Adobe Acrobat ergänzen (Studiengang, PO-Version, bisherige Versuche), digital unterschreiben und hier hochladen; die Prüfer:innen unterschreiben danach in derselben Datei. Das offizielle Formular des Fachbereichs (Stand 08.09.2026) geht weiterhin: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/FB%20EI_Antrag_Praxisphase_080926.pdf – Das Thema wird genau so ins Zeugnis übernommen.",
+            "form": "zulassung"
           },
           {
             "key": "sign_company",
-            "title": "Laufzettel unterschreiben (Zweitprüfer:in)",
+            "title": "Antrag unterschreiben (Zweitprüfer:in)",
             "type": "signature",
             "role": "company",
             "doc_type": "laufzettel",
@@ -173,11 +178,11 @@
             "visible_to": [
               "student"
             ],
-            "description": "Mit Ihrer Unterschrift bestätigen Sie, dass Sie das Praxisprojekt als Prüfer:in betreuen und mindestens den entsprechenden Abschluss oder eine gleichwertige Qualifikation haben (§ 9 Abs. 2–3 RahmenPO EI). Unterschriebene PDF hochladen."
+            "description": "Mit Ihrer Unterschrift bestätigen Sie, dass Sie das Praxisprojekt als Prüfer:in betreuen und mindestens den entsprechenden Abschluss oder eine gleichwertige Qualifikation haben (§ 9 Abs. 2–3 RahmenPO EI). Unterschriebene PDF hochladen. Bei externer Betreuung darf ausnahmsweise die/der Erstprüfer:in im Auftrag unterschreiben und bestätigt damit Ihre Qualifikation."
           },
           {
             "key": "sign_supervisor",
-            "title": "Laufzettel unterschreiben (Erstprüfer:in)",
+            "title": "Antrag unterschreiben (Erstprüfer:in)",
             "type": "signature",
             "role": "supervisor",
             "doc_type": "laufzettel",
@@ -192,12 +197,13 @@
           },
           {
             "key": "copy",
-            "title": "Kopie des Laufzettels an praxisprojekt.ei@hs-duesseldorf.de senden",
+            "title": "Antrag an pruefung.ei@hs-duesseldorf.de senden",
             "type": "submission",
             "role": "student",
             "after": [
               "sign_supervisor"
-            ]
+            ],
+            "description": "Den vollständig unterschriebenen Antrag umgehend an pruefung.ei@hs-duesseldorf.de senden. Das Studienbüro prüft die Voraussetzungen, die/der Prüfungsausschussvorsitzende lässt zu; das dauert je nach Aufkommen 2–3 Wochen. Danach steht die Anmeldung im eCampus und es kommt eine Bestätigung per E-Mail (FAQ Praxisphase, Stand 01.09.2026)."
           }
         ]
       },
@@ -302,7 +308,7 @@
           },
           {
             "key": "result",
-            "title": "Laufzettel mit Bewertung ans Studienbüro senden",
+            "title": "Bewertung ans Studienbüro senden",
             "type": "submission",
             "role": "supervisor",
             "doc_type": "result",
@@ -314,7 +320,8 @@
               "student",
               "office"
             ],
-            "description": "Auf dem Laufzettel ankreuzen: Vortrag gehalten, Ausarbeitung abgegeben, bestanden; beide Prüfer:innen unterschreiben. Zeitnah ans Studienbüro."
+            "description": "NomoCase erzeugt die Bewertung (Seite 2 des Antrags) vorausgefüllt: ankreuzen, ob der Vortrag gehalten, die Ausarbeitung abgegeben und die Praxisphase bestanden wurde; beide Prüfer:innen unterschreiben. Zeitnah ans Studienbüro. Ist das Ergebnis gemeldet, aber noch nicht verbucht, kann die/der Studierende die Thesis schon anmelden – mit einem Hinweis darauf in der Begleitmail (FAQ Praxisphase).",
+            "form": "bewertung"
           }
         ]
       },
@@ -355,7 +362,7 @@
             "visible_to": [
               "*"
             ],
-            "text": "Der Laufzettel ist vollständig unterschrieben: Das Praxisprojekt startet heute ({date}). Die Bearbeitungszeit beträgt mindestens 8 Wochen, die Ausarbeitung kann also frühestens am {date+56} eingereicht werden. Bitte jetzt eine Kopie des Laufzettels an praxisprojekt.ei@hs-duesseldorf.de senden."
+            "text": "Der Antrag ist vollständig unterschrieben: Das Praxisprojekt startet heute ({date}). Die Bearbeitungszeit beträgt mindestens 8 Wochen, die Ausarbeitung kann also frühestens am {date+56} eingereicht werden. Bitte den Antrag jetzt an pruefung.ei@hs-duesseldorf.de senden; die Zulassung durch den Prüfungsausschuss dauert 2–3 Wochen."
           }
         ]
       },
@@ -425,6 +432,219 @@
               "student"
             ],
             "text": "Ihr Praxisprojekt ist verbucht. Herzlichen Glückwunsch!"
+          }
+        ]
+      }
+    ],
+    "forms": [
+      {
+        "key": "zulassung",
+        "title": "Antrag auf Zulassung zur Praxisphase",
+        "subtitle": "Von beiden Prüfer/innen unterschrieben an pruefung.ei@hs-duesseldorf.de senden. Über die Zulassung entscheidet die/der Prüfungsausschussvorsitzende.",
+        "items": [
+          {
+            "heading": "Persönliche Angaben"
+          },
+          {
+            "label": "Name, Vorname",
+            "value": "{field.student}",
+            "half": true
+          },
+          {
+            "label": "Matrikelnummer",
+            "value": "{field.matrikel}",
+            "half": true
+          },
+          {
+            "label": "Studiengang",
+            "value": "{field.programme}",
+            "half": true
+          },
+          {
+            "label": "PO-Version",
+            "value": "{field.po}",
+            "half": true
+          },
+          {
+            "label": "E-Mail-Adresse",
+            "value": "{role.student.email}"
+          },
+          {
+            "heading": "Thema der Praxisphase"
+          },
+          {
+            "label": "Thema – wird in dieser Fassung ins Zeugnis übernommen",
+            "value": "{field.project_title}",
+            "lines": 3
+          },
+          {
+            "heading": "Erklärung der/des Studierenden"
+          },
+          {
+            "label": "Bisherige Versuche der Praxisphase",
+            "value": "0",
+            "half": true
+          },
+          {
+            "text": "Hiermit versichere ich, dass ich die in der für mich gültigen Prüfungsordnung genannten Voraussetzungen zur Anmeldung der Praxisphase erfülle. Ich versichere, die vorstehenden Angaben vollständig und wahrheitsgemäß gemacht zu haben, und bitte um Zulassung zur Praxisphase."
+          },
+          {
+            "sign": "Unterschrift der/des Studierenden",
+            "name": "{field.student}",
+            "place": "Düsseldorf"
+          },
+          {
+            "heading": "Prüfer/innen"
+          },
+          {
+            "label": "Erstprüfer/in – Professor/in des Fachbereichs EI",
+            "value": "{role.supervisor}"
+          },
+          {
+            "text": "Mit meiner Unterschrift bestätige ich, dass ich die o. g. Praxisphase als Erstprüfer/in betreue."
+          },
+          {
+            "sign": "Unterschrift Erstprüfer/in",
+            "name": "{role.supervisor}",
+            "place": "Düsseldorf"
+          },
+          {
+            "label": "Zweitprüfer/in – mit vollständigem Titel",
+            "value": "{field.second_examiner}"
+          },
+          {
+            "text": "Mit meiner Unterschrift bestätige ich, dass ich die o. g. Praxisphase als Zweitprüfer/in betreue. Bei externer Betreuung darf ausnahmsweise die/der Erstprüfer/in im Auftrag unterschreiben und bestätigt damit zugleich, dass die/der Zweitprüfer/in die zur Bewertung erforderliche Qualifikation hat."
+          },
+          {
+            "sign": "Unterschrift Zweitprüfer/in",
+            "name": "{field.second_examiner}",
+            "place": "Düsseldorf"
+          },
+          {
+            "heading": "Externe Durchführung",
+            "hint": "Nur in einer Firma oder an einem Institut"
+          },
+          {
+            "label": "Name der Firma / des Instituts",
+            "value": "{field.company_name}"
+          },
+          {
+            "label": "Kontaktdaten der/des Betreuer/in",
+            "lines": 2
+          },
+          {
+            "heading": "Zulassung",
+            "hint": "Von der Hochschule auszufüllen"
+          },
+          {
+            "label": "Die vorstehenden Angaben werden bestätigt.",
+            "check": true
+          },
+          {
+            "sign": "Unterschrift Studienbüro"
+          },
+          {
+            "label": "Zur Praxisphase zugelassen",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Nicht zugelassen",
+            "check": true,
+            "half": true
+          },
+          {
+            "sign": "Unterschrift Prüfungsausschussvorsitzende/r"
+          }
+        ]
+      },
+      {
+        "key": "bewertung",
+        "title": "Bewertung der Praxisphase",
+        "subtitle": "Von beiden Prüfer/innen unterschrieben zeitnah an das Studienbüro.",
+        "items": [
+          {
+            "heading": "Persönliche Angaben"
+          },
+          {
+            "label": "Name, Vorname",
+            "value": "{field.student}",
+            "half": true
+          },
+          {
+            "label": "Matrikelnummer",
+            "value": "{field.matrikel}",
+            "half": true
+          },
+          {
+            "label": "Studiengang",
+            "value": "{field.programme}",
+            "half": true
+          },
+          {
+            "label": "PO-Version",
+            "value": "{field.po}",
+            "half": true
+          },
+          {
+            "label": "Thema der Praxisphase",
+            "value": "{field.project_title}",
+            "lines": 2
+          },
+          {
+            "heading": "Ergebnis",
+            "hint": "Jeweils ja oder nein ankreuzen"
+          },
+          {
+            "label": "Der Vortrag wurde gehalten: ja",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Der Vortrag wurde gehalten: nein",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Die Ausarbeitung wurde abgegeben: ja",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Die Ausarbeitung wurde abgegeben: nein",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Die Praxisphase wurde bestanden: ja",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Die Praxisphase wurde bestanden: nein",
+            "check": true,
+            "half": true
+          },
+          {
+            "heading": "Prüfer/innen"
+          },
+          {
+            "label": "Erstprüfer/in",
+            "value": "{role.supervisor}"
+          },
+          {
+            "sign": "Unterschrift Erstprüfer/in",
+            "name": "{role.supervisor}",
+            "place": "Düsseldorf"
+          },
+          {
+            "label": "Zweitprüfer/in",
+            "value": "{field.second_examiner}"
+          },
+          {
+            "sign": "Unterschrift Zweitprüfer/in",
+            "name": "{field.second_examiner}",
+            "place": "Düsseldorf"
           }
         ]
       }

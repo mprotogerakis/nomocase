@@ -169,7 +169,8 @@
             "after": [
               "expose_review"
             ],
-            "description": "Formular „Anmeldung zum Projekt (M. Sc.)“, Seite 1, maschinell ausfüllen: Name, Matrikel-Nr., Vertiefungsrichtung, Thema, Erst- und Zweitprüfer:in (mit Titel), bei externer Durchführung Unternehmen/Institut mit Anschrift und Kontaktdaten. Bestätigung ankreuzen, unterschreiben und als PDF hochladen. Formular: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/Master%20Projekt.pdf"
+            "description": "NomoCase erzeugt die Anmeldung vorausgefüllt („Formular … herunterladen“). In einem PDF-Reader wie Adobe Acrobat ergänzen (bei externer Durchführung Anschrift und Kontaktdaten), die Bestätigung ankreuzen, digital unterschreiben und hier hochladen; die Prüfer:innen unterschreiben danach in derselben Datei. Das offizielle Formular des Fachbereichs geht weiterhin: https://ei.hs-duesseldorf.de/studium/pruefungsangelegenheiten/formulare/Documents/Master%20Projekt.pdf",
+            "form": "anmeldung"
           },
           {
             "key": "sign_second",
@@ -329,7 +330,8 @@
             "visible_to": [
               "second"
             ],
-            "description": "Formular Seite 2 „Bewertung zum Projekt (M. Sc.)“: „bestanden mit der Note …“ oder „nicht bestanden“ ankreuzen, Datum, unterschreiben, als PDF hochladen."
+            "description": "NomoCase erzeugt den Bewertungsbogen (Seite 2) vorausgefüllt, mit der Modulnote, sobald sie unter Angaben steht. „bestanden mit der Note …“ oder „nicht bestanden“ ankreuzen, digital unterschreiben und hochladen. Eine im Bogen eingetragene Note übernimmt NomoCase beim Hochladen in die noch leere Angabe.",
+            "form": "bewertung"
           },
           {
             "key": "grade_sign",
@@ -500,6 +502,145 @@
         "fail_value": 5.0,
         "field": "grade",
         "note": "Mittel der Einzelnoten, nur die erste Nachkommastelle zählt (§ 19 Abs. 4 und 6 RahmenPO EI)"
+      }
+    ],
+    "forms": [
+      {
+        "key": "anmeldung",
+        "title": "Anmeldung zum Projekt (M. Sc.)",
+        "subtitle": "Nur diese Seite, von beiden Prüfer/innen unterschrieben, an praxisprojekt.ei@hs-duesseldorf.de senden.",
+        "items": [
+          {
+            "heading": "Persönliche Angaben"
+          },
+          {
+            "label": "Name, Vorname",
+            "value": "{field.student}",
+            "half": true
+          },
+          {
+            "label": "Matrikelnummer",
+            "value": "{field.matrikel}",
+            "half": true
+          },
+          {
+            "label": "Vertiefungsrichtung",
+            "value": "{field.track}"
+          },
+          {
+            "label": "Thema des Projekts",
+            "value": "{field.project_title}",
+            "lines": 3
+          },
+          {
+            "label": "Ich bestätige, dass ich die in der Prüfungsordnung verankerten Regelungen zur Anmeldung und Durchführung des Projekts gelesen und verstanden habe.",
+            "check": true
+          },
+          {
+            "sign": "Unterschrift der/des Studierenden",
+            "name": "{field.student}",
+            "place": "Düsseldorf"
+          },
+          {
+            "heading": "Betreuer/innen",
+            "hint": "Mit Titel"
+          },
+          {
+            "label": "Erstprüfer/in",
+            "value": "{role.supervisor}"
+          },
+          {
+            "label": "Zweitprüfer/in",
+            "value": "{field.second_examiner}"
+          },
+          {
+            "heading": "Externe Durchführung",
+            "hint": "Nur in einem Unternehmen oder Institut"
+          },
+          {
+            "label": "Name des Unternehmens oder des Instituts",
+            "value": "{field.company_name}"
+          },
+          {
+            "label": "Anschrift und Kontaktdaten",
+            "lines": 2
+          },
+          {
+            "text": "Mit meiner Unterschrift bestätige ich, dass ich das o. g. Projekt als Prüfer/in betreue und die Qualifikation als Prüfer/in nach § 9 Abs. 2–3 RahmenPO EI besitze."
+          },
+          {
+            "sign": "Unterschrift Erstprüfer/in",
+            "name": "{role.supervisor}",
+            "place": "Düsseldorf"
+          },
+          {
+            "sign": "Unterschrift Zweitprüfer/in",
+            "name": "{field.second_examiner}",
+            "place": "Düsseldorf"
+          }
+        ]
+      },
+      {
+        "key": "bewertung",
+        "title": "Bewertung zum Projekt (M. Sc.)",
+        "subtitle": "Von beiden Prüfer/innen unterschrieben an das Studienbüro.",
+        "items": [
+          {
+            "heading": "Persönliche Angaben"
+          },
+          {
+            "label": "Name, Vorname",
+            "value": "{field.student}",
+            "half": true
+          },
+          {
+            "label": "Matrikelnummer",
+            "value": "{field.matrikel}",
+            "half": true
+          },
+          {
+            "label": "Vertiefungsrichtung",
+            "value": "{field.track}"
+          },
+          {
+            "label": "Thema des Projekts",
+            "value": "{field.project_title}",
+            "lines": 2
+          },
+          {
+            "heading": "Ergebnis"
+          },
+          {
+            "label": "Das Projekt wurde bestanden",
+            "check": true,
+            "half": true
+          },
+          {
+            "label": "Note",
+            "value": "{field.grade}",
+            "half": true
+          },
+          {
+            "label": "Das Projekt wurde nicht bestanden",
+            "check": true
+          },
+          {
+            "text": "Weichen die Noten der Prüfer/innen voneinander ab, ist die Note das arithmetische Mittel; nur die erste Nachkommastelle zählt (§ 19 Abs. 4 und 6 RahmenPO EI)."
+          },
+          {
+            "heading": "Prüfer/innen"
+          },
+          {
+            "sign": "Unterschrift Erstprüfer/in",
+            "name": "{role.supervisor}",
+            "place": "Düsseldorf"
+          },
+          {
+            "sign": "Unterschrift Zweitprüfer/in",
+            "name": "{field.second_examiner}",
+            "place": "Düsseldorf"
+          }
+        ]
       }
     ]
   }

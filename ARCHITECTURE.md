@@ -128,7 +128,9 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   Vorschau auf der Vorlagenseite (Bachelor- und Master-Thesis: Zulassung, Verlängerung, Notenmitteilung)
 - [x] Hochgeladene Formulare zurücklesen: an den Feldnamen erkannt, Abweichungen von den Angaben als Warnung (Ereignis
   `form.mismatch`, auch Regel-Auslöser), leere Angaben aus Team-Uploads direkt übernommen, von außen per Knopf
-- [ ] Formulare auch für Praxisprojekt und Masterprojekt
+- [x] Formulare auch für Praxisprojekt und Masterprojekt: neuer „Antrag auf Zulassung zur Praxisphase“ (08.09.2026) mit
+  Bewertung als Seite 2, Ablauf nach der FAQ Praxisphase (01.09.2026: Antrag an pruefung.ei@, Zulassung durch den
+  Prüfungsausschuss); Masterprojekt: Anmeldung und Bewertung zum Projekt, die Note wird beim Hochladen gelesen
 - [x] Sicherheitsprüfung vor der Veröffentlichung: Signaturketten nur über echte CAs, Parser gegen präparierte Dateien,
   keine Einladungslinks an Einladende, Mail-Limit je Person, CSP und Header, Origin-Pflicht, `__Host-`-Cookie
 - [x] Tokens aus URL-Pfaden in den Request-Body (Einladung, Upload-Link): Pfade landen in den Worker-Logs

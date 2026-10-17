@@ -55,11 +55,16 @@ await upload(student, 'Exposé hochladen', 'Expose-v2.pdf');
 await act(prof, 'Exposé prüfen', { action: 'approve' });
 
 // 2. Laufzettel: student, second examiner, first examiner. The last signature starts the project.
-await upload(student, 'Laufzettel ausfüllen und unterschreiben', 'Laufzettel.pdf');
-await expect(student(`/tasks/${await taskId(student, 'Laufzettel unterschreiben (Zweitprüfer:in)')}/action`, { body: { action: 'complete' } }), 403); // visible, not theirs
-await upload(company, 'Laufzettel unterschreiben (Zweitprüfer:in)', 'Laufzettel-Zweitpruefer.pdf');
+// The faculty's application comes prefilled from the case (template form "zulassung"), the student signs first.
+const antrag = await expect(student(`/tasks/${await taskId(student, 'Antrag auf Zulassung ausfüllen und unterschreiben')}/form`));
+assert.equal(antrag.title, 'Antrag auf Zulassung zur Praxisphase');
+assert.deepEqual(['Name, Vorname', 'Matrikelnummer', 'Name der Firma / des Instituts'].map(l => antrag.items.find(it => it.label === l).value),
+  [fields.student, '1000002', fields.company_name], 'current values (the Matrikelnummer was corrected above)');
+await upload(student, 'Antrag auf Zulassung ausfüllen und unterschreiben', 'Laufzettel.pdf');
+await expect(student(`/tasks/${await taskId(student, 'Antrag unterschreiben (Zweitprüfer:in)')}/action`, { body: { action: 'complete' } }), 403); // visible, not theirs
+await upload(company, 'Antrag unterschreiben (Zweitprüfer:in)', 'Laufzettel-Zweitpruefer.pdf');
 // Rules refer to steps by key: renaming the step must not switch the rule off.
-await expect(prof(`/tasks/${await taskId(prof, 'Laufzettel unterschreiben (Erstprüfer:in)')}`, { method: 'PATCH', body: { title: 'Laufzettel gegenzeichnen' } }));
+await expect(prof(`/tasks/${await taskId(prof, 'Antrag unterschreiben (Erstprüfer:in)')}`, { method: 'PATCH', body: { title: 'Laufzettel gegenzeichnen' } }));
 await upload(prof, 'Laufzettel gegenzeichnen', 'Laufzettel-unterschrieben.pdf');
 let s = await view(student);
 assert.ok(ruleSaid(s, 'Projektstart mitteilen')?.payload.body.includes(inDays(56)), 'student learns the earliest submission date');
@@ -68,7 +73,7 @@ assert.equal(s.documents.find(d => d.doc_type === 'laufzettel').versions.length,
 assert.deepEqual((await view(office)).documents.map(d => d.doc_type), ['laufzettel'], 'Studienbüro sees the Laufzettel only');
 
 // 3. Work and submission; OSSC registration tells everyone the earliest presentation date.
-await act(student, 'Kopie des Laufzettels an praxisprojekt.ei@hs-duesseldorf.de senden');
+await act(student, 'Antrag an pruefung.ei@hs-duesseldorf.de senden');
 await act(student, 'Praxisprojekt durchführen (mindestens 8 Wochen)');
 await upload(student, 'Ausarbeitung bei den Prüfer:innen einreichen', 'Ausarbeitung.pdf');
 await upload(student, 'Im OSSC zur Prüfung anmelden', 'OSSC.pdf');
@@ -83,7 +88,7 @@ await act(company, 'Bewerten (Zweitprüfer:in)', { action: 'approve' });
 await act(prof, 'Bewerten (Erstprüfer:in)', { action: 'approve' });
 c = await view(prof);
 assert.ok(c.events.some(e => e.type === 'task.approve' && e.payload.verdict === 'Bestanden'));
-await expect(prof(`/cases/${id}/documents`, { form: file('Laufzettel-Bewertung.pdf', PDF, { task_id: c.tasks.find(t => t.title === 'Laufzettel mit Bewertung ans Studienbüro senden').id }) }));
+await expect(prof(`/cases/${id}/documents`, { form: file('Laufzettel-Bewertung.pdf', PDF, { task_id: c.tasks.find(t => t.title === 'Bewertung ans Studienbüro senden').id }) }));
 assert.ok((await view(office)).documents.some(d => d.doc_type === 'result'), 'Studienbüro gets the graded Laufzettel');
 assert.ok(!(await view(student)).documents.some(d => d.doc_type === 'result'));
 
@@ -95,13 +100,13 @@ assert.equal(s.case.phase, null, 'all steps done');
 
 // "Nicht bestanden" records a result, does not block the report, and creates a follow-up talk (rule).
 const { id: failed } = await expect(prof('/cases', { body: { template_id: tpl.id, title: 'Praxisprojekt Nicht bestanden', fields } }));
-for (const t of (await view(prof, failed)).tasks.filter(t => !['Bewerten (Erstprüfer:in)', 'Bewerten (Zweitprüfer:in)', 'Laufzettel mit Bewertung ans Studienbüro senden', 'Verbuchung durch das Studienbüro'].includes(t.title))) {
+for (const t of (await view(prof, failed)).tasks.filter(t => !['Bewerten (Erstprüfer:in)', 'Bewerten (Zweitprüfer:in)', 'Bewertung ans Studienbüro senden', 'Verbuchung durch das Studienbüro'].includes(t.title))) {
   await expect(prof(`/tasks/${t.id}/action`, { body: { action: 'skip' } }));
 }
 await act(prof, 'Bewerten (Erstprüfer:in)', { action: 'reject', note: 'Präsentation nicht ausreichend.' }, failed);
 await act(prof, 'Bewerten (Zweitprüfer:in)', { action: 'approve' }, failed);
 c = await view(prof, failed);
-assert.equal(c.tasks.find(t => t.title === 'Laufzettel mit Bewertung ans Studienbüro senden').blocked, false, 'a failed grade still gets reported');
+assert.equal(c.tasks.find(t => t.title === 'Bewertung ans Studienbüro senden').blocked, false, 'a failed grade still gets reported');
 assert.ok(c.tasks.some(t => t.title === 'Gespräch zum Ergebnis führen' && t.visible_to.includes('student')));
 assert.ok(c.events.some(e => e.type === 'task.reject' && e.payload.verdict === 'Nicht bestanden'));
 
