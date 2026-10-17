@@ -34,14 +34,15 @@ export async function addSubcase({ user, params, body }) {
 // Change stamp for live updates: moves whenever something in the case, or in the set of cases the user sees, changes.
 // Every case-relevant write appends an event; the case count covers deletions and ended access. Only events the user
 // may see count (the rule of canSee), so a guest cannot tell from the stamp that something hidden happened.
-const SEES_EVENT = `(e.actor_id = ?2 OR EXISTS (SELECT 1 FROM workspace_members m WHERE m.workspace_id = c.workspace_id AND m.user_id = ?2 AND m.role = 'owner')
-  OR EXISTS (SELECT 1 FROM case_participants p WHERE p.case_id = c.id AND p.user_id = ?2 AND p.revoked_at IS NULL
+// `u`: the placeholder of the user's id in the query it goes into
+const seesEvent = u => `(e.actor_id = ${u} OR EXISTS (SELECT 1 FROM workspace_members m WHERE m.workspace_id = c.workspace_id AND m.user_id = ${u} AND m.role = 'owner')
+  OR EXISTS (SELECT 1 FROM case_participants p WHERE p.case_id = c.id AND p.user_id = ${u} AND p.revoked_at IS NULL
     AND (p.access IN ('case_owner', 'case_editor') OR EXISTS (SELECT 1 FROM json_each(e.visible_to) j WHERE j.value IN ('*', p.role)))))`;
 const caseStamp = async (caseId, user) => String((await row(`SELECT MAX(e.id) AS v FROM events e JOIN cases c ON c.id = e.case_id
-  WHERE e.case_id = ?1 AND ${SEES_EVENT}`, caseId, user.id)).v ?? 0);
+  WHERE e.case_id = ?1 AND ${seesEvent('?2')}`, caseId, user.id)).v ?? 0);
 
 const dashboardStamp = async user => {
-  const r = await row(`SELECT COUNT(*) AS n, MAX((SELECT MAX(e.id) FROM events e WHERE e.case_id = c.id AND ${SEES_EVENT})) AS v
+  const r = await row(`SELECT COUNT(*) AS n, MAX((SELECT MAX(e.id) FROM events e WHERE e.case_id = c.id AND ${seesEvent('?2')})) AS v
     FROM cases c WHERE ${ACCESSIBLE}`, null, user.id, now());
   return `${r.n}:${r.v ?? 0}`;
 };
@@ -279,7 +280,7 @@ export async function dashboard({ user }) {
   const cases = await rows(`
     SELECT c.id, c.title, c.status, c.workspace_id, c.parent_case_id, w.name AS workspace, t.name AS template,
       json_extract(c.definition, '$.roles') AS roles, p.role, p.access, m.role AS ws_role,
-      (SELECT created_at FROM events WHERE id = (SELECT MAX(id) FROM events WHERE case_id = c.id)) AS last_activity
+      (SELECT MAX(e.created_at) FROM events e WHERE e.case_id = c.id AND ${seesEvent('?1')}) AS last_activity -- like the stamp: what the user may see
     FROM cases c
     JOIN workspaces w ON w.id = c.workspace_id
     LEFT JOIN templates t ON t.id = c.template_id

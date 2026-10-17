@@ -574,12 +574,16 @@ assert.equal((await expect(anon('/upload-links', { form: file('gross.pdf', new U
 // nor on the dashboard; the case view and the polling agree.
 {
   const stamp = async (who, query = '') => (await expect(who(`/changes${query}`))).stamp;
-  const guestBefore = [await stamp(student, `?case=${caseId}`), await stamp(student)], teamBefore = await stamp(prof, `?case=${caseId}`);
+  const activity = async () => (await expect(student('/dashboard'))).cases.find(c => c.id === caseId).last_activity;
+  const guestBefore = [await stamp(student, `?case=${caseId}`), await stamp(student), await activity()], teamBefore = await stamp(prof, `?case=${caseId}`);
+  await new Promise(r => setTimeout(r, 5)); // a new event has a later time
   await expect(prof(`/cases/${caseId}/comments`, { body: { body: 'Nur fürs Team', visible_to: [] } }));
-  assert.deepEqual([await stamp(student, `?case=${caseId}`), await stamp(student)], guestBefore, 'hidden activity leaves the guest stamp alone');
+  assert.deepEqual([await stamp(student, `?case=${caseId}`), await stamp(student), await activity()], guestBefore,
+    'hidden activity leaves the guest stamp and "last activity" alone');
   assert.notEqual(await stamp(prof, `?case=${caseId}`), teamBefore, 'the team sees it');
   await expect(prof(`/cases/${caseId}/comments`, { body: { body: 'Für alle', visible_to: ['*'] } }));
   assert.notEqual(await stamp(student, `?case=${caseId}`), guestBefore[0]);
+  assert.notEqual(await activity(), guestBefore[2]);
   assert.equal((await expect(student(`/cases/${caseId}`))).stamp, await stamp(student, `?case=${caseId}`), 'case view and polling agree');
 }
 // The development login (and its links in answers, the list of accounts) never works through Cloudflare's network
