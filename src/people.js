@@ -76,7 +76,7 @@ export async function getInvitation(rq) {
     SELECT i.email, i.role, i.access, c.title, c.definition, u.name AS inviter FROM invitations i
     JOIN cases c ON c.id = i.case_id JOIN users u ON u.id = i.created_by
     WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.expires_at > ?`, hash, time);
-  const ws = inv ? null : (await workspaceInvitation(hash)) ?? fail(404, 'Einladung ungültig oder abgelaufen');
+  const ws = inv ? null : (await workspaceInvitation(rq, hash)) ?? fail(404, 'Einladung ungültig oder abgelaufen');
   const existing = await accountByEmail(rq, (inv ?? ws).email);
   const who = { existing: !!existing, needs_login: needsLogin(existing, user) };
   if (ws) return { kind: 'workspace', email: ws.email, workspace: ws.workspace, role: WORKSPACE_ROLES[ws.role], inviter: ws.inviter, ...who };
@@ -100,14 +100,15 @@ async function invitee(rq, email, user, body) {
 }
 
 // "Lieber per E-Mail": the invitation ends, the team learns it in the case (or it simply lapses for a workspace).
-export async function declineInvitation({ body, row, sql, batch, event, time }) {
+export async function declineInvitation(rq) {
+  const { body, row, sql, batch, event, time } = rq;
   const hash = await sha256(String(body.token ?? ''));
   const inv = await row('SELECT * FROM invitations WHERE token_hash = ? AND accepted_at IS NULL AND expires_at > ?', hash, time);
   if (inv) {
     await batch([sql('DELETE FROM invitations WHERE token_hash = ?', hash), event(inv.case_id, null, 'participant.declined', { email: inv.email }, [])]);
     return;
   }
-  (await workspaceInvitation(hash)) ?? fail(404, 'Einladung ungültig oder abgelaufen');
+  (await workspaceInvitation(rq, hash)) ?? fail(404, 'Einladung ungültig oder abgelaufen');
   await sql('UPDATE workspace_invitations SET revoked_at = ? WHERE token_hash = ?', time, hash).run();
 }
 
@@ -133,7 +134,7 @@ export async function acceptInvitation(rq) {
 
 async function acceptWorkspaceInvitation(rq, hash) {
   const { user, body, url, sql, batch, wsEvent, time } = rq;
-  const ws = (await workspaceInvitation(hash)) ?? fail(404, 'Einladung ungültig oder abgelaufen');
+  const ws = (await workspaceInvitation(rq, hash)) ?? fail(404, 'Einladung ungültig oder abgelaufen');
   const { userId, stmts } = await invitee(rq, ws.email, user, body);
   await batch([
     ...stmts,
