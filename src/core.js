@@ -1,5 +1,5 @@
 // Shared basics: errors and JSON responses, D1 helpers, the event log, small value helpers.
-export { ACCESS, acceptedExtensions, DECISIONS, FILE_KIND_LABELS, FILE_KINDS, NEEDS_FILE, STAFF, TASK_TYPES } from '../public/shared/vocab.js';
+export { ACCESS, acceptedExtensions, DECISIONS, FILE_KIND_LABELS, FILE_KINDS, NEEDS_FILE, STAFF, TASK_TYPES, validFiles } from '../public/shared/vocab.js';
 
 // Bindings are constant per isolate; set once per request/cron run by worker.js.
 export let DB, E;

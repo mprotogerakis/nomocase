@@ -539,7 +539,8 @@ const filesDef = { roles: [{ key: 'owner', label: 'Team', access: 'case_owner' }
   document_types: [{ key: 'att', label: 'Anlagen', visible_to: [] }],
   phases: [{ title: 'Abgabe', tasks: [
     { key: 'many', title: 'Anlagen hochladen', type: 'upload', doc_type: 'att', files: { multiple: true, accept: ['pdf', 'image'] } },
-    { key: 'pdf', title: 'Bericht als PDF', type: 'upload', files: { accept: ['pdf'] } }] }] };
+    { key: 'pdf', title: 'Bericht als PDF', type: 'upload', files: { accept: ['pdf'] } },
+    { key: 'plain', title: 'Beliebige Datei', type: 'upload' }] }] };
 await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`,
   definition: { ...filesDef, phases: [{ title: 'x', tasks: [{ key: 'a', title: 'A', type: 'upload', files: { accept: ['exe'] } }] }] } } }), 400);
 const { id: filesTpl } = await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: `Uploads ${run}`, definition: filesDef } }));
@@ -548,6 +549,16 @@ let fc = await expect(prof(`/cases/${filesCase}`));
 const stepOf = key => fc.tasks.find(t => t.key === key);
 const sendTo = (key, name, extra = {}) => prof(`/cases/${filesCase}/documents`, { form: file(name, name.endsWith('.txt') ? 'hallo' : PDF, { task_id: stepOf(key).id, ...extra }) });
 assert.match((await expect(sendTo('pdf', 'notiz.txt'), 415)).error, /nur PDF/);
+// … and changed for one step of a running case (team only), and back to the default
+await expect(prof(`/tasks/${stepOf('plain').id}`, { method: 'PATCH', body: { files: { accept: ['exe'] } } }), 400);
+await expect(prof(`/tasks/${stepOf('plain').id}`, { method: 'PATCH', body: { files: { multiple: true, accept: ['pdf'] } } }));
+fc = await expect(prof(`/cases/${filesCase}`));
+assert.deepEqual(stepOf('plain').files, { multiple: true, accept: ['pdf'] });
+assert.match((await expect(sendTo('plain', 'notiz.txt'), 415)).error, /nur PDF/);
+assert.ok(fc.events.some(e => e.type === 'task.updated' && e.payload.changes.files), 'the log names the change');
+await expect(prof(`/tasks/${stepOf('plain').id}`, { method: 'PATCH', body: { files: null } }));
+fc = await expect(prof(`/cases/${filesCase}`));
+assert.equal(stepOf('plain').files, null, 'back to one file of any kind');
 await expect(sendTo('many', 'a.pdf', { more: '1' }));
 fc = await expect(prof(`/cases/${filesCase}`));
 assert.equal(stepOf('many').status, 'open', 'more files to come');

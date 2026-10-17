@@ -1,5 +1,5 @@
 // Templates: definition check, versions, instantiating a case, turning a case back into a template.
-import { ACCESS, arr, DB, DECISIONS, ev, fail, FILE_KINDS, isDate, now, q, row, rows, TASK_TYPES, uid } from './core.js';
+import { ACCESS, arr, DB, DECISIONS, ev, fail, FILE_KINDS, isDate, now, q, row, rows, TASK_TYPES, uid, validFiles } from './core.js';
 import { caseCtx, requireWsOwner } from './access.js';
 import { RULE_ACTIONS, RULE_OPS, RULE_TRIGGERS } from './rules.js';
 import { scaleProblem } from '../public/shared/assess.js';
@@ -45,8 +45,7 @@ export function checkDef(d) {
         `labels bei "${t.key}": zwei Beschriftungen, nur bei review/approval/decision`);
       ok(t.assess === undefined || (d.scales?.[t.assess] && DECISIONS.includes(t.type)), `assess bei "${t.key}": eine Skala aus scales, nur bei review/approval/decision`);
       ok(t.form === undefined || d.forms?.some(f => f.key === t.form), `form bei "${t.key}": ein key aus forms`);
-      ok(t.files === undefined || (t.files && typeof t.files === 'object' && (t.files.multiple === undefined || typeof t.files.multiple === 'boolean')
-        && (t.files.accept === undefined || (Array.isArray(t.files.accept) && t.files.accept.every(k => FILE_KINDS[k])))),
+      ok(t.files === undefined || validFiles(t.files),
         `files bei "${t.key}": { "multiple": true/false, "accept": [${Object.keys(FILE_KINDS).map(k => `"${k}"`).join(', ')}] }`);
       ok(t.visible_to === undefined || (Array.isArray(t.visible_to) && t.visible_to.every(v => v === '*' || roles.has(v))), `visible_to bei "${t.key}": Liste von Rollen oder "*"`);
       const m = t.money;

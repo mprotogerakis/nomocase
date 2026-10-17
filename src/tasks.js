@@ -1,5 +1,5 @@
 // Tasks: blocked state, editing, actions (complete, decide, assess, ask back, skip, reopen).
-import { arr, DB, DECISIONS, ev, fail, isDate, NEEDS_FILE, now, q, roleList, row, rows, TASK_TYPES, uid } from './core.js';
+import { arr, DB, DECISIONS, ev, fail, isDate, NEEDS_FILE, now, q, roleList, row, rows, TASK_TYPES, uid, validFiles } from './core.js';
 import { canSeeTask, canWork, caseCtx, taskAudience } from './access.js';
 import { moneyStmts } from './finance.js';
 import { formatScore, parseScore, passes, verdict } from '../public/shared/assess.js';
@@ -44,6 +44,12 @@ async function cleanTask(ctx, b, tasks, selfId) {
     const list = roleList(b.visible_to);
     if (!list.every(v => v === '*' || ctx.def.roles.some(r => r.key === v))) fail(400, 'Unbekannte Rolle');
     t.visible_to = JSON.stringify(list);
+  }
+  if ('files' in b) {
+    // how the step takes files (several, which kinds) – as in the template, now for this case only
+    if (b.files !== null && !validFiles(b.files)) fail(400, 'Dateien: { "multiple": true/false, "accept": [Dateiarten] }');
+    const f = { ...(b.files?.multiple && { multiple: true }), ...(b.files?.accept?.length && { accept: b.files.accept }) };
+    t.files = Object.keys(f).length ? JSON.stringify(f) : null;
   }
   if ('depends_on' in b) {
     const ids = new Set(tasks.map(x => x.id));

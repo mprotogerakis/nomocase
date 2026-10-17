@@ -1,5 +1,5 @@
 // Tasks in a case: list items, actions, menu, money steps and assessments.
-import { acceptAttr, DECISIONS, filesHint, NEEDS_FILE } from '../shared/vocab.js';
+import { acceptAttr, DECISIONS, FILE_KIND_LABELS, filesHint, NEEDS_FILE } from '../shared/vocab.js';
 import { change, on, submit } from '../state.js';
 import { api, date, DECISION_LABELS, due, eur, html, linkify, OUTCOME, plainEur, reload, TYPES } from '../lib.js';
 import { caseApi, guestRoles, holders, roleLabel } from './case.js';
@@ -183,6 +183,11 @@ export function taskActions(t, d) {
 const taskTools = (t, d) => html`<details class="menu"><summary title="Aufgabe bearbeiten">⋯</summary><div class="menu-body small">
   ${shareableRoles(t, d).length ? html`<div>Sichtbar für:</div>${shareableRoles(t, d).map(r => html`<label class="row">
     <input type="checkbox" data-change="taskShare" data-id="${t.id}" value="${r.key}" ${t.visible_to.includes(r.key) || t.visible_to.includes('*') ? 'checked' : ''}> ${r.label}</label>`)}` : ''}
+  ${NEEDS_FILE.includes(t.type) || t.doc_type ? html`<div>Dateien:</div>
+    <label class="row"><input type="checkbox" data-change="taskFiles" data-id="${t.id}" data-kind="multiple" ${t.files?.multiple ? 'checked' : ''}> mehrere auf einmal</label>
+    <div class="muted">erlaubt (nichts angehakt: alle):</div>
+    ${Object.entries(FILE_KIND_LABELS).map(([k, label]) => html`<label class="row"><input type="checkbox" data-change="taskFiles" data-id="${t.id}"
+      data-kind="accept" value="${k}" ${t.files?.accept?.includes(k) ? 'checked' : ''}> ${label}</label>`)}` : ''}
   ${t.status === 'open' ? html`<label class="row">Frist <input type="date" value="${t.due_date ?? ''}" data-change="due" data-id="${t.id}"></label>
     <button class="link" data-on="taskAct" data-act="skip" data-id="${t.id}">überspringen</button>`
     : html`<button class="link" data-on="taskAct" data-act="reopen" data-id="${t.id}">wieder öffnen</button>`}
@@ -285,6 +290,14 @@ submit.editTask = async (fd, form) => {
 change.taskShare = async el => {
   const boxes = document.querySelectorAll(`[data-change="taskShare"][data-id="${el.dataset.id}"]`);
   await api(`/tasks/${el.dataset.id}`, { method: 'PATCH', body: { visible_to: [...boxes].filter(b => b.checked).map(b => b.value) } });
+  reload();
+};
+
+// How a step takes files, changed for this case: several at once, which kinds (none ticked: every kind).
+change.taskFiles = async el => {
+  const boxes = [...document.querySelectorAll(`[data-change="taskFiles"][data-id="${el.dataset.id}"]`)];
+  const files = { multiple: boxes.some(b => b.dataset.kind === 'multiple' && b.checked), accept: boxes.filter(b => b.dataset.kind === 'accept' && b.checked).map(b => b.value) };
+  await api(`/tasks/${el.dataset.id}`, { method: 'PATCH', body: { files } });
   reload();
 };
 

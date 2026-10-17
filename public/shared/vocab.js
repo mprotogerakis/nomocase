@@ -29,6 +29,9 @@ export const RULE_ACTION_LABELS = { add_comment: 'Nachricht schreiben', create_t
 // File kinds a step can restrict its uploads to (template "files": { "accept": ["pdf", …], "multiple": true }).
 export const FILE_KINDS = { pdf: ['pdf'], image: ['png', 'jpg', 'jpeg'], word: ['docx', 'odt'], excel: ['xlsx'], text: ['txt'] };
 export const FILE_KIND_LABELS = { pdf: 'PDF', image: 'Bilder (PNG, JPG)', word: 'Word/OpenDocument', excel: 'Excel', text: 'Text' };
+// A valid "files" setting (template or a step changed in a case).
+export const validFiles = f => !!f && typeof f === 'object' && !Array.isArray(f) && (f.multiple === undefined || typeof f.multiple === 'boolean')
+  && (f.accept === undefined || (Array.isArray(f.accept) && f.accept.every(k => FILE_KINDS[k])));
 // Extensions a step accepts (null: every allowed type).
 export const acceptedExtensions = files => (files?.accept?.length ? files.accept.flatMap(k => FILE_KINDS[k] ?? []) : null);
 // For the file input: accept=".pdf,.png" (empty: no restriction) and a short hint for the person uploading.

@@ -292,6 +292,17 @@ try {
     (await PDFDocument.load(await pdfs[0].arrayBuffer())).getForm().getTextField('Matrikelnummer').getText())`), '‹Matrikelnummer›');
   assert.equal(await setLogo(null), 200);
 
+  // How a step takes files, changed in a running case (⋯ menu): several at once, and back
+  const exposeStep = (await current()).tasks.find(t => t.title === 'Exposé hochladen');
+  await go(`#/case/${caseId}`, `!!document.querySelector('[data-change="taskFiles"][data-id="${exposeStep.id}"][data-kind="multiple"]')`);
+  const tick = on => evaluate(`(() => { const c = document.querySelector('[data-change="taskFiles"][data-id="${exposeStep.id}"][data-kind="multiple"]');
+    c.checked = ${on}; c.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await tick(true);
+  await waitFor(`fetch('/api/cases/${caseId}').then(r => r.json()).then(c => c.tasks.find(t => t.id === '${exposeStep.id}').files?.multiple === true)`, 'mehrere Dateien eingeschaltet');
+  await waitFor(`!!document.querySelector('[data-change="taskFiles"][data-id="${exposeStep.id}"][data-kind="multiple"]:checked')`, 'neu gezeichnet');
+  await tick(false);
+  await waitFor(`fetch('/api/cases/${caseId}').then(r => r.json()).then(c => c.tasks.find(t => t.id === '${exposeStep.id}').files === null)`, 'wieder eine Datei');
+
   // Many cases from a pasted table: the preview marks problems, then cases are created with invitations, listed per line
   const bt = tpls.find(t => t.name === 'Bachelor-Thesis (B.Eng.)');
   await go('#/', `!!document.querySelector('form[data-submit="bulkCreate"]')`);

@@ -1,5 +1,5 @@
 // Case page for the team and for guests: frame, timeline, details (fields, people, subcases, rules), case actions.
-import { RULE_FIELD_LABELS, RULE_OP_LABELS, RULE_TRIGGER_LABELS, STAFF } from '../shared/vocab.js';
+import { filesHint, RULE_FIELD_LABELS, RULE_OP_LABELS, RULE_TRIGGER_LABELS, STAFF } from '../shared/vocab.js';
 import { change, cur, me, on, set, submit } from '../state.js';
 import { ACCESS_LABELS, api, CAN, count, date, dateTime, due, eur, go, html, linkify, page, reload, shortHash, today, TYPES, VERDICT } from '../lib.js';
 import { addTaskForm, aggregatesSummary, canWork, questionsTo, resultsOf, taskActions, taskItem, taskResult } from './tasks.js';
@@ -12,7 +12,8 @@ const EVENTS = {
   'case.reopened': () => 'hat den Vorgang wieder geöffnet',
   'phase.added': p => `hat die Phase „${p.phase}“ ergänzt`,
   'task.added': p => `hat die Aufgabe „${p.task}“ hinzugefügt`,
-  'task.updated': p => `hat „${p.task}“ geändert (${Object.entries(p.changes).map(([k, v]) => `${k}: ${v ?? '–'}`).join(', ')})`,
+  'task.updated': p => `hat „${p.task}“ geändert (${Object.entries(p.changes).map(([k, v]) => (k === 'files'
+    ? `Dateien: ${filesHint(v && JSON.parse(v)) || 'eine Datei, alle Arten'}` : `${k}: ${v ?? '–'}`)).join(', ')})`,
   'task.removed': p => `hat „${p.task}“ entfernt`,
   'task.complete': p => `hat „${p.task}“ erledigt`,
   'task.approve': p => (p.score_label ?? p.grade ? `hat „${p.task}“ bewertet: ${p.score_label ?? p.grade} (${p.verdict})` : p.verdict ? `hat „${p.task}“ entschieden: ${p.verdict}` : `hat „${p.task}“ ${(VERDICT[p.type] ?? VERDICT.approval)[0]}`),

@@ -88,6 +88,7 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
 - **Uploads pro Schritt** (`"files"`): eine Datei oder mehrere (`"multiple": true`, jede Datei wird ein eigenes Dokument,
   der Schritt ist mit der letzten erledigt) und erlaubte Dateiarten (`"accept": ["pdf", "image", "word", "excel", "text"]`).
   Der Dateidialog filtert danach, der Server prüft es – auch bei Upload-Links, die bei einer falschen Datei nutzbar bleiben.
+  Im laufenden Vorgang lässt sich das je Schritt im ⋯-Menü ändern (Team): gilt dann nur für diesen Vorgang.
 - **Vorlage in einen anderen Workspace kopieren** (Vorlagenseite, für Owner beider Workspaces): legt dort eine eigene
   Vorlage an (Version 1, bei gleichem Namen „(Kopie)“); Änderungen wirken nur auf ihrer Seite. Starten ihre Regeln
   Teilvorgänge aus anderen Vorlagen, weist NomoCase darauf hin, diese ebenfalls zu kopieren.
