@@ -18,7 +18,16 @@ export class HttpError extends Error {
 
 export const fail = (status, message) => { throw new HttpError(status, message); };
 
-export const json = (data, status = 200, headers = {}) => Response.json(data, { status, headers });
+// API answers carry personal data: never kept in a cache (headers may be an object or a list of pairs).
+export const json = (data, status = 200, headers = {}) => {
+  const h = new Headers(headers);
+  if (!h.has('cache-control')) h.set('cache-control', 'no-store');
+  return Response.json(data, { status, headers: h });
+};
+
+// The session token from a Cookie header. Over https only "__Host-sid" counts: a plain "sid" could be planted by a
+// sibling subdomain for the whole domain (and even stand first in the header). Locally over http only "sid".
+export const sessionFrom = (cookie, secure) => cookie?.match(secure ? /(?:^|;\s*)__Host-sid=([0-9a-f]+)/ : /(?:^|;\s*)sid=([0-9a-f]+)/)?.[1];
 
 export const now = () => new Date().toISOString();
 

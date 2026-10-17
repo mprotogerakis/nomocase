@@ -166,6 +166,7 @@ export async function peopleOverview({ user }) {
   const owned = (await rows("SELECT workspace_id FROM workspace_members WHERE user_id = ? AND role = 'owner'", user.id)).map(r => r.workspace_id);
   if (!owned.length) fail(403, 'Nur für Workspace-Owner');
   const ws = JSON.stringify(owned);
+  const operator = !(await row('SELECT 1 FROM workspaces WHERE id NOT IN (SELECT value FROM json_each(?)) LIMIT 1', ws));
   const IN_WS = 'IN (SELECT value FROM json_each(?1))';
   const roleLabel = (c, p) => `(SELECT json_extract(r.value, '$.label') FROM json_each(${c}.definition, '$.roles') r WHERE json_extract(r.value, '$.key') = ${p}.role)`;
   const [list, seats, invitations, cases, mails] = await Promise.all([
@@ -201,7 +202,9 @@ export async function peopleOverview({ user }) {
         ({ ...s, active: !revoked_at && (!expires_at || expires_at > t) })),
     })),
     invitations,
-    stats: { cases_open: cases.open ?? 0, cases_closed: cases.closed ?? 0, mails_today: mails.total ?? 0, bulk_today: mails.bulk, bulk_cap: bulkCap(),
-      mails_failed: mails.failed ?? 0, last_error: mails.last_error, last_error_at: mails.last_error_at },
+    stats: { cases_open: cases.open ?? 0, cases_closed: cases.closed ?? 0,
+      // the mail log is not per workspace: only who owns every workspace (in practice the operator) sees its numbers
+      ...(operator && { mails_today: mails.total ?? 0, bulk_today: mails.bulk, bulk_cap: bulkCap(), mails_failed: mails.failed ?? 0,
+        last_error: mails.last_error, last_error_at: mails.last_error_at }) },
   };
 }

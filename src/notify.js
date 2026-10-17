@@ -1,5 +1,6 @@
 // Mail via Resend, daily caps, daily digest and bundled progress mails.
 import { DB, E, fail, now, q, row, rows, STAFF } from './core.js';
+import { CONSENT_VERSION } from '../public/shared/consent.js';
 import { canSee } from './access.js';
 import { markBlocked } from './tasks.js';
 
@@ -14,6 +15,10 @@ export const bulkCap = () => Number(E.MAIL_DAILY_CAP ?? 80);
 const mailsToday = async bulk => (await row('SELECT COUNT(*) AS n FROM mail_log WHERE ok = 1 AND sent_at >= ? AND (? = 0 OR bulk = 1)', now().slice(0, 10), bulk ? 1 : 0)).n;
 
 // Returns true when the provider accepted the mail. Every attempt is logged (mail_log: ok, HTTP status, error text).
+// Digests and progress mails carry case data: only for people whose consent to the current text stands (withdrawing
+// it stops them at once; a new text version pauses them until it is accepted).
+const CONSENTED = 'EXISTS (SELECT 1 FROM consents k WHERE k.user_id = u.id AND k.version = ?2 AND k.withdrawn_at IS NULL)';
+
 // `sender`: the user whose action causes the mail. Per day one person can cause at most PER_SENDER mails (workspace
 // owners, who run the workspace, PER_OWNER: e.g. inviting a whole semester), so nobody can use up the provider's daily
 // quota for everyone else (and with it everyone's invitations and login links).
@@ -87,7 +92,7 @@ export async function sendDigests() {
   const parts = await rows(`
     SELECT p.user_id, p.case_id, p.role, p.access, u.email, u.name, u.last_digest_at, u.email_progress, c.title AS case_title
     FROM case_participants p JOIN users u ON u.id = p.user_id JOIN cases c ON c.id = p.case_id
-    WHERE p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?) AND c.status = 'open' AND u.email_reminders = 1`, ts);
+    WHERE p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?1) AND c.status = 'open' AND u.email_reminders = 1 AND ${CONSENTED}`, ts, CONSENT_VERSION);
   const caseIds = JSON.stringify([...new Set(parts.map(p => p.case_id))]);
   const userIds = JSON.stringify([...new Set(parts.map(p => p.user_id))]);
   const [tasks, comments, sent] = (await DB.batch([
@@ -170,7 +175,7 @@ export async function sendProgress() {
   const parts = (await rows(`
     SELECT p.user_id, p.case_id, p.role, p.access, u.email, u.name, u.progress_cursor, u.progress_mail_at, c.title AS case_title
     FROM case_participants p JOIN users u ON u.id = p.user_id JOIN cases c ON c.id = p.case_id
-    WHERE p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?) AND u.email_progress = 1`, ts))
+    WHERE p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?1) AND u.email_progress = 1 AND ${CONSENTED}`, ts, CONSENT_VERSION))
     .filter(p => !p.progress_mail_at || Date.parse(ts) - Date.parse(p.progress_mail_at) >= PROGRESS_GAP - 60e3); // 1 min slack for cron jitter
   if (!parts.length) return;
   const since = parts.map(p => p.progress_cursor ?? fallback).sort()[0];

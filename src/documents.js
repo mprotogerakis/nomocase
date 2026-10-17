@@ -80,7 +80,7 @@ export async function storeVersion({ c, actorId, uploadedBy, label = null, chann
     ev(c.id, actorId, 'document.uploaded',
       { document: doc.title, version: n, filename: f.filename, version_id: versionId, sha256: f.sha256, ...(label && { via: label }), ...(channel && { channel }), ...extra,
         ...(task && { task: task.title, task_id: task.id, completed: completes }) },
-      [...new Set([...arr(doc.visible_to), ...(task ? taskAudience(task) : [])])]),
+      arr(doc.visible_to)), // who sees the document (team and uploader always): name, file and checksum are its metadata
     ...signatureStmts(versionId, sigs),
     ...await signatureEvents(c, versionId, doc, sigs, actorId),
     ...taken.stmts,
@@ -188,8 +188,16 @@ async function loadUploadLink(secret) {
 }
 
 // What the person behind the link sees: who asks, for what. Nothing about the case.
+// The link's step as it stands: waiting for an earlier step, the link cannot be used yet.
+async function linkTask(l) {
+  const task = markBlocked(await rows('SELECT * FROM tasks WHERE case_id = ?', l.case_id)).find(t => t.id === l.task_id);
+  if (task.blocked) fail(409, 'Dieser Schritt wartet noch auf einen vorherigen. Bitte später erneut versuchen.');
+  return task;
+}
+
 export async function getUploadLink({ params }) {
   const l = await loadUploadLink(params.token);
+  await linkTask(l);
   const dt = JSON.parse(l.definition).document_types.find(t => t.key === l.doc_type);
   return { requester: l.requester, label: l.label, task: l.task_title, document: dt?.label ?? null, expires_at: l.expires_at,
     files: l.task_files ? JSON.parse(l.task_files) : null };
@@ -204,8 +212,7 @@ export async function useUploadLink({ req, params }) {
     await ev(l.case_id, null, 'upload.rejected', { filename: f.filename, note: f.problem, via: l.label }, []).run();
     fail(422, f.problem);
   }
-  const tasks = markBlocked(await rows('SELECT * FROM tasks WHERE case_id = ?', l.case_id));
-  const task = tasks.find(t => t.id === l.task_id);
+  const task = await linkTask(l);
   checkKind(task, f.filename); // before the link is used up: a wrong kind of file leaves it usable
   if (l.single_use && !(await row('UPDATE upload_links SET used_at = ? WHERE token_hash = ? AND used_at IS NULL RETURNING token_hash', now(), l.token_hash))) {
     fail(404, 'Dieser Upload-Link wurde gerade schon benutzt.');
@@ -216,7 +223,12 @@ export async function useUploadLink({ req, params }) {
   const ctx = { c, def, user: { id: l.created_by }, role: null, staff: true };
   const doc = await taskDocument(ctx, task, null, f.filename);
   if (doc.final) fail(410, 'Dieses Dokument ist bereits als Endfassung markiert.');
-  await storeVersion({ c, actorId: null, uploadedBy: l.created_by, label: l.label, f, task, doc, extra: { consent: CONSENT_VERSION } });
+  try {
+    await storeVersion({ c, actorId: null, uploadedBy: l.created_by, label: l.label, f, task, doc, extra: { consent: CONSENT_VERSION } });
+  } catch (e) { // nothing was stored: a single-use link stays usable for another try
+    if (l.single_use) await q('UPDATE upload_links SET used_at = NULL WHERE token_hash = ?', l.token_hash).run();
+    throw e;
+  }
   return { ok: true };
 }
 

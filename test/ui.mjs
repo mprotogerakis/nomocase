@@ -417,7 +417,8 @@ try {
   await login('prof@example.org');
   for (const [hash, ready] of [['#/', `!!document.querySelector('.stats')`], ['#/templates', `!!document.querySelector('details.card')`],
     [`#/templates/${bt.id}`, `!!document.querySelector('.template-editor .step')`], [`#/case/${caseId}`, `!!document.querySelector('.task')`],
-    ['#/workspaces', `!!document.querySelector('.card')`], ['#/account', `document.querySelector('main h1')?.textContent === 'Konto'`]]) {
+    ['#/workspaces', `!!document.querySelector('.card')`], ['#/people', `!!document.querySelector('.stats')`],
+    ['#/account', `document.querySelector('main h1')?.textContent === 'Konto'`]]) {
     await go(hash, ready);
     await evaluate(`(() => { document.querySelectorAll('details').forEach(d => d.open = true); return true; })()`);
     assert.ok(await evaluate(`document.documentElement.scrollWidth <= innerWidth + 1 && innerWidth <= 391`), `${hash} fits a phone`);

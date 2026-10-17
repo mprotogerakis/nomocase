@@ -1,7 +1,7 @@
 // Sessions, passkeys, login links, dev login and the own account.
 import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthenticationResponse, verifyRegistrationResponse } from '@simplewebauthn/server';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
-import { appVersion, arr, DB, E, ev, fail, json, now, q, row, rows, rpId, sha256, token, uid } from './core.js';
+import { appVersion, arr, DB, E, ev, fail, json, now, q, row, rows, rpId, sessionFrom, sha256, token, uid } from './core.js';
 import { caseCtx } from './access.js';
 import { sendMail } from './notify.js';
 import { CONSENT_VERSION } from '../public/shared/consent.js';
@@ -12,9 +12,9 @@ export const originOf = url => E.ORIGIN || url.origin;
 const rpOf = url => new URL(originOf(url)).hostname;
 
 // Over https the session cookie is "__Host-sid": the prefix makes browsers refuse it unless it is Secure, for this
-// host only and for the whole site, so a sibling subdomain cannot plant a session. Plain "sid" locally (http) and for
-// sessions from before.
-const sidOf = req => req.headers.get('cookie')?.match(/(?:^|;\s*)(?:__Host-)?sid=([0-9a-f]+)/)?.[1];
+// host only and for the whole site, so a sibling subdomain cannot plant a session (sessionFrom ignores plain "sid"
+// there). Plain "sid" locally over http.
+const sidOf = req => sessionFrom(req.headers.get('cookie'), originOf(new URL(req.url)).startsWith('https:'));
 const CLEAR = [['set-cookie', '__Host-sid=; Path=/; Max-Age=0; Secure'], ['set-cookie', 'sid=; Path=/; Max-Age=0']];
 
 export async function loadUser(req) {

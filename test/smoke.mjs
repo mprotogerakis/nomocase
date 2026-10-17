@@ -78,6 +78,14 @@ assert.ok(admin.people.some(u => u.email === 'prof@example.org' && u.workspaces)
 for (let i = 0; i < 3; i++) assert.equal((await expect(prof('/me/test-mail', { body: {} }))).ok, true);
 await expect(prof('/me/test-mail', { body: {} }), 429);
 assert.equal((await expect(prof('/people'))).stats.mails_failed, 0);
+// The mail log is not per workspace: an owner who does not own every workspace sees no mail numbers (no tenant learns
+// about another); whoever owns them all (the operator) does.
+if (new URL(BASE).hostname === 'localhost') {
+  sql(`INSERT INTO workspaces (id, name) VALUES ('ws_other_${run}', 'Fremd ${run}')`);
+  assert.ok(!('mails_today' in (await expect(prof('/people'))).stats), 'no mail numbers across tenants');
+  sql(`DELETE FROM workspaces WHERE id = 'ws_other_${run}'`);
+  assert.ok('mails_today' in (await expect(prof('/people'))).stats, 'the operator sees them');
+}
 if (new URL(BASE).hostname === 'localhost') sql("DELETE FROM mail_log WHERE kind = 'test'"); // the UI test sends one too
 
 // Templates: one that cases use is archived instead of deleted (no new cases from it), one without cases is deleted.
@@ -357,6 +365,12 @@ await expect(student(`/files/${wrongUpload.id}`), 404);
 const inv2 = await expect(prof(`/cases/${caseId}/invitations`, { body: { email: `pa.${run}@example.org`, role: 'office' } }));
 await expect(office('/invitations/accept', { body: { consent: true, token: tokenOf(inv2.link), name: 'Prüfungsamt' } }));
 const oc = await expect(office(`/cases/${caseId}`));
+// An upload shows in the log only for those who may see the document: the office follows this step, not its file.
+const { id: shownStep } = await expect(prof(`/cases/${caseId}/tasks`, { body: { title: `Interne Notiz ${run}`, type: 'upload', role: 'student', visible_to: ['office'] } }));
+await expect(prof(`/cases/${caseId}/documents`, { form: file(`notiz-${run}.pdf`, PDF, { task_id: shownStep }) }));
+const officeView = await expect(office(`/cases/${caseId}`));
+assert.equal(officeView.tasks.find(t => t.id === shownStep)?.status, 'done', 'the office sees the step done');
+assert.ok(!officeView.events.some(e => e.type === 'document.uploaded' && e.payload.filename === `notiz-${run}.pdf`), '… but not the file it brought');
 assert.deepEqual(oc.documents.map(d => d.doc_type), ['application']);
 assert.deepEqual(oc.tasks.map(t => t.title), ['Antrag beim Prüfungsamt einreichen', 'Genehmigung erhalten', 'Note an Prüfungsamt melden']);
 const descVersion = sc.documents.find(d => d.doc_type === 'description').versions[0].id;
@@ -481,9 +495,21 @@ const anon = client();
 assert.deepEqual(Object.keys(await expect(anon(`/upload-links/${upToken}`))).sort(), ['document', 'expires_at', 'files', 'label', 'requester', 'task'], 'nothing about the case');
 await expect(anon(`/upload-links/${upToken}`, { form: file('Rechnung-Link.pdf', PDF) }), 400); // without consent: nothing stored
 await expect(anon(`/upload-links/${upToken}`, { form: file('evil.pdf', '<html>', { consent: 'yes' }) }), 422); // rejected, link stays usable
+// a file that does not arrive intact (checksum mismatch at storage) uses nothing up either
+await expect(anon(`/upload-links/${upToken}`, { form: file('kaputt.pdf', PDF, { consent: 'yes', sha256: '0'.repeat(64) }) }), 400);
 await expect(anon(`/upload-links/${upToken}`, { form: file('Rechnung-Link.pdf', PDF, { consent: 'yes' }) }));
 await expect(anon(`/upload-links/${upToken}`, { form: file('nochmal.pdf', PDF, { consent: 'yes' }) }), 404); // single use
 await expect(anon(`/cases/${linked}`), 401);
+// A link to a step that waits for an earlier one cannot be used until that one is done
+const { id: earlier } = await expect(prof(`/cases/${linked}/tasks`, { body: { title: `Vorher ${run}`, type: 'task' } }));
+const { id: later } = await expect(prof(`/cases/${linked}/tasks`, { body: { title: `Danach ${run}`, type: 'upload', depends_on: [earlier] } }));
+const laterToken = (await expect(prof(`/tasks/${later}/upload-links`, { body: { label: 'Extern' } }))).link.split('/#/upload/')[1];
+assert.match((await expect(anon(`/upload-links/${laterToken}`), 409)).error, /wartet noch/);
+await expect(anon(`/upload-links/${laterToken}`, { form: file('zu-frueh.pdf', PDF, { consent: 'yes' }) }), 409);
+await expect(prof(`/tasks/${earlier}/action`, { body: { action: 'complete' } }));
+await expect(anon(`/upload-links/${laterToken}`, { form: file('jetzt.pdf', PDF, { consent: 'yes' }) }), 200, 'the single-use link was not used up');
+// API answers with personal data are not cached
+assert.equal((await fetchOnce(`${BASE}/api/me`)).headers.get('cache-control'), 'no-store');
 lc = await expect(prof(`/cases/${linked}`));
 assert.equal(lc.documents.find(d => d.doc_type === 'invoice').versions[0].uploader, 'Praxis Dr. Link');
 assert.equal(lc.tasks.find(t => t.id === invoiceTask).status, 'done');
@@ -495,7 +521,7 @@ assert.equal((await expect(prof(`/cases/${linked}`))).upload_links.length, 1);
 await expect(prof(`/tasks/${bescheid}/upload-links`, { method: 'DELETE' }));
 await expect(anon(`/upload-links/${revokedToken}`), 404);
 const multiUse = (await expect(prof(`/tasks/${bescheid}/upload-links`, { body: { label: 'PKV', single_use: false } }))).link.split('/#/upload/')[1];
-await expect(anon(`/upload-links/${multiUse}`));
+await expect(anon(`/upload-links/${multiUse}`), 409); // the step still waits for an earlier one
 await expect(prof(`/tasks/${bescheid}/action`, { body: { action: 'skip' } }));
 await expect(anon(`/upload-links/${multiUse}`), 404, 'task no longer open');
 // Writes only from our own pages (CSRF from sibling subdomains).
@@ -608,6 +634,20 @@ if (new URL(BASE).hostname === 'localhost') {
   await expect(prof(`/tasks/${cut.id}/action`, { body: { action: 'reopen' } }));
   await runDigest();
   assert.notEqual(digestOf('prof@example.org').last_digest_at, profFirst.last_digest_at, 'reopened task is announced again');
+  // Withdrawn consent stops mails with case data at once; with consent again they go out (simulated in the DB: the real
+  // withdrawal also logs out, which the following steps cannot use)
+  const withdrawnAt = new Date().toISOString();
+  const consentOf = (email, withdraw) => sql(`UPDATE consents SET withdrawn_at = ${withdraw ? `'${withdrawnAt}'` : 'NULL'}
+    WHERE user_id = (SELECT id FROM users WHERE email = '${email}') AND ${withdraw ? 'withdrawn_at IS NULL' : `withdrawn_at = '${withdrawnAt}'`}`);
+  await expect(prof(`/tasks/${cut.id}/action`, { body: { action: 'approve' } }));
+  await expect(prof(`/tasks/${cut.id}/action`, { body: { action: 'reopen' } }));
+  const beforeWithdrawal = digestOf('prof@example.org').last_digest_at;
+  consentOf('prof@example.org', true);
+  await runDigest();
+  assert.equal(digestOf('prof@example.org').last_digest_at, beforeWithdrawal, 'no digest after the consent was withdrawn');
+  consentOf('prof@example.org', false);
+  await runDigest();
+  assert.notEqual(digestOf('prof@example.org').last_digest_at, beforeWithdrawal, 'with consent the news go out again');
   // Deleting a case removes everything, files and immutable bookings included; guests who were only in it lose their account.
   const free = tpls.find(t => t.name === 'Freier Vorgang' && t.workspace_id === 'ws_hs');
   const { id: doomed } = await expect(prof('/cases', { body: { template_id: free.id, title: 'Löschtest' } }));
@@ -703,6 +743,13 @@ if (new URL(BASE).hostname === 'localhost') {
   sql(`DELETE FROM mail_log WHERE sent_at = '${capMarker}'`);
   await runProgress();
   assert.notEqual(progressOf(studentMail), held, 'held news go out once there is room');
+  consentOf(studentMail, true);
+  await expect(prof(`/cases/${caseId}/comments`, { body: { body: 'Nach dem Widerruf.', visible_to: ['*'] } }));
+  backdate();
+  const withdrawnHeld = progressOf(studentMail);
+  await runProgress();
+  assert.equal(progressOf(studentMail), withdrawnHeld, 'no progress mail after the consent was withdrawn');
+  consentOf(studentMail, false);
   await expect(student('/me', { method: 'PATCH', body: { email_progress: false } }));
   assert.equal((await expect(student('/me'))).user.email_progress, false);
 

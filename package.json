@@ -11,7 +11,7 @@
     "db:reset": "rm -rf .wrangler/state && npm run db:init",
     "dev": "wrangler dev --test-scheduled",
     "check": "node scripts/freevars.mjs && esbuild src/worker.js --bundle --format=esm --platform=neutral --external:@simplewebauthn/* --outfile=/dev/null --log-level=warning && esbuild public/app.js --bundle --format=esm --outfile=/dev/null --log-level=warning",
-    "test": "npm run check && node test/validate.mjs && node test/assess.mjs && node test/pdfsig.mjs && node test/forms.mjs && node test/bulk.mjs && node test/mime.mjs && node test/smoke.mjs && node test/praxisprojekt.mjs && node test/ui.mjs && node test/passkey.mjs",
+    "test": "npm run check && node test/validate.mjs && node test/assess.mjs && node test/pdfsig.mjs && node test/forms.mjs && node test/bulk.mjs && node test/mime.mjs && node test/session.mjs && node test/smoke.mjs && node test/praxisprojekt.mjs && node test/ui.mjs && node test/passkey.mjs",
     "login-link": "node scripts/login-link.mjs"
   },
   "devDependencies": {

@@ -22,13 +22,13 @@ export async function peopleView() {
     <p class="muted">Alle, die in Ihren Workspaces mitarbeiten oder an deren Vorgängen beteiligt sind oder waren.</p>
     <section class="stats">
       <div><b>${String(people.length)}</b>Personen</div>
-      <div class="${people.some(u => !u.passkeys) ? 'link-tile' : ''}" data-on="peopleFilter" data-id="nopasskey"><b>${String(people.filter(u => !u.passkeys).length)}</b>ohne Passkey</div>
+      <button type="button" class="link-tile" data-on="peopleFilter" data-id="nopasskey"><b>${String(people.filter(u => !u.passkeys).length)}</b>ohne Passkey</button>
       <div class="${expired ? 'warn' : ''}"><b>${String(invitations.length)}</b>offene Einladungen${expired ? `, ${expired} abgelaufen` : ''}</div>
-      <div class="${stats.bulk_today >= stats.bulk_cap ? 'warn' : ''}"><b>${String(stats.mails_today)}</b>Mails heute</div>
+      ${'mails_today' in stats ? html`<div class="${stats.bulk_today >= stats.bulk_cap ? 'warn' : ''}"><b>${String(stats.mails_today)}</b>Mails heute</div>` : ''}
     </section>
-    ${stats.mails_failed ? html`<p class="warn small">Heute ${count(stats.mails_failed, 'Mail', 'Mails')} nicht verschickt. Letzter Fehler (${dateTime(stats.last_error_at)}): ${stats.last_error}</p>` : ''}
+    ${'mails_today' in stats ? html`${stats.mails_failed ? html`<p class="warn small">Heute ${count(stats.mails_failed, 'Mail', 'Mails')} nicht verschickt. Letzter Fehler (${dateTime(stats.last_error_at)}): ${stats.last_error}</p>` : ''}
     <p class="muted small">Sammelmails (Tagesübersicht, Fortschritt) heute: ${stats.bulk_today} von ${stats.bulk_cap}.
-      ${stats.bulk_today >= stats.bulk_cap ? 'Sie pausieren bis morgen; Einladungen und Anmeldelinks gehen weiter.' : 'Ist die Grenze erreicht, pausieren sie bis morgen; Einladungen und Anmeldelinks gehen weiter.'}</p>
+      ${stats.bulk_today >= stats.bulk_cap ? 'Sie pausieren bis morgen; Einladungen und Anmeldelinks gehen weiter.' : 'Ist die Grenze erreicht, pausieren sie bis morgen; Einladungen und Anmeldelinks gehen weiter.'}</p>` : ''}
     ${invitations.length ? html`<h2>Einladungen</h2><ul class="list">${invitations.map(i => html`<li>${i.email}
       <span class="muted small">als ${i.role ?? '–'} in</span> <a href="#/case/${i.case_id}">${i.title}</a>
       <span class="small ${i.expired ? 'warn' : 'muted'}">· ${i.expired ? `abgelaufen am ${date(i.expires_at)}` : `eingeladen ${date(i.created_at)}, gültig bis ${date(i.expires_at)}`}</span>

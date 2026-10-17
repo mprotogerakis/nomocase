@@ -18,7 +18,8 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
   Anmeldelinks: höchstens 60 Mails pro Tag insgesamt, Antwort und Antwortzeit verraten nicht, ob es ein Konto gibt. Über ein
   Konto gehen höchstens 30 Mails am Tag hinaus (Einladungen, Upload-Links, Anmeldelinks), damit niemand das Kontingent
   aller verbraucht.
-- **Sitzung** im Cookie `__Host-sid` (HttpOnly, Secure, SameSite=Lax, nur für diesen Host). Die Oberfläche kommt mit
+- **Sitzung** im Cookie `__Host-sid` (HttpOnly, Secure, SameSite=Lax, nur für diesen Host); über HTTPS zählt nur dieses
+  Cookie, ein gleichnamiges `sid` (von einer anderen Subdomain gesetzt) wird ignoriert. API-Antworten tragen `no-store`. Die Oberfläche kommt mit
   Content-Security-Policy, ohne Einbettung in fremde Seiten (`public/_headers`).
 - **Lokal** gibt es zusätzlich den Dev-Login (`DEV_LOGIN` in `.dev.vars`, wird nie deployt; wirkt nur bei einer
   `ORIGIN` auf localhost).
@@ -66,7 +67,8 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
   Regel-Aktion `create_subcase` (z. B. Arztrechnung: „Kürzung prüfen“ beanstandet → Teilvorgang „Widerspruch“). Abschluss meldet
   `subcase.closed` an den Hauptvorgang; Löschen nimmt Teilvorgänge mit; Titel anderer Vorgänge sieht nur, wer sie öffnen darf.
 - **Upload-Links** (⋯-Menü einer Aufgabe mit Datei): Externe ohne Konto laden genau eine Datei für genau diese Aufgabe hoch,
-  standardmäßig einmalig, mit Ablaufdatum, strenger Prüfung und Protokoll; widerrufbar. Die Datei trägt den Namen aus dem Link.
+  standardmäßig einmalig, mit Ablaufdatum, strenger Prüfung und Protokoll; widerrufbar. Wartet der Schritt noch auf einen
+  vorherigen, nimmt der Link nichts an; scheitert das Speichern, bleibt ein Einmal-Link nutzbar. Die Datei trägt den Namen aus dem Link.
 - **SHA-256 je Fassung**: Der Browser berechnet die Prüfsumme beim Hochladen, R2 prüft sie beim Speichern (keine Worker-CPU);
   ohne mitgeschickte Prüfsumme rechnet der Worker selbst. Sie steht an jeder Fassung (Klick kopiert), im Verlauf und als Quittung
   nach Upload-Links. „Datei abgleichen“ unter Dokumente vergleicht eine lokale Datei, ohne sie hochzuladen. Ältere Fassungen: ohne.
@@ -104,7 +106,8 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
   beim Annehmen einer Einladung (oder „Lieber per E-Mail“ – die einladende Person erfährt es im Vorgang), bei Upload-Links vor
   dem Hochladen, bestehende Konten nach der Anmeldung – vorher lässt der Server nichts zu. Text und Version in
   `public/shared/consent.js` (neue Version = alle werden erneut gefragt), Betreiber und Kontakt als `OPERATOR`/`PRIVACY_CONTACT`.
-  Widerruf im Konto: abgemeldet, die Teams der Vorgänge werden informiert. Nachweis je Person auf „Personen“.
+  Widerruf im Konto: abgemeldet, die Teams der Vorgänge werden informiert, Tagesübersicht und Fortschrittsmails stoppen sofort
+  (sie gehen nur an Personen mit gültiger Einwilligung zur aktuellen Textfassung). Nachweis je Person auf „Personen“.
 - **E-Mails an Vorgänge**: Jeder Vorgang hat eine nicht erratbare Adresse `v-…@<INBOX_DOMAIN>` (Details, nur Team). Mails an
   diese Adresse (auch in CC) landen als `.eml`-Dokument im Vorgang – Titel = Betreff, Absender als Hochlader, Anhänge im Verlauf,
   nur für das Team sichtbar, je Message-ID einmal; unbekannte Adressen werden abgewiesen, höchstens 100 Mails pro Vorgang und Tag.
