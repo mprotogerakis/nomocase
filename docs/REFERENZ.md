@@ -80,8 +80,9 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
   eingeladen. Das Ergebnis steht je Zeile darunter (mit Links), bis man es ausblendet.
 - **Vorlagen-Editor** (Vorlagen → „Ablauf bearbeiten“, für Owner): Rollen, Angaben, Dokumenttypen, Phasen und Schritte als
   Formular – Titel, Typ, zuständige Rolle, „startet nach“, Frist (Tage ab Start oder aus einem Datumsfeld), Dokumenttyp,
-  Upload-Einstellungen, Beschreibung; Reihenfolge per ↑/↓. Speichern legt die nächste Version an. Regeln, Formulare,
-  Bewertung und Geldschritte bleiben unverändert und lassen sich in der JSON-Ansicht bearbeiten.
+  Upload-Einstellungen, Beschreibung; Reihenfolge per ↑/↓. Dazu die Regeln: „Wenn <Ereignis> und <Bedingungen>: <Aktionen>“,
+  mit Auswahllisten für Aufgaben, Dokumenttypen und Rollen, Beträge in Euro. Speichern legt die nächste Version an.
+  PDF-Formulare, Bewertung und Geldschritte bleiben unverändert und lassen sich in der JSON-Ansicht bearbeiten.
 - **Uploads pro Schritt** (`"files"`): eine Datei oder mehrere (`"multiple": true`, jede Datei wird ein eigenes Dokument,
   der Schritt ist mit der letzten erledigt) und erlaubte Dateiarten (`"accept": ["pdf", "image", "word", "excel", "text"]`).
   Der Dateidialog filtert danach, der Server prüft es – auch bei Upload-Links, die bei einer falschen Datei nutzbar bleiben.

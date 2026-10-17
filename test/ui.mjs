@@ -162,14 +162,28 @@ try {
   await evaluate(`(() => { const c = document.querySelector('[data-change="tplAccept"][data-path="phases.0.tasks.1"][value="pdf"]');
     c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
   await change('[data-path="phases.0.tasks.1.doc_type"]', 'att');
+  // a rule, built from lists: when "Beginn" is done, a message to everyone
+  await b.click('[data-on="tplAdd"][data-path="rules"]');
+  await waitFor(`!!document.querySelector('[data-path="rules.0.name"]')`, 'neue Regel');
+  await typeInto('rules.0.name', 'Start melden');
+  await b.click('[data-on="tplAdd"][data-path="rules.0.conditions"]');
+  await waitFor(`!!document.querySelector('[data-change="tplCondValue"][data-path="rules.0.conditions.0"]')`, 'Bedingung');
+  await change('[data-change="tplCondValue"][data-path="rules.0.conditions.0"]', 'start');
+  await typeInto('rules.0.actions.0.text', 'Gestartet: {task.title}');
+  await change('[data-change="tplAudience"][data-path="rules.0.actions.0"]', '*');
   const shown = dialogs.length;
   await b.click('[data-on="tplSave"]');
   await until(() => dialogs.length > shown && dialogs.at(-1).startsWith('Gespeichert als Version 2'), 'im Editor gespeichert');
   const saved = (await api('/templates')).find(t => t.id === edId);
   assert.deepEqual(saved.definition.phases[0].tasks.map(t => [t.key, t.title, t.type, t.files ?? null, t.doc_type ?? null]),
     [['start', 'Beginn', 'task', null, null], ['anlagen-hochladen', 'Anlagen hochladen', 'upload', { multiple: true, accept: ['pdf'] }, 'att']]);
+  assert.deepEqual(saved.definition.rules, [{ id: 'start-melden', name: 'Start melden', trigger: 'task.complete',
+    conditions: [{ field: 'task.key', operator: 'equals', value: 'start' }], actions: [{ type: 'add_comment', text: 'Gestartet: {task.title}', visible_to: ['*'] }] }]);
   // … and in a case from it: the step takes several PDFs at once, each one a document, the step done after the last
   const { id: edCase } = await post('/cases', { template_id: edId, title: `UI-Anlagen ${run}` });
+  const begin = (await api(`/cases/${edCase}`)).tasks.find(t => t.key === 'start').id;
+  await evaluate(`fetch('/api/tasks/${begin}/action', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"action":"complete"}' }).then(r => r.status)`);
+  assert.ok((await api(`/cases/${edCase}`)).events.some(e => e.type === 'comment' && e.payload.rule === 'Start melden' && e.payload.body === 'Gestartet: Beginn'), 'the rule fired');
   await go(`#/case/${edCase}`, `!!document.querySelector('form[data-submit="upload"] input[multiple]')`);
   assert.equal(await evaluate(`document.querySelector('form[data-submit="upload"] input[type=file]').accept`), '.pdf');
   const second = pdf.replace('UI-Test.pdf', 'Zweite.pdf');

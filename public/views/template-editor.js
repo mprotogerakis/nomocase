@@ -1,16 +1,18 @@
-// Template editor: roles, Angaben, document types, phases and steps as a form instead of JSON. It works on a copy of
-// the latest version; saving creates the next version (the server checks it like any other). Everything the editor
-// does not show (rules, forms, scales, money, labels …) stays in the definition untouched – the JSON view edits those.
-import { ACCESS, FILE_KIND_LABELS, NEEDS_FILE } from '../shared/vocab.js';
+// Template editor: roles, Angaben, document types, phases and steps, and rules as a form instead of JSON. It works on a
+// copy of the latest version; saving creates the next version (the server checks it like any other). Everything the
+// editor does not show (forms, scales, money, labels …) stays in the definition untouched – the JSON view edits those.
+import { ACCESS, FILE_KIND_LABELS, NEEDS_FILE, RULE_ACTION_LABELS, RULE_FIELD_LABELS, RULE_MONEY_FIELDS, RULE_OP_LABELS, RULE_TRIGGER_LABELS } from '../shared/vocab.js';
 import { change, input, me, on } from '../state.js';
-import { ACCESS_LABELS, api, go, html, page, TYPES } from '../lib.js';
+import { ACCESS_LABELS, api, go, html, page, plainEur, toCents, TYPES } from '../lib.js';
 
-let tpl = null, draft = null;
+let tpl = null, draft = null, wsTemplates = [];
 const fresh = new WeakSet(); // items created here: their key still follows their name
 
 const slug = s => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'neu';
 const uniqueKey = (base, taken) => { let k = slug(base); while (taken.includes(k)) k += '-2'; return k; };
 const stepKeys = () => draft.phases.flatMap(p => p.tasks.map(t => t.key));
+// steps a rule creates share the key space with the template's steps
+const ruleTaskKeys = () => draft.rules.flatMap(r => r.actions).filter(a => a.type === 'create_task' && a.key).map(a => a.key);
 
 // "phases.0.tasks.2" → the object or array at that place
 const at = path => path.split('.').reduce((o, k) => o[k], draft);
@@ -18,8 +20,11 @@ const parentOf = path => { const parts = path.split('.'); return [at(parts.slice
 
 export async function templateEditorView(id) {
   if (tpl?.id !== id) {
-    tpl = (await api('/templates')).find(t => t.id === id) ?? null;
+    const all = await api('/templates');
+    tpl = all.find(t => t.id === id) ?? null;
     draft = tpl && structuredClone(tpl.definition);
+    if (draft) draft.rules ??= [];
+    wsTemplates = all.filter(t => t.workspace_id === tpl?.workspace_id && !t.archived_at).map(t => t.name); // sub-case templates
   }
   if (!tpl) return page(html`<main class="narrow"><p>Vorlage nicht gefunden.</p><a href="#/templates">Zu den Vorlagen</a></main>`);
   if (!me.workspaces.some(w => w.id === tpl.workspace_id && w.role === 'owner')) {
@@ -96,6 +101,8 @@ function editor() {
     </fieldset>`)}
     <button type="button" class="link" data-on="tplAdd" data-path="phases">+ Phase</button>
 
+    ${rulesSection()}
+
     <div class="row editor-save"><button data-on="tplSave">Als Version ${tpl.version + 1} speichern</button>
       <button type="button" class="link" data-on="tplDiscard">Änderungen verwerfen</button></div>
   </main>`;
@@ -105,11 +112,12 @@ function editor() {
 input.tplSet = change.tplSet = el => {
   const [obj, prop] = parentOf(el.dataset.path);
   const value = el.value;
-  if (value === '' && prop !== 'title' && prop !== 'label') delete obj[prop]; else obj[prop] = value;
+  if (value === '' && !['title', 'label', 'name', 'text'].includes(prop)) delete obj[prop]; else obj[prop] = value;
   if (el.tagName === 'SELECT' && (prop === 'type' || prop === 'doc_type')) render(); // file settings show for steps that take files
+  if (fresh.has(obj) && prop === 'name' && el.dataset.path.startsWith('rules.')) obj.id = uniqueKey(value, draft.rules.filter(r => r !== obj).map(r => r.id));
   if (fresh.has(obj) && obj.key && (prop === 'title' || prop === 'label')) {
-    const isStep = el.dataset.path.startsWith('phases.');
-    const list = isStep ? stepKeys() : (el.dataset.path.startsWith('roles.') ? draft.roles
+    const isStep = el.dataset.path.startsWith('phases.') || el.dataset.path.startsWith('rules.');
+    const list = isStep ? [...stepKeys(), ...ruleTaskKeys()] : (el.dataset.path.startsWith('roles.') ? draft.roles
       : el.dataset.path.startsWith('fields.') ? draft.fields : draft.document_types).map(x => x.key);
     const old = obj.key;
     obj.key = uniqueKey(value, list.filter(k => k !== old));
@@ -167,9 +175,109 @@ on.tplAdd = ({ path }) => {
     : path === 'fields' ? { key: uniqueKey('angabe', draft.fields.map(f => f.key)), label: '' }
     : path === 'document_types' ? { key: uniqueKey('dokument', draft.document_types.map(d => d.key)), label: '', visible_to: [] }
     : path === 'phases' ? { title: '', tasks: [] }
+    : path === 'rules' ? { id: uniqueKey('regel', draft.rules.map(r => r.id)), name: '', trigger: 'task.complete', conditions: [],
+      actions: [{ type: 'add_comment', text: '', visible_to: [] }] }
+    : path.endsWith('.conditions') ? { field: 'task.key', operator: 'equals', value: '' }
+    : path.endsWith('.actions') ? { type: 'add_comment', text: '', visible_to: [] }
     : { key: uniqueKey('schritt', stepKeys()), title: '', type: 'task' };
   fresh.add(item);
   list.push(item);
+  render();
+};
+
+// --- Rules ------------------------------------------------------------------------------------------------------
+// "Wenn <trigger> und <conditions>: <actions>". Values come from lists where the template knows them (steps, document
+// types, roles); amounts are entered in euros and kept in cents. Texts may use {task.title}, {date}, {date+14} …
+const roleChoices = () => draft.roles.map(r => [r.key, r.label]);
+function valueChoices(field) {
+  if (field === 'task.key') return [...stepKeys(), ...ruleTaskKeys()].map(k => [k, draft.phases.flatMap(p => p.tasks).find(t => t.key === k)?.title
+    ?? draft.rules.flatMap(r => r.actions).find(a => a.key === k)?.title ?? k]);
+  if (field === 'document.type') return draft.document_types.map(t => [t.key, t.label]);
+  if (field === 'task.role' || field === 'event.actor_role') return roleChoices();
+  if (field === 'task.type') return Object.entries(TYPES);
+  if (field === 'task.outcome') return [['approved', 'positiv'], ['rejected', 'negativ']];
+  if (field === 'claim.direction') return [['payable', 'zu zahlen'], ['receivable', 'zu erhalten']];
+  return null;
+}
+
+function conditionValue(c, path) {
+  const choices = valueChoices(c.field);
+  if (choices && c.operator === 'in') {
+    return html`<select multiple size="${Math.min(4, choices.length)}" data-change="tplCondValue" data-path="${path}" aria-label="Werte">${choices.map(([v, l]) =>
+      html`<option value="${v}" ${[c.value].flat().includes(v) ? 'selected' : ''}>${l}</option>`)}</select>`;
+  }
+  if (choices) return select(path, c.value, [['', '– wählen –'], ...choices], 'tplCondValue');
+  const money = RULE_MONEY_FIELDS.includes(c.field);
+  const shown = money && typeof c.value === 'number' ? plainEur(c.value) : [c.value].flat().join(', ');
+  return html`<input value="${shown}" data-input="tplCondValue" data-path="${path}" aria-label="Wert"
+    placeholder="${money ? 'Betrag in €' : c.operator === 'in' ? 'Werte, durch Komma getrennt' : 'Wert'}">`;
+}
+
+function actionFields(a, path) {
+  if (a.type === 'add_comment') {
+    const audience = (a.visible_to ?? ['*']).includes('*') ? '*' : a.visible_to?.[0] ?? '';
+    return html`<textarea rows="2" data-input="tplSet" data-path="${path}.text" placeholder="Text, z. B. „{task.title} ist erledigt, weiter bis {date+14}.“" required>${a.text ?? ''}</textarea>
+      <label class="row small">an ${select(path, audience, [['', 'nur das Team'], ['*', 'alle Beteiligten'], ...roleChoices().map(([k, l]) => [k, `Team + ${l}`])], 'tplAudience')}</label>`;
+  }
+  if (a.type === 'create_task') {
+    return html`<div class="row">${text(`${path}.title`, a.title, html`aria-label="Titel der Aufgabe" class="grow" placeholder="Titel" required`)}
+      ${select(`${path}.task_type`, a.task_type ?? 'task', Object.entries(TYPES))}
+      ${select(`${path}.assign_to_role`, a.assign_to_role ?? 'owner', [['owner', 'die Verantwortlichen'], ...roleChoices()])}
+      <label class="row small">Frist <input type="number" min="0" max="3650" value="${a.due_days ?? ''}" data-input="tplNumber" data-path="${path}.due_days" style="width:5em" aria-label="Frist in Tagen"> Tage</label></div>
+      <textarea rows="2" data-input="tplSet" data-path="${path}.description" placeholder="Beschreibung (optional)">${a.description ?? ''}</textarea>
+      <span class="muted small">Schlüssel: <code>${a.key ?? '–'}</code></span>`;
+  }
+  if (a.type === 'complete_tasks') {
+    return a.key || (!a.task_type && !a.title) ? html`<label class="row small">Aufgabe ${select(`${path}.key`, a.key, [['', '– wählen –'], ...valueChoices('task.key')])}</label>`
+      : html`<span class="muted small">abhaken nach ${a.task_type ? `Typ ${TYPES[a.task_type]}` : `Titel „${a.title}“`} (in der JSON-Ansicht änderbar)</span>`;
+  }
+  return html`<div class="row">Vorlage ${select(`${path}.template`, a.template, [['', '– wählen –'], ...wsTemplates.map(n => [n, n])])}
+    ${text(`${path}.title`, a.title, html`aria-label="Titel des Teilvorgangs" class="grow" placeholder="Titel des Teilvorgangs" required`)}</div>`;
+}
+
+function rulesSection() {
+  const fields = Object.entries(RULE_FIELD_LABELS);
+  return html`<h2>Regeln</h2>
+    <p class="muted small">Regeln reagieren auf Ereignisse im Vorgang. In Texten stehen Platzhalter wie <code>{task.title}</code>,
+      <code>{document.title}</code>, <code>{date}</code> oder <code>{date+14}</code> (heute plus 14 Tage). Was eine Regel auslöst, löst keine weiteren Regeln aus.</p>
+    ${draft.rules.map((r, ri) => html`<div class="step rule">
+      <div class="row">${text(`rules.${ri}.name`, r.name, html`aria-label="Name der Regel" class="grow" placeholder="Name der Regel" required`)} ${tools('rules', ri, draft.rules.length)}</div>
+      <label class="row small">Wenn ${select(`rules.${ri}.trigger`, r.trigger, Object.entries(RULE_TRIGGER_LABELS))}</label>
+      ${r.conditions.map((c, ci) => html`<div class="row small">und
+        ${select(`rules.${ri}.conditions.${ci}`, c.field, fields, 'tplCondField')} ${select(`rules.${ri}.conditions.${ci}`, c.operator, Object.entries(RULE_OP_LABELS), 'tplCondOp')}
+        ${conditionValue(c, `rules.${ri}.conditions.${ci}`)} ${tools(`rules.${ri}.conditions`, ci, r.conditions.length)}</div>`)}
+      <button type="button" class="link small" data-on="tplAdd" data-path="rules.${ri}.conditions">+ Bedingung</button>
+      ${r.actions.map((a, ai) => html`<div class="stack action"><div class="row small">dann ${select(`rules.${ri}.actions.${ai}`, a.type, Object.entries(RULE_ACTION_LABELS), 'tplActionType')}
+        ${tools(`rules.${ri}.actions`, ai, r.actions.length)}</div>${actionFields(a, `rules.${ri}.actions.${ai}`)}</div>`)}
+      <button type="button" class="link small" data-on="tplAdd" data-path="rules.${ri}.actions">+ Aktion</button>
+    </div>`)}
+    <button type="button" class="link" data-on="tplAdd" data-path="rules">+ Regel</button>`;
+}
+
+change.tplCondField = el => { const c = at(el.dataset.path); c.field = el.value; c.value = c.operator === 'in' ? [] : ''; render(); };
+change.tplCondOp = el => {
+  const c = at(el.dataset.path);
+  c.operator = el.value;
+  c.value = el.value === 'in' ? [c.value].flat().filter(v => v !== '') : [c.value].flat()[0] ?? '';
+  render();
+};
+input.tplCondValue = change.tplCondValue = el => {
+  const c = at(el.dataset.path);
+  c.value = el.multiple ? [...el.selectedOptions].map(o => o.value)
+    : RULE_MONEY_FIELDS.includes(c.field) ? (Number.isNaN(toCents(el.value)) ? el.value : toCents(el.value))
+    : c.operator === 'in' ? el.value.split(',').map(v => v.trim()).filter(Boolean) : el.value;
+};
+input.tplNumber = el => { const [obj, prop] = parentOf(el.dataset.path); if (el.value === '') delete obj[prop]; else obj[prop] = Math.max(0, Number(el.value) || 0); };
+change.tplAudience = el => { at(el.dataset.path).visible_to = el.value === '*' ? ['*'] : el.value ? [el.value] : []; };
+change.tplActionType = el => {
+  const [list, i] = parentOf(el.dataset.path);
+  const title = list[i].title ?? '';
+  const next = el.value === 'add_comment' ? { type: el.value, text: '', visible_to: [] }
+    : el.value === 'create_task' ? { type: el.value, title, task_type: 'task', assign_to_role: 'owner', key: uniqueKey(title || 'aufgabe', [...stepKeys(), ...ruleTaskKeys()]) }
+    : el.value === 'complete_tasks' ? { type: el.value, key: '' }
+    : { type: el.value, template: wsTemplates[0] ?? '', title };
+  fresh.add(next);
+  list[i] = next;
   render();
 };
 

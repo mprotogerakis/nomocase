@@ -1,5 +1,5 @@
 // Case page for the team and for guests: frame, timeline, details (fields, people, subcases, rules), case actions.
-import { STAFF } from '../shared/vocab.js';
+import { RULE_FIELD_LABELS, RULE_OP_LABELS, RULE_TRIGGER_LABELS, STAFF } from '../shared/vocab.js';
 import { change, cur, me, on, set, submit } from '../state.js';
 import { ACCESS_LABELS, api, CAN, count, date, dateTime, due, eur, go, html, linkify, page, reload, shortHash, today, TYPES, VERDICT } from '../lib.js';
 import { addTaskForm, aggregatesSummary, canWork, questionsTo, resultsOf, taskActions, taskItem, taskResult } from './tasks.js';
@@ -293,22 +293,6 @@ submit.addSubcase = async fd => {
 };
 
 // Rules in plain words, with an on/off switch per case.
-const RULE_TRIGGER = {
-  'document.uploaded': 'ein Dokument hochgeladen wird', 'task.complete': 'eine Aufgabe erledigt wird',
-  'task.approve': 'eine Prüfung oder Entscheidung positiv ausfällt', 'task.reject': 'eine Prüfung oder Entscheidung negativ ausfällt',
-  'task.question': 'eine Rückfrage gestellt wird', 'request.created': 'ein Anliegen eingereicht wird', comment: 'eine Nachricht geschrieben wird',
-  'signature.changed': 'jemand mit einem anderen Schlüssel als bisher signiert', 'form.mismatch': 'ein hochgeladenes Formular von den Angaben abweicht', 'claim.added': 'eine Forderung erfasst wird', 'decision.added': 'eine Entscheidung erfasst wird', 'transaction.booked': 'eine Zahlung gebucht wird',
-  'case.closed': 'der Vorgang abgeschlossen wird', 'participant.joined': 'jemand dem Vorgang beitritt', 'subcase.closed': 'ein Teilvorgang abgeschlossen wird',
-};
-
-const RULE_FIELD = {
-  'document.type': 'Dokumenttyp', 'document.title': 'Dokument', 'task.key': 'Aufgabe', 'task.title': 'Aufgabe', 'task.type': 'Aufgabentyp', 'task.role': 'zuständige Rolle',
-  'event.actor_role': 'Rolle der handelnden Person', 'claim.title': 'Forderung', 'claim.direction': 'Art', 'claim.amount': 'Betrag',
-  'claim.cut': 'Kürzung', 'claim.open': 'offener Betrag', 'case.payables_open': 'offene Rechnungen', 'case.receivables_open': 'offen zu erhalten', 'comment.text': 'Nachricht',
-};
-
-const RULE_OP = { equals: '=', not_equals: '≠', greater_than: '>', less_than: '<', contains: 'enthält', in: 'ist eines von' };
-
 const MONEY_FIELDS = ['claim.amount', 'claim.recognized', 'claim.cut', 'claim.settled', 'claim.open', 'case.payables_open', 'case.receivables_open'];
 
 const stepTitle = (key, d) => d.tasks.find(t => t.key === key)?.title ?? key;
@@ -320,7 +304,7 @@ const ruleValue = (field, v, d) => MONEY_FIELDS.includes(field) ? eur(Number(v))
 
 const placeholders = text => String(text)
   .replace(/\{date(?:\+(\d+))?\}/g, (_, n) => (n ? `‹heute + ${n} Tage›` : '‹heute›'))
-  .replace(/\{([\w.]+)\}/g, (_, k) => `‹${RULE_FIELD[k] ?? k}›`);
+  .replace(/\{([\w.]+)\}/g, (_, k) => `‹${RULE_FIELD_LABELS[k] ?? k}›`);
 
 const ruleAction = (a, d) => a.type === 'create_task' ? `Aufgabe „${placeholders(a.title)}“ für ${a.assign_to_role && a.assign_to_role !== 'owner' ? roleLabel(a.assign_to_role) : 'die Verantwortlichen'} anlegen`
   : a.type === 'create_subcase' ? `Teilvorgang „${placeholders(a.title)}“ aus der Vorlage „${a.template}“ anlegen`
@@ -335,7 +319,7 @@ function rulesSection(d) {
       const runs = d.rule_runs.find(x => x.rule_id === r.id);
       return html`<li>
         <label class="row"><input type="checkbox" data-change="rule" data-id="${r.id}" ${r.enabled === false ? '' : 'checked'} ${d.me.owner ? '' : 'disabled'}> <b>${r.name}</b></label>
-        <div class="muted">Wenn ${RULE_TRIGGER[r.trigger] ?? r.trigger}${r.conditions.length ? ` und ${r.conditions.map(c => `${RULE_FIELD[c.field] ?? c.field} ${RULE_OP[c.operator]} ${ruleValue(c.field, c.value, d)}`).join(' und ')}` : ''}:
+        <div class="muted">Wenn ${RULE_TRIGGER_LABELS[r.trigger] ?? r.trigger}${r.conditions.length ? ` und ${r.conditions.map(c => `${RULE_FIELD_LABELS[c.field] ?? c.field} ${RULE_OP_LABELS[c.operator]} ${ruleValue(c.field, c.value, d)}`).join(' und ')}` : ''}:
           ${r.actions.map(a => ruleAction(a, d)).join('; ')}.${runs?.n ? ` Bisher ${runs.n}× ausgeführt, zuletzt ${dateTime(runs.last)}.` : ''}</div>
         ${runs?.errors ? html`<div><span class="tag rejected">${runs.errors}× fehlgeschlagen</span> <span class="muted">${runs.error}</span></div>` : ''}
       </li>`;
