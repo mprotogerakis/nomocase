@@ -256,6 +256,28 @@ try {
     (await PDFDocument.load(await pdfs[0].arrayBuffer())).getForm().getTextField('Matrikelnummer').getText())`), '‹Matrikelnummer›');
   assert.equal(await setLogo(null), 200);
 
+  // Many cases from a pasted table: the preview marks problems, then cases are created with invitations, listed per line
+  const bt = tpls.find(t => t.name === 'Bachelor-Thesis (B.Eng.)');
+  await go('#/', `!!document.querySelector('form[data-submit="bulkCreate"]')`);
+  await change('#bulk [name=template_id]', bt.id);
+  await waitFor(`!!document.querySelector('#bulk [name=role]')`, 'Rolle für Einladungen');
+  const table = rows => ['Name der/des Studierenden\tE-Mail\tMatrikelnummer\tAusgabe des Themas', ...rows].join('\n');
+  const pasteTable = text => evaluate(`(() => { const t = document.querySelector('#bulk [name=table]'); t.value = ${J(text)};
+    t.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  await pasteTable(table([`Eins ${run}\tbulk1.${run}@example.org\t111\t01.03.2027`, `Zwei ${run}\tkaputt\t222\t`]));
+  await waitFor(has('Bitte erst die markierte Zeile korrigieren'), 'Vorschau mit Problem');
+  await pasteTable(table([`Eins ${run}\tbulk1.${run}@example.org\t111\t01.03.2027`, `Zwei ${run}\tbulk2.${run}@example.org\t222\t`]));
+  await waitFor(`!${has('korrigieren')} && ${has('2 Vorgänge, 2 mit E-Mail')}`, 'Vorschau ohne Problem');
+  await submit('bulkCreate');
+  await waitFor(has('2 von 2 Vorgängen angelegt'), 'Massenanlage');
+  const made = (await api('/dashboard')).cases.filter(c => c.title.endsWith(run) && /– (Eins|Zwei) /.test(c.title));
+  assert.equal(made.length, 2);
+  const one = await api(`/cases/${made.find(c => c.title.includes('Eins')).id}`);
+  assert.deepEqual([one.case.title, one.case.fields.matrikel, one.case.fields.issued], [`Bachelor-Thesis (B.Eng.) – Eins ${run}`, '111', '2027-03-01']);
+  assert.ok(one.invitations.some(i => i.email === `bulk1.${run}@example.org` && i.role === 'student'), 'invited as student');
+  for (const c of made) await evaluate(`fetch('/api/cases/${c.id}', { method: 'DELETE' }).then(r => r.status)`);
+  await b.click('[data-on="bulkDismiss"]');
+
   // Dashboard as a worklist: search narrows the cards in place, filters and the template choice reload the list
   await go('#/', `!!document.querySelector('[data-input="caseSearch"]')`);
   await evaluate(`(() => { const s = document.querySelector('[data-input="caseSearch"]'); s.value = ${J(`ui-test ${run}`)}; s.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
@@ -325,7 +347,7 @@ try {
   await waitFor(`document.querySelector('code.hash')?.textContent.length === 64`, 'Quittung mit SHA-256');
 
   assert.deepEqual(errors, [], 'no script errors');
-  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|verschieben\?$|^Verschoben nach|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
+  assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|verschieben\?$|^Verschoben nach|Vorgänge aus „.*“ anlegen|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
   console.log('ok – ui test passed');
 } finally {
   if (caseId) {

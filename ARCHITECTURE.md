@@ -119,7 +119,8 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Einwilligung (freiwillige Nutzung): bei Einladung, Upload-Link und nach der Anmeldung, serverseitig erzwungen,
       versioniert, widerrufbar, Nachweis je Person
 - [ ] Anhänge eingehender Mails als eigene, geprüfte Dokumente
-- [ ] Produkt: Massenanlage zum Semesterstart
+- [x] Massenanlage: Tabelle aus Excel einfügen, Vorschau mit Prüfung je Zeile, Vorgänge samt Einladung anlegen
+  (`public/shared/bulk.js` liest die Tabelle, eine Anfrage je Vorgang und Einladung – alle üblichen Prüfungen und Limits)
 - [x] Digitale Signaturen in PDFs: Schlüssel wiedererkennen (Erstkontakt + Bestätigung), vertrauenswürdige Aussteller je
       Workspace, Warnung bei anderem Schlüssel (Ereignis `signature.changed`, Regel-Auslöser); keine Rechtsprüfung, kein CRL/OCSP
 - [x] Formulare aus der Vorlage: vorausgefüllte, ausfüllbare PDFs mit Signaturfeldern, Logo und Akzentfarbe je Workspace,

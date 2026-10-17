@@ -74,6 +74,10 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
   der Skala ein (z. B. Note 1,0–4,0 in 0,1-Schritten oder 5,0); unter `pass` liegt „bestanden“. `aggregates` verrechnen mehrere
   Bewertungen (Mittel, Minimum, Maximum, Summe; abschneiden oder runden) und können das Ergebnis in ein Feld übernehmen.
   Einzelwerte sehen nur, die den Schritt sehen dürfen. Beispiele: Masterprojekt, Bachelor- und Master-Thesis.
+- **Mehrere Vorgänge aus einer Tabelle** (Übersicht → „+ Mehrere aus Tabelle“): Vorlage wählen, Tabelle aus Excel
+  einfügen (erste Zeile Spaltennamen: `Titel`, `E-Mail` und die Angaben der Vorlage; Daten als 31.12.2026). Die Vorschau
+  prüft jede Zeile; angelegt wird erst, wenn alles stimmt. Mit E-Mail-Spalte werden die Personen in eine gewählte Rolle
+  eingeladen. Das Ergebnis steht je Zeile darunter (mit Links), bis man es ausblendet.
 - **Vorlagen-Editor** (Vorlagen → „Ablauf bearbeiten“, für Owner): Rollen, Angaben, Dokumenttypen, Phasen und Schritte als
   Formular – Titel, Typ, zuständige Rolle, „startet nach“, Frist (Tage ab Start oder aus einem Datumsfeld), Dokumenttyp,
   Upload-Einstellungen, Beschreibung; Reihenfolge per ↑/↓. Speichern legt die nächste Version an. Regeln, Formulare,

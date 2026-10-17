@@ -1,6 +1,7 @@
 // Dashboard as a worklist: what needs me first, what is stuck next, everything else findable (search, filters).
 import { change, input, me, on, set, submit, templates } from '../state.js';
 import { api, count, date, due, esc, eur, go, html, page, reload, today, TYPES } from '../lib.js';
+import { bulkForm } from './bulk.js';
 
 // Remembered per device (e.g. workspace "Hochschule" on the office machine); private mode just forgets.
 const remembered = (key, fallback) => { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } };
@@ -83,7 +84,7 @@ export async function dashboardView() {
     <div class="row" style="justify-content:space-between; align-items:flex-start">
       ${me.workspaces.length > 1 ? html`<div class="seg">${[['all', 'Alle'], ...me.workspaces.map(w => [w.id, w.name])].map(([id, label]) =>
         html`<button class="${wsFilter === id ? 'on' : ''}" data-on="ws" data-id="${id}">${label}</button>`)}</div>` : html`<span></span>`}
-      ${newCaseForm(tpls.filter(t => !t.archived_at))}
+      <div class="stack" style="align-items:flex-end">${newCaseForm(tpls.filter(t => !t.archived_at))}${bulkForm(tpls.filter(t => !t.archived_at))}</div>
     </div>
     <section class="stats">
       <div class="${overdue ? 'warn' : ''}"><b>${String(overdue)}</b>überfällig bei Ihnen</div>

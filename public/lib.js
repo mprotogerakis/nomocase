@@ -71,7 +71,8 @@ export const sha256 = async blob => [...new Uint8Array(await crypto.subtle.diges
 
 export const shortHash = h => `${h.slice(0, 8)}…${h.slice(-4)}`;
 
-export async function api(path, { method, body } = {}) {
+// `quiet`: errors are only thrown (with .status), not shown – for callers that collect them (e.g. bulk creation).
+export async function api(path, { method, body, quiet = false } = {}) {
   const isForm = body instanceof FormData;
   // Uploads carry the file's SHA-256 as read here; storage verifies it, so the stored file provably is this one.
   if (isForm && body.get('file')?.size) body.set('sha256', await sha256(body.get('file')));
@@ -82,8 +83,8 @@ export async function api(path, { method, body } = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    alert(data.error ?? `Fehler ${res.status}`);
-    throw Object.assign(new Error(data.error), { shown: true });
+    if (!quiet) alert(data.error ?? `Fehler ${res.status}`);
+    throw Object.assign(new Error(data.error ?? `Fehler ${res.status}`), { shown: !quiet, status: res.status });
   }
   return data;
 }
