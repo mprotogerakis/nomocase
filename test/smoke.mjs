@@ -956,6 +956,19 @@ if (new URL(BASE).hostname === 'localhost') {
   await expect(prof(`/cases/${crowdCase}/comments`, { body: { body: 'An alle.', visible_to: ['*'] } }));
   assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=*/20+*+*+*+*`)).status, 200, 'the 20-minute run too');
   assert.equal(reached('progress_mail_at'), 15, 'everyone got the news');
+  // the digest notes of a step go once it is done (the daily housekeeping); those of open steps stay
+  const notes = taskId => sql(`SELECT COUNT(*) AS n FROM notifications WHERE task_id = '${taskId}'`)[0].n;
+  const [step] = (await expect(prof(`/cases/${crowdCase}`))).tasks;
+  assert.equal(notes(step.id), 15);
+  const mark = new Date().toISOString(); // only notes from before the run (it may add new ones)
+  const others = () => sql(`SELECT COUNT(*) AS n FROM notifications n JOIN tasks t ON t.id = n.task_id JOIN cases c ON c.id = t.case_id
+    WHERE t.status = 'open' AND c.status = 'open' AND t.id <> '${step.id}' AND n.sent_at <= '${mark}'`)[0].n;
+  const before = others();
+  assert.ok(before > 0);
+  await expect(prof(`/tasks/${step.id}/action`, { body: { action: 'complete' } }));
+  assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=0+5+*+*+*`)).status, 200);
+  assert.equal(notes(step.id), 0, 'done step: its notes are gone');
+  assert.equal(others(), before, 'those of open steps stay');
 }
 
 // Praxisprojekt rule: uploading the approval informs the student automatically.

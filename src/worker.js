@@ -156,8 +156,11 @@ export default {
     await step('outbox', () => processOutbox(rq)); // mails with links the provider did not take yet
     if (controller.cron === DAILY_CRON) {
       await step('digests', () => sendDigests(rq));
-      // housekeeping: old mail log, expired sessions, login links and passkey challenges
+      // housekeeping: old mail log, expired sessions, login links and passkey challenges, digest notes of steps that are
+      // no longer open (reopening a step drops its notes anyway, tasks.js) or in a closed case
       await step('housekeeping', () => batch([
+        sql(`DELETE FROM notifications WHERE stage <> 'retention' AND task_id NOT IN
+          (SELECT t.id FROM tasks t JOIN cases c ON c.id = t.case_id WHERE t.status = 'open' AND c.status = 'open')`),
         sql('DELETE FROM mail_log WHERE sent_at < ?', new Date(Date.now() - 3 * 864e5).toISOString()),
         sql('DELETE FROM sessions WHERE expires_at < ?', time),
         sql('DELETE FROM login_links WHERE expires_at < ?', time),
