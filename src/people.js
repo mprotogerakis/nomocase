@@ -1,5 +1,5 @@
 // People: invitations, participants, the admin overview of people.
-import { DB, E, ev, fail, isDate, json, now, q, row, rows, rpId, sha256, token, uid } from './core.js';
+import { DB, E, ev, fail, isDate, json, now, q, row, rows, rpId, sha256, token, uid, wsEv } from './core.js';
 import { caseCtx } from './access.js';
 import { consentStmt, hasConsent, originOf, sessionCookie } from './auth.js';
 import { bulkCap, sendMail } from './notify.js';
@@ -133,6 +133,7 @@ async function acceptWorkspaceInvitation(hash, user, body, url) {
     q('UPDATE workspace_invitations SET accepted_at = ? WHERE token_hash = ?', now(), hash),
     // someone who is in the workspace already keeps their role
     q('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?) ON CONFLICT (workspace_id, user_id) DO NOTHING', ws.workspace_id, userId, ws.role),
+    wsEv(ws.workspace_id, userId, 'member.joined', { member: String(body.name ?? '').trim() || user?.name || ws.email, role: ws.role }),
   ]);
   return json({ workspace_id: ws.workspace_id }, 200, { 'set-cookie': await sessionCookie(userId, url) });
 }

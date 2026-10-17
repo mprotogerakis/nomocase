@@ -1,5 +1,5 @@
 // Templates: definition check, versions, instantiating a case, turning a case back into a template.
-import { ACCESS, arr, DB, DECISIONS, ev, fail, FILE_KINDS, isDate, now, q, row, rows, TASK_TYPES, uid, validFiles } from './core.js';
+import { ACCESS, arr, DB, DECISIONS, ev, fail, FILE_KINDS, isDate, now, q, row, rows, TASK_TYPES, uid, validFiles, wsEv } from './core.js';
 import { caseCtx, requireWsOwner } from './access.js';
 import { RULE_ACTIONS, RULE_OPS, RULE_TRIGGERS } from './rules.js';
 import { scaleProblem } from '../public/shared/assess.js';
@@ -106,6 +106,7 @@ export async function createTemplate({ user, body }) {
   await DB.batch([
     q('INSERT INTO templates (id, workspace_id, name) VALUES (?, ?, ?)', id, body.workspace_id, name),
     versionStmt(id, 1, def, user.id),
+    wsEv(body.workspace_id, user.id, 'template.created', { template: name }),
   ]);
   return { id };
 }
@@ -116,17 +117,18 @@ export async function deleteTemplate({ user, params }) {
   await requireWsOwner(user, t.workspace_id);
   const { n } = await row('SELECT COUNT(*) AS n FROM cases WHERE template_id = ?', t.id);
   if (n) {
-    await q('UPDATE templates SET archived_at = COALESCE(archived_at, ?) WHERE id = ?', now(), t.id).run();
+    await DB.batch([q('UPDATE templates SET archived_at = COALESCE(archived_at, ?) WHERE id = ?', now(), t.id), wsEv(t.workspace_id, user.id, 'template.archived', { template: t.name })]);
     return { archived: true, cases: n };
   }
-  await DB.batch([q('DELETE FROM template_versions WHERE template_id = ?', t.id), q('DELETE FROM templates WHERE id = ?', t.id)]);
+  await DB.batch([q('DELETE FROM template_versions WHERE template_id = ?', t.id), q('DELETE FROM templates WHERE id = ?', t.id),
+    wsEv(t.workspace_id, user.id, 'template.deleted', { template: t.name })]);
   return { deleted: true };
 }
 
 export async function restoreTemplate({ user, params }) {
   const t = (await row('SELECT * FROM templates WHERE id = ?', params.id)) ?? fail(404, 'Vorlage nicht gefunden');
   await requireWsOwner(user, t.workspace_id);
-  await q('UPDATE templates SET archived_at = NULL WHERE id = ?', t.id).run();
+  await DB.batch([q('UPDATE templates SET archived_at = NULL WHERE id = ?', t.id), wsEv(t.workspace_id, user.id, 'template.restored', { template: t.name })]);
 }
 
 export async function addTemplateVersion({ user, params, body }) {
@@ -134,7 +136,7 @@ export async function addTemplateVersion({ user, params, body }) {
   await requireWsOwner(user, t.workspace_id);
   const def = checkDef(body.definition);
   const v = await nextVersion(t.id);
-  await versionStmt(t.id, v, def, user.id).run();
+  await DB.batch([versionStmt(t.id, v, def, user.id), wsEv(t.workspace_id, user.id, 'template.version', { template: t.name, version: v })]);
   return { version: v };
 }
 
@@ -232,13 +234,14 @@ export async function saveAsTemplate({ user, params, body }) {
   if (body.template_id) {
     const t = (await row('SELECT * FROM templates WHERE id = ? AND workspace_id = ?', body.template_id, ctx.c.workspace_id)) ?? fail(404, 'Vorlage nicht gefunden');
     [templateId, name, version] = [t.id, t.name, await nextVersion(t.id)];
-    await versionStmt(t.id, version, def, user.id).run();
+    await DB.batch([versionStmt(t.id, version, def, user.id), wsEv(ctx.c.workspace_id, user.id, 'template.version', { template: name, version })]);
   } else {
     name = String(body.name ?? '').trim().slice(0, 80) || fail(400, 'Name der Vorlage fehlt');
     [templateId, version] = [uid(), 1];
     await DB.batch([
       q('INSERT INTO templates (id, workspace_id, name) VALUES (?, ?, ?)', templateId, ctx.c.workspace_id, name),
       versionStmt(templateId, 1, def, user.id),
+      wsEv(ctx.c.workspace_id, user.id, 'template.created', { template: name }),
     ]);
   }
   await ev(ctx.c.id, user.id, 'case.saved_as_template', { template: name, version }, []).run();

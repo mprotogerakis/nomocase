@@ -67,6 +67,16 @@ function codeOnly(src) {
   }
 }
 
+// "name(…) {" is a method definition, "name(…)" followed by anything else a call (of a global, if name is long).
+function isMethod(code, from) {
+  let i = code.indexOf('(', from), depth = 0;
+  for (; i < code.length; i++) {
+    if (code[i] === '(') depth++;
+    else if (code[i] === ')' && --depth === 0) break;
+  }
+  return /^\s*\{/.test(code.slice(i + 1, i + 20));
+}
+
 let problems = 0;
 for (const entry of ENTRIES) {
   const { outputFiles } = await build({ ...entry, bundle: true, write: false, format: 'esm', minifyIdentifiers: true, logLevel: 'silent', outfile: 'out.js' });
@@ -77,7 +87,7 @@ for (const entry of ENTRIES) {
     if (name.length < 3 || known.has(name)) continue;
     if (/(?<!\.\.)\.\s*$/.test(before) || /\?\.$/.test(before)) continue; // property access (but not spread ...x)
     if (after.startsWith(':') && !after.startsWith('::')) continue; // object key (or label, or a ternary branch – rare)
-    if (/^\(/.test(after) && /(?:[{},;]|\b(?:get|set|static|async))\s*$/.test(code.slice(Math.max(0, m.index - 8), m.index))) continue; // method
+    if (/^\(/.test(after) && isMethod(code, m.index + name.length)) continue; // method shorthand: name(…) {
     unknown.set(name, (unknown.get(name) ?? 0) + 1);
   }
   if (unknown.size) {

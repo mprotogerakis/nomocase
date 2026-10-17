@@ -1,5 +1,5 @@
 // Cases: dashboard, case view, fields, status, comments, phases, subcases, deletion and retention, change stamps.
-import { appVersion, arr, DB, E, ev, fail, isDate, now, q, roleList, row, rows, STAFF, uid } from './core.js';
+import { appVersion, arr, DB, E, ev, fail, isDate, now, q, roleList, row, rows, STAFF, uid, wsEv } from './core.js';
 import { ACCESSIBLE, canSee, canSeeTask, caseCtx, requireWsOwner } from './access.js';
 import { instantiate, latestTemplate } from './templates.js';
 import { markBlocked } from './tasks.js';
@@ -164,6 +164,8 @@ export async function moveCase({ user, params, body }) {
   await DB.batch([
     q('UPDATE cases SET workspace_id = ? WHERE id IN (SELECT value FROM json_each(?))', to.id, JSON.stringify(ids)),
     ...ids.map(id => ev(id, user.id, 'case.moved', { from: from.name, to: to.name }, [])),
+    wsEv(ctx.c.workspace_id, user.id, 'case.moved_out', { case: ctx.c.title, to: to.name, count: ids.length }),
+    wsEv(to.id, user.id, 'case.moved_in', { case: ctx.c.title, from: from.name, count: ids.length }),
   ]);
   // rules start sub-cases from templates by name, looked up in the case's (now new) workspace
   const wanted = [...new Set((ctx.def.rules ?? []).flatMap(r => r.actions).filter(a => a.type === 'create_subcase').map(a => a.template))];

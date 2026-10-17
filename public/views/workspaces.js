@@ -1,6 +1,6 @@
 // Workspaces: create and rename them, members with their role, invitations, deleting an empty workspace.
 import { change, me, on, submit } from '../state.js';
-import { api, count, date, go, html, page, reload } from '../lib.js';
+import { api, count, date, dateTime, esc, go, html, page, reload } from '../lib.js';
 
 const ROLES = [['member', 'Mitglied'], ['owner', 'Owner']];
 const roleSelect = (name, selected, attrs = '') => html`<select name="${name}" ${attrs}>${ROLES.map(([k, label]) =>
@@ -39,6 +39,7 @@ function workspaceCard(w) {
         <button>Speichern</button>
         ${w.has_logo ? html`<span class="muted">Logo hinterlegt · <button type="button" class="link" data-on="wsLogoRemove" data-id="${w.id}">entfernen</button></span>` : ''}
       </form>
+      <details><summary data-on="wsLog" data-id="${w.id}">Änderungsprotokoll</summary><ul class="list small" id="wslog-${w.id}"><li class="muted">wird geladen …</li></ul></details>
       <h3>Vertrauenswürdige Aussteller</h3>
       <p class="muted small">Signaturen mit Zertifikaten dieser Aussteller (z. B. der CA Ihres Lehrstuhls) gelten als identifiziert,
         ohne dass jemand sie erst zuordnen muss.</p>
@@ -100,6 +101,37 @@ submit.wsIssuer = async (fd, form) => {
   alert(`„${name}“ ist jetzt ein vertrauenswürdiger Aussteller.`);
   reload();
 };
+// What happened to the workspace, in words (owners see it; loaded when opened).
+const ROLE = r => ROLES.find(x => x[0] === r)?.[1] ?? r;
+const WS_EVENTS = {
+  'workspace.created': p => `hat den Workspace „${p.name}“ angelegt`,
+  'workspace.renamed': p => `hat den Workspace von „${p.from}“ in „${p.to}“ umbenannt`,
+  'workspace.look': p => `hat das Erscheinungsbild der Formulare geändert (${[p.logo && `Logo ${p.logo}`, 'accent' in p && `Farbe ${p.accent ?? 'Standard'}`].filter(Boolean).join(', ')})`,
+  'member.invited': p => `hat ${p.email} als ${ROLE(p.role)} eingeladen`,
+  'member.withdrawn': p => `hat die Einladung an ${p.email} zurückgezogen`,
+  'member.joined': p => `ist als ${ROLE(p.role)} beigetreten`,
+  'member.role': p => `hat ${p.member} die Rolle ${ROLE(p.role)} gegeben`,
+  'member.removed': p => `hat ${p.member} aus dem Workspace entfernt`,
+  'member.left': () => 'hat den Workspace verlassen',
+  'issuer.added': p => `vertraut jetzt dem Aussteller „${p.issuer}“`,
+  'issuer.removed': p => `hat den Aussteller „${p.issuer}“ entfernt`,
+  'template.created': p => `hat die Vorlage „${p.template}“ angelegt`,
+  'template.version': p => `hat „${p.template}“ als Version ${p.version} gespeichert`,
+  'template.archived': p => `hat die Vorlage „${p.template}“ archiviert`,
+  'template.deleted': p => `hat die Vorlage „${p.template}“ gelöscht`,
+  'template.restored': p => `hat die Vorlage „${p.template}“ wiederhergestellt`,
+  'case.moved_in': p => `hat den Vorgang „${p.case}“ aus „${p.from}“ hierher verschoben${p.count > 1 ? ` (mit ${p.count - 1} Teilvorgängen)` : ''}`,
+  'case.moved_out': p => `hat den Vorgang „${p.case}“ nach „${p.to}“ verschoben${p.count > 1 ? ` (mit ${p.count - 1} Teilvorgängen)` : ''}`,
+};
+on.wsLog = async ({ id }) => {
+  const list = document.getElementById(`wslog-${id}`);
+  if (list.dataset.loaded) return;
+  const log = await api(`/workspaces/${id}/log`);
+  list.innerHTML = esc(log.length ? html`${log.map(e => html`<li><span class="muted">${dateTime(e.created_at)}</span> <b>${e.actor ?? 'ehemaliges Konto'}</b>
+    ${WS_EVENTS[e.type]?.(e.payload) ?? e.type}</li>`)}` : html`<li class="muted">Noch keine Einträge.</li>`);
+  list.dataset.loaded = '1';
+};
+
 const dataUrl = file => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => no(r.error); r.readAsDataURL(file); });
 submit.wsBranding = async (fd, form) => {
   const logo = fd.get('logo');

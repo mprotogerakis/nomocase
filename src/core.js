@@ -42,6 +42,10 @@ export const row = (sql, ...args) => q(sql, ...args).first();
 
 export const rows = async (sql, ...args) => (await q(sql, ...args).all()).results;
 
+// The workspace's own log (owners): members, roles, invitations, look, issuers, templates, moved cases.
+export const wsEv = (workspaceId, actorId, type, payload = {}) =>
+  q('INSERT INTO workspace_events (workspace_id, actor_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?)', workspaceId, actorId, type, JSON.stringify(payload), now());
+
 export const ev = (caseId, actorId, type, payload, visibleTo = []) =>
   q('INSERT INTO events (case_id, actor_id, type, payload, visible_to, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     caseId, actorId, type, JSON.stringify(payload), JSON.stringify(visibleTo), now());

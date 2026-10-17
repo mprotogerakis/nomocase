@@ -1,7 +1,7 @@
 // Workspaces: create, rename and delete them, manage members (owner or member) and invitations into a workspace.
 // Owners see every case of the workspace and manage its templates; members create cases from its templates and see
 // the cases they take part in. A workspace always keeps at least one owner.
-import { DB, E, fail, now, q, row, rows, rpId, sha256, token, uid } from './core.js';
+import { DB, E, fail, now, q, row, rows, rpId, sha256, token, uid, wsEv } from './core.js';
 import { requireWsOwner } from './access.js';
 import { originOf } from './auth.js';
 import { sendMail } from './notify.js';
@@ -58,7 +58,17 @@ export async function setBranding({ user, params, body }) {
     set.logo = body.logo || null;
   }
   const keys = Object.keys(set);
-  if (keys.length) await q(`UPDATE workspaces SET ${keys.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, ...Object.values(set), params.id).run();
+  if (keys.length) {
+    await DB.batch([q(`UPDATE workspaces SET ${keys.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, ...Object.values(set), params.id),
+      wsEv(params.id, user.id, 'workspace.look', { ...('accent' in set && { accent: set.accent }), ...('logo' in set && { logo: set.logo ? 'neu' : 'entfernt' }) })]);
+  }
+}
+
+// The workspace's log, newest first (owners only).
+export async function workspaceLog({ user, params }) {
+  await requireWsOwner(user, params.id);
+  return (await rows(`SELECT e.id, e.type, e.payload, e.created_at, u.name AS actor FROM workspace_events e LEFT JOIN users u ON u.id = e.actor_id
+    WHERE e.workspace_id = ? ORDER BY e.id DESC LIMIT 200`, params.id)).map(e => ({ ...e, payload: JSON.parse(e.payload) }));
 }
 
 // New workspaces come from people who already own one (no self-service for guests).
@@ -68,13 +78,16 @@ export async function createWorkspace({ user, body }) {
   await DB.batch([
     q('INSERT INTO workspaces (id, name) VALUES (?, ?)', id, checkName(body.name)),
     q("INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, 'owner')", id, user.id),
+    wsEv(id, user.id, 'workspace.created', { name: checkName(body.name) }),
   ]);
   return { id };
 }
 
 export async function renameWorkspace({ user, params, body }) {
   await requireWsOwner(user, params.id);
-  await q('UPDATE workspaces SET name = ? WHERE id = ?', checkName(body.name), params.id).run();
+  const { name } = await row('SELECT name FROM workspaces WHERE id = ?', params.id);
+  await DB.batch([q('UPDATE workspaces SET name = ? WHERE id = ?', checkName(body.name), params.id),
+    wsEv(params.id, user.id, 'workspace.renamed', { from: name, to: checkName(body.name) })]);
 }
 
 // Only without cases (deleted cases leave just a tombstone): its templates go along.
@@ -87,6 +100,7 @@ export async function deleteWorkspace({ user, params }) {
     q('DELETE FROM workspace_invitations WHERE workspace_id = ?', params.id),
     q('DELETE FROM trusted_issuers WHERE workspace_id = ?', params.id),
     q('DELETE FROM workspace_members WHERE workspace_id = ?', params.id),
+    q('DELETE FROM workspace_events WHERE workspace_id = ?', params.id),
     q('DELETE FROM workspaces WHERE id = ?', params.id),
   ]);
 }
@@ -94,17 +108,21 @@ export async function deleteWorkspace({ user, params }) {
 export async function setMemberRole({ user, params, body }) {
   await requireWsOwner(user, params.id);
   const role = checkRole(body.role);
-  const m = (await row('SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?', params.id, params.userId)) ?? fail(404, 'Kein Mitglied');
+  const m = (await row('SELECT m.role, u.name FROM workspace_members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ? AND m.user_id = ?', params.id, params.userId))
+    ?? fail(404, 'Kein Mitglied');
   if (m.role === 'owner' && role !== 'owner' && (await owners(params.id)) === 1) fail(409, 'Ein Workspace braucht mindestens einen Owner.');
-  await q('UPDATE workspace_members SET role = ? WHERE workspace_id = ? AND user_id = ?', role, params.id, params.userId).run();
+  await DB.batch([q('UPDATE workspace_members SET role = ? WHERE workspace_id = ? AND user_id = ?', role, params.id, params.userId),
+    wsEv(params.id, user.id, 'member.role', { member: m.name, role })]);
 }
 
 // Leaves the person's part in single cases untouched: those are ended per case.
 export async function removeMember({ user, params }) {
   await requireWsOwner(user, params.id);
-  const m = (await row('SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?', params.id, params.userId)) ?? fail(404, 'Kein Mitglied');
+  const m = (await row('SELECT m.role, u.name FROM workspace_members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ? AND m.user_id = ?', params.id, params.userId))
+    ?? fail(404, 'Kein Mitglied');
   if (m.role === 'owner' && (await owners(params.id)) === 1) fail(409, 'Ein Workspace braucht mindestens einen Owner.');
-  await q('DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?', params.id, params.userId).run();
+  await DB.batch([q('DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?', params.id, params.userId),
+    wsEv(params.id, user.id, params.userId === user.id ? 'member.left' : 'member.removed', { member: m.name })]);
 }
 
 export async function inviteToWorkspace({ user, params, body, url }) {
@@ -126,6 +144,7 @@ export async function inviteToWorkspace({ user, params, body, url }) {
     q('UPDATE workspace_invitations SET revoked_at = ? WHERE workspace_id = ? AND email = ? AND accepted_at IS NULL AND revoked_at IS NULL', now(), params.id, email),
     q('INSERT INTO workspace_invitations (token_hash, workspace_id, email, role, expires_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       await sha256(t), params.id, email, role, new Date(Date.now() + 14 * 864e5).toISOString(), user.id, now()),
+    wsEv(params.id, user.id, 'member.invited', { email, role }),
   ]);
   const link = `${originOf(url)}/#/invite/${t}`;
   const sent = await sendMail(email, `Einladung in den Workspace „${ws.name}“`, [
@@ -143,9 +162,11 @@ export async function inviteToWorkspace({ user, params, body, url }) {
 
 export async function withdrawWorkspaceInvitation({ user, params }) {
   await requireWsOwner(user, params.id);
+  const email = decodeURIComponent(params.email).toLowerCase();
   const { meta } = await q('UPDATE workspace_invitations SET revoked_at = ? WHERE workspace_id = ? AND email = ? AND accepted_at IS NULL AND revoked_at IS NULL',
-    now(), params.id, decodeURIComponent(params.email).toLowerCase()).run();
+    now(), params.id, email).run();
   if (!meta.changes) fail(404, 'Keine offene Einladung an diese Adresse');
+  await wsEv(params.id, user.id, 'member.withdrawn', { email }).run();
 }
 
 // Looked up by the shared invitation page (people.js) when the token is not a case invitation.

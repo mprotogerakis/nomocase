@@ -120,6 +120,8 @@ Wie NomoCase arbeitet, Teil für Teil. Überblick und Einstieg: [README](../READ
 - **Workspaces** (Menü): Owner legen Workspaces an, benennen sie um, laden Kolleg:innen als Owner oder Mitglied ein
   (gleicher Link-Ablauf wie bei Vorgängen) und löschen leere Workspaces. Owner sehen alle Vorgänge und pflegen Vorlagen,
   Mitglieder legen aus den Vorlagen Vorgänge an und sehen ihre eigenen. Externe werden weiter pro Vorgang eingeladen.
+  Ein Änderungsprotokoll je Workspace (für Owner) nennt, wer wann Name, Mitglieder und Rollen, Einladungen, Logo und Farbe,
+  vertrauenswürdige Aussteller und Vorlagen geändert oder Vorgänge hinein- oder hinausverschoben hat.
 - **Personen** (Menü, nur Workspace-Owner): alle Konten in den eigenen Workspaces und deren Vorgängen, auch frühere, mit
   Passkey-Status, letzter Anmeldung, Mail-Einstellungen, Plätzen je Vorgang, offenen Einladungen und dem Mail-Kontingent von heute.
 - **Angaben bearbeiten** (rechte Spalte, „bearbeiten“; nur Team): Ändert sich ein Datumsfeld, wandern offene Aufgaben mit,

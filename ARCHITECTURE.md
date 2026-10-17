@@ -140,4 +140,5 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   oder fester Text, Zuordnung zum Schritt, Vorschau); als JSON bleiben nur Bewertung (`scales`/`aggregates`) und Geld
 - ~~Dokumente in mehreren Vorgängen~~ – nicht gewünscht (17.10.); gebraucht wird das Verschieben ganzer Vorgänge (umgesetzt)
 - [x] Prüfung auf freie Variablen (fehlende Importe) in `npm run check` (`scripts/freevars.mjs`); esbuild meldet sie nicht
-- [ ] Workspace-Änderungen (Mitglieder, Name) protokollieren; das Ereignisprotokoll kennt bisher nur Vorgänge
+- [x] Workspace-Änderungen protokollieren (`workspace_events`, nur ergänzbar): Name, Mitglieder, Rollen, Einladungen,
+  Erscheinungsbild, Aussteller, Vorlagen, verschobene Vorgänge; für Owner auf der Workspace-Seite

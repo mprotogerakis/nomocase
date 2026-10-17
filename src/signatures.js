@@ -1,7 +1,7 @@
 // Signatures in documents: which person a signing key belongs to (confirmed on first contact, optionally vouched for by
 // the team), which issuers a workspace trusts, and what that means for each signature shown in a case. Recognition, not
 // legal validation: a known key proves "the same signer as before", a trusted issuer "identified by that issuer".
-import { DB, ev, fail, now, q, row, rows } from './core.js';
+import { DB, ev, fail, now, q, row, rows, wsEv } from './core.js';
 import { canSee, caseCtx, requireWsOwner } from './access.js';
 import { parseCertificate, readSignatures, trustedIssuer } from './pdfsig.js';
 import { readUpload } from './documents.js';
@@ -129,14 +129,18 @@ export async function addTrustedIssuer({ user, params, body }) {
   let cert;
   try { cert = parseCertificate(der(b64)); } catch { fail(400, 'Das ist kein lesbares Zertifikat (PEM oder DER).'); }
   const fingerprint = [...new Uint8Array(await crypto.subtle.digest('SHA-256', cert.spki))].map(x => x.toString(16).padStart(2, '0')).join('');
-  await q(`INSERT INTO trusted_issuers (workspace_id, fingerprint, name, certificate, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT (workspace_id, fingerprint) DO NOTHING`, params.id, fingerprint, cert.subject.cn ?? cert.subject.o ?? 'Aussteller', b64, user.id, now()).run();
+  await DB.batch([q(`INSERT INTO trusted_issuers (workspace_id, fingerprint, name, certificate, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT (workspace_id, fingerprint) DO NOTHING`, params.id, fingerprint, cert.subject.cn ?? cert.subject.o ?? 'Aussteller', b64, user.id, now()),
+    wsEv(params.id, user.id, 'issuer.added', { issuer: cert.subject.cn ?? cert.subject.o ?? 'Aussteller' })]);
   return { name: cert.subject.cn ?? cert.subject.o, fingerprint };
 }
 
 export async function removeTrustedIssuer({ user, params }) {
   await requireWsOwner(user, params.id);
-  await q('DELETE FROM trusted_issuers WHERE workspace_id = ? AND fingerprint = ?', params.id, params.fp).run();
+  const issuer = await row('SELECT name FROM trusted_issuers WHERE workspace_id = ? AND fingerprint = ?', params.id, params.fp);
+  if (!issuer) return;
+  await DB.batch([q('DELETE FROM trusted_issuers WHERE workspace_id = ? AND fingerprint = ?', params.id, params.fp),
+    wsEv(params.id, user.id, 'issuer.removed', { issuer: issuer.name })]);
 }
 
 export const trustedIssuersOf = wsIds => rows(`SELECT workspace_id, fingerprint, name, added_at FROM trusted_issuers

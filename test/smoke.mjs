@@ -115,6 +115,7 @@ const wsInvite2 = await expect(prof(`/workspaces/${wsId}/invitations`, { body: {
 assert.equal((await expect(colleague(`/invitations/${tokenOf(wsInvite2.link)}`))).kind, 'workspace');
 await expect(colleague('/invitations/accept', { body: { consent: true, token: tokenOf(wsInvite2.link), name: 'Kollegin' } }));
 assert.deepEqual((await expect(colleague('/me'))).workspaces.map(w => [w.id, w.role]), [[wsId, 'member']]);
+await expect(colleague(`/workspaces/${wsId}/log`), 403); // the log is for owners
 const { id: colleagueCase } = await expect(colleague('/cases', { body: { template_id: wsTpl, title: 'Fall der Kollegin' } }));
 await expect(colleague(`/templates/${wsTpl}/versions`, { body: { definition: { roles: [{ key: 'owner', label: 'V', access: 'case_owner' }], phases: [] } } }), 403);
 assert.ok((await expect(prof('/dashboard'))).cases.some(c => c.id === colleagueCase), 'owners see every case of the workspace');
@@ -144,6 +145,13 @@ await expect(prof(`/workspaces/${wsId}`, { method: 'DELETE' }), 409); // still h
 await expect(prof(`/cases/${colleagueCase}`, { method: 'DELETE' }));
 await expect(prof(`/workspaces/${wsId}/members/${(await expect(colleague('/me'))).user.id}`, { method: 'DELETE' }));
 assert.deepEqual((await expect(colleague('/me'))).workspaces, []);
+// The workspace's own log: who changed what, newest first
+const wsLog = await expect(prof(`/workspaces/${wsId}/log`));
+for (const type of ['workspace.created', 'workspace.renamed', 'member.invited', 'member.joined', 'workspace.look', 'member.withdrawn', 'member.removed']) {
+  assert.ok(wsLog.some(e => e.type === type), `log has ${type}`);
+}
+assert.equal(wsLog[0].type, 'member.removed', 'newest first');
+assert.deepEqual(wsLog.find(e => e.type === 'workspace.renamed').payload, { from: `Lehrstuhl ${run}`, to: `Lehrstuhl EI ${run}` });
 await expect(prof(`/workspaces/${wsId}`, { method: 'DELETE' }));
 assert.ok(!(await expect(prof('/templates'))).some(t => t.id === wsTpl), 'templates go with the workspace');
 

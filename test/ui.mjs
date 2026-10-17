@@ -369,6 +369,8 @@ try {
   await waitFor(has(`kollege.${run}@example.org`), 'Einladung in der Liste');
   await submit('wsRename', { name: `UI-WS umbenannt ${run}` }, ws.id);
   await waitFor(has(`UI-WS umbenannt ${run}`), 'umbenannt');
+  await b.click(`[data-on="wsLog"][data-id="${ws.id}"]`);
+  await waitFor(`document.getElementById('wslog-${ws.id}')?.textContent.includes('umbenannt')`, 'Änderungsprotokoll');
   await b.click(`[data-on="wsDelete"][data-id="${ws.id}"]`);
   await waitFor(`!${has(`UI-WS umbenannt ${run}`)}`, 'Workspace gelöscht');
 
