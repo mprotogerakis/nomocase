@@ -984,8 +984,10 @@ if (new URL(BASE).hostname === 'localhost') {
   const waiting = (await expect(prof('/people'))).stats;
   assert.deepEqual([waiting.mails_pending, waiting.mails_today], [1, settled.mails_today]);
   sql(`DELETE FROM bulk_outbox WHERE id = 'waiting-${run}'`);
-  sql(`UPDATE mail_log SET ok = 0, error = 'keine Antwort des Anbieters, Zustellung ungeklärt' WHERE id = ${reserved}`); // settled as unclear
-  assert.equal((await expect(prof('/people'))).stats.last_error, 'Zustellung ungeklärt', 'the operator learns it may or may not have gone out');
+  // settled as unclear, logged at the day it was first tried: counted on its own (not as failed), also the next day
+  sql(`UPDATE mail_log SET ok = 0, error = 'keine Antwort des Anbieters, Zustellung ungeklärt', sent_at = '${new Date(Date.now() - 864e5).toISOString()}' WHERE id = ${reserved}`);
+  const unclear = (await expect(prof('/people'))).stats;
+  assert.deepEqual([unclear.mails_unclear, unclear.mails_failed], [1, settled.mails_failed], 'maybe sent, maybe not: not counted as failed');
   // the digest notes of a step go once it is done (the daily housekeeping); those of open steps stay
   const notes = taskId => sql(`SELECT COUNT(*) AS n FROM notifications WHERE task_id = '${taskId}'`)[0].n;
   const [step] = (await expect(prof(`/cases/${crowdCase}`))).tasks;

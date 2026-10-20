@@ -447,8 +447,11 @@ try {
     ('*/20 * * * *', '${new Date(Date.now() - 2 * 36e5).toISOString()}', '[]')`);
   sql(`INSERT INTO bulk_outbox (id, mails, next_attempt_at, created_at) VALUES ('ui-waiting', '[{"to":"x@example.org"},{"to":"y@example.org"}]',
     '2999-01-01T00:00:00.000Z', '${new Date().toISOString()}')`);
+  sql(`INSERT INTO mail_log (bulk, sent_at, ok, error) VALUES (1, '${new Date().toISOString()}', 0, 'keine Antwort des Anbieters, Zustellung ungeklärt')`);
   await go('#/people', has(guestEmail));
   assert.ok(await evaluate(has('2 Sammelmails warten seit')), 'mails still waiting for the provider are shown as such');
+  assert.ok(await evaluate(has('1 Sammelmail der letzten Tage mit ungeklärter Zustellung')), 'an unclear delivery is named as such, not as not sent');
+  assert.ok(!(await evaluate(has('nicht verschickt'))), 'and not counted as not sent');
   assert.ok(await evaluate(has('Tagesübersicht, Dateien aufräumen fehlgeschlagen')), 'failed steps named');
   assert.ok(await evaluate(has('Der Hintergrundlauf alle 20 Minuten kam zuletzt')), 'a missing run is noticed');
   await evaluate(`(() => { const s = document.querySelector('[data-input="peopleSearch"]'); s.value = 'prof@example.org'; s.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);

@@ -2,7 +2,7 @@
 import { fail, isDate, json, sha256, token, uid } from './core.js';
 import { caseCtx } from './access.js';
 import { consentStmt, hasConsent, originOf, sessionCookie } from './auth.js';
-import { bulkCap, checkSenderCap, DAILY_CRON, mailAnswer, outboxStmt, sendFromOutbox } from './notify.js';
+import { bulkCap, checkSenderCap, DAILY_CRON, mailAnswer, outboxStmt, sendFromOutbox, UNCLEAR } from './notify.js';
 import { workspaceInvitation, WORKSPACE_ROLES } from './workspaces.js';
 import { CONSENT_VERSION } from '../public/shared/consent.js';
 
@@ -200,14 +200,15 @@ export async function peopleOverview(rq) {
       FROM invitations i JOIN cases c ON c.id = i.case_id
       WHERE c.workspace_id ${IN_WS} AND i.accepted_at IS NULL ORDER BY expired, i.created_at DESC`, ws, time),
     row(`SELECT SUM(status = 'open') AS open, SUM(status = 'closed') AS closed FROM cases WHERE workspace_id ${IN_WS}`, ws),
-    // sent: taken by the provider – not digest or progress mails still waiting for its answer (counted for the cap, no status yet)
-    row(`SELECT SUM(ok = 1 AND (bulk = 0 OR status IS NOT NULL)) AS total, COALESCE(SUM(bulk * ok), 0) AS bulk, SUM(1 - ok) AS failed,
+    // sent: taken by the provider – not digest or progress mails still waiting for its answer (counted for the cap, no status
+    // yet); failed: not sent for sure. Unclear (no answer within the key's lifetime: maybe sent, maybe not) on their own, over
+    // the days the log keeps, since such a mail is logged at the day it was first tried.
+    row(`SELECT SUM(ok = 1 AND (bulk = 0 OR status IS NOT NULL)) AS total, COALESCE(SUM(bulk * ok), 0) AS bulk, SUM(ok = 0 AND error IS NOT ?2) AS failed,
       -- the provider's error text can name recipients of other workspaces: only the status here (details: test mail)
-      -- (our own note for a digest without any answer within its key's lifetime: it may or may not have gone out)
-      (SELECT COALESCE('Status ' || status, CASE WHEN error LIKE '%ungeklärt' THEN 'Zustellung ungeklärt' ELSE 'ohne Antwort' END)
-        FROM mail_log WHERE ok = 0 ORDER BY id DESC LIMIT 1) AS last_error,
-      (SELECT sent_at FROM mail_log WHERE ok = 0 ORDER BY id DESC LIMIT 1) AS last_error_at
-      FROM mail_log WHERE sent_at >= ?`, time.slice(0, 10)),
+      (SELECT COALESCE('Status ' || status, 'ohne Antwort') FROM mail_log WHERE ok = 0 AND error IS NOT ?2 ORDER BY id DESC LIMIT 1) AS last_error,
+      (SELECT sent_at FROM mail_log WHERE ok = 0 AND error IS NOT ?2 ORDER BY id DESC LIMIT 1) AS last_error_at,
+      (SELECT COUNT(*) FROM mail_log WHERE error = ?2) AS unclear
+      FROM mail_log WHERE sent_at >= ?1`, time.slice(0, 10), UNCLEAR),
     operator ? rows('SELECT cron, ran_at, failed FROM cron_runs') : [],
     operator ? row('SELECT COALESCE(SUM(json_array_length(mails)), 0) AS mails, MIN(created_at) AS since FROM bulk_outbox') : null,
   ]);
@@ -221,7 +222,7 @@ export async function peopleOverview(rq) {
     stats: { cases_open: cases.open ?? 0, cases_closed: cases.closed ?? 0,
       // the mail log is not per workspace: only who owns every workspace (in practice the operator) sees its numbers
       ...(operator && { mails_today: mails.total ?? 0, bulk_today: mails.bulk, bulk_cap: bulkCap(rq), mails_failed: mails.failed ?? 0,
-        last_error: mails.last_error, last_error_at: mails.last_error_at, mails_pending: pending.mails, pending_since: pending.since,
+        last_error: mails.last_error, last_error_at: mails.last_error_at, mails_pending: pending.mails, pending_since: pending.since, mails_unclear: mails.unclear,
         // each schedule's last run, null for one that never ran (a missing trigger must not go unnoticed)
         cron: Object.fromEntries([['daily', r => r.cron === DAILY_CRON], ['frequent', r => r.cron !== DAILY_CRON]].map(([k, is]) => {
           const r = cronRuns.find(is);

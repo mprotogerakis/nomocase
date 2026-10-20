@@ -98,6 +98,8 @@ async function devProvider(rq, to, outboxId) {
 const BATCH_MAX = 100;
 const BULK_RETRY_MINUTES = [1, 5, 15, 60, 240]; // then every 240 minutes
 const BULK_KEY_HOURS = 23; // the last attempt still inside the provider's 24 hours for a key
+// The log's note for such a mail: neither sent nor refused for sure (the people page counts these on their own).
+export const UNCLEAR = 'keine Antwort des Anbieters, Zustellung ungeklärt';
 const later = (time, minutes) => new Date(Date.parse(time) + minutes * 60e3).toISOString();
 
 // How a mail's marks are taken back when it was not sent – only where no later run has moved them on since.
@@ -142,7 +144,7 @@ async function settleBulk(rq, r) {
     await sql('UPDATE bulk_outbox SET attempts = ?, next_attempt_at = ? WHERE id = ?', attempts, next, r.id).run();
     return r.mails.map(() => null);
   }
-  const results = answer ?? r.mails.map(() => ({ ok: false, error: 'keine Antwort des Anbieters, Zustellung ungeklärt' }));
+  const results = answer ?? r.mails.map(() => ({ ok: false, error: UNCLEAR }));
   await batch([
     sql(`UPDATE mail_log SET ok = json_extract(x.value, '$.ok'), status = json_extract(x.value, '$.status'), error = json_extract(x.value, '$.error')
       FROM json_each(?) x WHERE mail_log.id = json_extract(x.value, '$.id')`,
