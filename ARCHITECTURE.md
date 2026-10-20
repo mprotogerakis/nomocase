@@ -131,8 +131,10 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   selbst verantwortet; alle anderen (verschobene, fremde, bei Aufbewahrung alle) bleiben als eigene Vorgänge. Sammelmails
   gehen genau einmal: Vermerke und der fertige Batch-Request (`bulk_outbox`, Migration 0047) werden vor dem Versand in
   einer Transaktion gespeichert; ohne Antwort oder nach einem Abbruch schickt der Cron denselben Request mit demselben
-  Idempotency-Key noch einmal (1/5/15/60 min, dann alle 4 h, bis 23 h – solange Resend den Key kennt); nur Ablehnungen
-  nehmen die Vermerke zurück. Unbeantwortete zählen auf „Personen“ nicht als verschickt, sondern als wartend. Eine
+  Idempotency-Key noch einmal (1/5/15/60 min, dann alle 4 h, bis 23 h – solange Resend den Key kennt; danach, auch nach
+  einem langen Cron-Ausfall, kein Versuch mehr). Nur klare Ablehnungen nehmen die Vermerke zurück; ohne jede Antwort
+  bleiben sie („Zustellung ungeklärt“: eine Mail kann fehlen, kommt aber nie doppelt). Unbeantwortete zählen auf
+  „Personen“ nicht als verschickt, sondern als wartend. Eine
   abgelaufene Sitzung zeigt ein Banner statt eines Dialogs je Abfrage; 401 heißt für angemeldete Seiten nur noch das
 - [x] Aufräumen alter Benachrichtigungen: das tägliche Aufräumen löscht Vermerke zu Schritten, die nicht mehr offen
   sind oder in geschlossenen Vorgängen liegen (Wiederöffnen löscht sie ohnehin); so bleibt die Tabelle so groß wie

@@ -112,7 +112,7 @@ await processOutbox(rq());
 assert.deepEqual([requests[1].key, pending()], [requests[0].key, []]);
 
 // no answer, ever: after 1, 5, 15, 60 minutes every 240, always with the same key, as long as the key holds (24 hours);
-// only then it counts as not sent
+// then it is settled as unclear – the mark stays: a mail may be missing, but never comes twice
 logged = day();
 answer = silence;
 ctx = rq();
@@ -130,8 +130,19 @@ firstTried(20);
 due();
 await processOutbox(rq());
 assert.equal(new Set(requests.map(r => r.key)).size, 1, 'every attempt with the same key');
-assert.deepEqual([requests.length, pending(), marked()], [8, [], []], 'the key would run out: given up, the mark taken back, the next run tries anew');
-assert.deepEqual(logged().map(r => [r.ok, r.error]), [[0, 'keine Antwort des Anbieters']]);
+assert.deepEqual([requests.length, pending(), marked()], [8, [], ['a@example.org']], 'the key would run out: settled, the mark kept (no second mail)');
+assert.deepEqual(logged().map(r => [r.ok, r.error]), [[0, 'keine Antwort des Anbieters, Zustellung ungeklärt']], 'logged as unclear, for the operator');
+
+// a cron outage longer than the key: the request is not sent again with the expired key (checked before sending)
+day();
+answer = silence;
+ctx = rq();
+await sendBulk(ctx, progress(ctx, 'a@example.org'));
+firstTried(25);
+due();
+answer = accept;
+await processOutbox(rq());
+assert.deepEqual([requests.length, pending(), marked()], [1, [], ['a@example.org']], 'no request with an expired key; settled as unclear');
 
 // the daily cap: 79 of 80 gone today, room for one
 day(79);

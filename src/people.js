@@ -203,7 +203,9 @@ export async function peopleOverview(rq) {
     // sent: taken by the provider – not digest or progress mails still waiting for its answer (counted for the cap, no status yet)
     row(`SELECT SUM(ok = 1 AND (bulk = 0 OR status IS NOT NULL)) AS total, COALESCE(SUM(bulk * ok), 0) AS bulk, SUM(1 - ok) AS failed,
       -- the provider's error text can name recipients of other workspaces: only the status here (details: test mail)
-      (SELECT COALESCE('Status ' || status, 'ohne Antwort') FROM mail_log WHERE ok = 0 ORDER BY id DESC LIMIT 1) AS last_error,
+      -- (our own note for a digest without any answer within its key's lifetime: it may or may not have gone out)
+      (SELECT COALESCE('Status ' || status, CASE WHEN error LIKE '%ungeklärt' THEN 'Zustellung ungeklärt' ELSE 'ohne Antwort' END)
+        FROM mail_log WHERE ok = 0 ORDER BY id DESC LIMIT 1) AS last_error,
       (SELECT sent_at FROM mail_log WHERE ok = 0 ORDER BY id DESC LIMIT 1) AS last_error_at
       FROM mail_log WHERE sent_at >= ?`, time.slice(0, 10)),
     operator ? rows('SELECT cron, ran_at, failed FROM cron_runs') : [],

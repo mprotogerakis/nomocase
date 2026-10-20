@@ -91,8 +91,9 @@ async function devProvider(rq, to, outboxId) {
 //   provider's answer settles it – taken, or refused: then the mail's marks are taken back (`undo`) and the next
 //   regular run tries again. No answer (timeout, lost connection, 5xx, 429) or a run that stops on the way: the cron
 //   sends the same request with the same key again (processOutbox), and the provider, which keeps keys for 24 hours,
-//   sends nothing twice. It keeps trying for nearly a day, as long as the key holds; only a request that got no answer
-//   at all in that time is taken back as not sent (then the next regular run sends it with a new key).
+//   sends nothing twice. It keeps trying for nearly a day, as long as the key holds. A request that got no answer at
+//   all in that time may or may not have gone out: its marks stay – a mail may then be missing, but never comes twice –
+//   and the log says so (the people page shows it). Only a clear refusal takes marks back.
 // mails: [{ to, subject, paragraphs, mark: [statements], undo: { kind, … } }] → [true | false | null (no answer yet), …]
 const BATCH_MAX = 100;
 const BULK_RETRY_MINUTES = [1, 5, 15, 60, 240]; // then every 240 minutes
@@ -130,21 +131,23 @@ export async function sendBulk(rq, mails) {
 }
 
 // One attempt for a stored request: an answer settles it (results logged, refused mails' marks taken back, the request
-// gone); no answer leaves it due again, with the same key – until its key would run out: then it counts as not sent.
+// gone); no answer leaves it due again, with the same key – while the key holds. Past that (also after a long cron
+// outage, checked before sending: an expired key no longer protects) it is settled as unclear, its marks kept.
 async function settleBulk(rq, r) {
   const { sql, batch, time } = rq;
-  const answer = await bulkRequest(rq, r.id, r.mails), attempts = r.attempts + 1;
+  const until = Date.parse(r.created_at) + BULK_KEY_HOURS * 36e5, holds = Date.parse(time) < until;
+  const answer = holds ? await bulkRequest(rq, r.id, r.mails) : null, attempts = r.attempts + 1;
   const next = later(time, BULK_RETRY_MINUTES[Math.min(attempts, BULK_RETRY_MINUTES.length) - 1]);
-  if (!answer && Date.parse(next) < Date.parse(r.created_at) + BULK_KEY_HOURS * 36e5) {
+  if (!answer && holds && Date.parse(next) < until) {
     await sql('UPDATE bulk_outbox SET attempts = ?, next_attempt_at = ? WHERE id = ?', attempts, next, r.id).run();
     return r.mails.map(() => null);
   }
-  const results = answer ?? r.mails.map(() => ({ ok: false, error: 'keine Antwort des Anbieters' }));
+  const results = answer ?? r.mails.map(() => ({ ok: false, error: 'keine Antwort des Anbieters, Zustellung ungeklärt' }));
   await batch([
     sql(`UPDATE mail_log SET ok = json_extract(x.value, '$.ok'), status = json_extract(x.value, '$.status'), error = json_extract(x.value, '$.error')
       FROM json_each(?) x WHERE mail_log.id = json_extract(x.value, '$.id')`,
     JSON.stringify(results.map((x, i) => ({ id: r.mails[i].log, ok: x.ok ? 1 : 0, status: x.status ?? null, error: x.error ?? null })))),
-    ...r.mails.flatMap((m, i) => (results[i].ok || !m.undo ? [] : UNDO[m.undo.kind](rq, m.undo))),
+    ...r.mails.flatMap((m, i) => (!answer || results[i].ok || !m.undo ? [] : UNDO[m.undo.kind](rq, m.undo))), // only clear refusals
     sql('DELETE FROM bulk_outbox WHERE id = ?', r.id),
   ]);
   return results.map(x => x.ok);
