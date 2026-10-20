@@ -1,5 +1,6 @@
 // Cases: dashboard, case view, fields, status, comments, phases, subcases, deletion and retention, change stamps.
-import { appVersion, arr, fail, roleList, STAFF, uid } from './core.js';
+import { addDays, appVersion, arr, fail, roleList, STAFF, uid } from './core.js';
+import { localDay } from '../public/shared/day.js';
 import { ACCESSIBLE, canSee, canSeeTask, caseCtx, requireWsOwner } from './access.js';
 import { instantiate, latestTemplate } from './templates.js';
 import { markBlocked } from './tasks.js';
@@ -97,6 +98,7 @@ export async function getCase(rq) {
       template_name: ctx.c.template_name, template_version: ctx.c.template_version, phase: currentPhase(visiblePhases, visibleTasks),
       template_id: ctx.c.template_id, workspace_id: ctx.c.workspace_id, inbox: ctx.staff ? inboxAddress(rq, ctx.c) : null,
       closed_at: ctx.c.closed_at, retention_days: ctx.def.retention_days ?? null,
+      delete_on: ctx.c.closed_at && ctx.def.retention_days != null ? deleteOn(rq, ctx.c.closed_at, ctx.def.retention_days) : null,
       // who the case is waiting for (role labels only, no task titles of other roles)
       waiting_on: [...new Set(tasks.filter(t => t.status === 'open' && !t.blocked && t.role && t.role !== ctx.role).map(t => roleLabel(t.role)))],
     },
@@ -244,6 +246,11 @@ async function purgeCase(rq, c, actorId, reason) {
   }
 }
 
+// The day a closed case is deleted: the calendar day it was closed on, in the instance's time zone (closed at 00:30 in
+// Berlin is that day, though in UTC still the day before), plus its retention days. The one place this is computed: the
+// cron deletes by it, the case view shows it.
+const deleteOn = (rq, closedAt, days) => addDays(localDay(Date.parse(closedAt), rq.zone), days);
+
 // Closed cases whose template sets retention_days: announce 14 days ahead, then delete. As many as the run has room
 // for (the cohort of a semester may expire on one day); the rest follows in the next run.
 export async function applyRetention(rq) {
@@ -252,7 +259,7 @@ export async function applyRetention(rq) {
   const cases = (await rows(`SELECT c.id, c.workspace_id, c.title, c.closed_at, json_extract(c.definition, '$.retention_days') AS days, t.name AS template_name
     FROM cases c LEFT JOIN templates t ON t.id = c.template_id
     WHERE c.status = 'closed' AND c.closed_at IS NOT NULL AND json_extract(c.definition, '$.retention_days') IS NOT NULL`))
-    .map(c => ({ ...c, deleteOn: new Date(Date.parse(c.closed_at) + c.days * 864e5).toISOString().slice(0, 10) }));
+    .map(c => ({ ...c, deleteOn: deleteOn(rq, c.closed_at, c.days) }));
   for (const c of cases.filter(c => c.deleteOn <= today)) {
     if (!room(8)) return; // a purge: its versions, people and sub-cases, the batch, the files
     await purgeCase(rq, c, null, 'retention');

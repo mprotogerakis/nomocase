@@ -141,7 +141,8 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   Eintrag; auf D1 gemessen. Ein Rückzug liegt ganz davor oder ganz danach, ein Link wird nie ohne Zugang verbraucht
   (Unit-Test `invite`, D1 auf node:sqlite mit Transaktionen: `test/d1.mjs`)
 - [x] Ein Kalendertag für Server und Oberfläche: der Tag in der Zeitzone der Instanz (`TIME_ZONE`, Standard Europe/Berlin;
-  `public/shared/day.js`) für Fristen, „überfällig“, Buchungs- und Platzhalterdaten; Kontingent-Fenster bleiben UTC-Tage.
+  `public/shared/day.js`) für Fristen, „überfällig“, Buchungs- und Platzhalterdaten, den Löschtag der Aufbewahrung (lokaler
+  Abschlusstag + Frist, einmal berechnet: Cron löscht, Ansicht zeigt denselben Tag); Kontingent-Fenster bleiben UTC-Tage.
   Seiten mit Live-Aktualisierung werden nach Mitternacht neu gezeichnet (nach erfolgreicher Abfrage, nicht beim Tippen
   oder mit geänderten Kästchen), Seiten ohne bleiben, wie sie sind
 - [x] Aufräumen alter Benachrichtigungen: das tägliche Aufräumen löscht Vermerke zu Schritten, die nicht mehr offen

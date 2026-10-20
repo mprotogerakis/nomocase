@@ -379,7 +379,7 @@ function retentionText(d) {
   const days = d.case.retention_days;
   if (!days) return 'Keine Aufbewahrungsfrist: Der Vorgang bleibt, bis Sie ihn löschen.';
   if (d.case.status !== 'closed' || !d.case.closed_at) return `Aufbewahrung: wird ${days} Tage nach dem Abschluss automatisch gelöscht.`;
-  return `Wird am ${date(new Date(Date.parse(d.case.closed_at) + days * 864e5).toISOString())} automatisch gelöscht (Aufbewahrungsfrist). Wieder öffnen hält ihn.`;
+  return `Wird am ${date(d.case.delete_on)} automatisch gelöscht (Aufbewahrungsfrist). Wieder öffnen hält ihn.`; // the day the server deletes it
 }
 
 const rerender = () => page(cur.me.staff ? staffCase(cur) : guestCase(cur));

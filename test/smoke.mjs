@@ -8,6 +8,7 @@ import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { BASE, LOCAL, run, PDF, fetchOnce, client, expect, file, STATE, tokenOf, sql } from './lib.mjs';
 import { checkDef } from '../src/templates.js';
+import { addDays, localDay } from '../public/shared/day.js';
 
 // Client handlers live in plain objects: a second `submit.x = …` silently replaces the first (broke template saving once).
 const ui = new URL('../public/', import.meta.url);
@@ -825,6 +826,14 @@ if (new URL(BASE).hostname === 'localhost') {
   assert.deepEqual(sql(`SELECT status, parent_case_id AS parent FROM cases WHERE id = '${stillOpen}'`), [{ status: 'open', parent: null }],
     'its open sub-case keeps its own period: it stays, on its own');
   assert.deepEqual(sql(`SELECT reason FROM case_deletions WHERE case_id = '${aging}'`), [{ reason: 'retention' }]);
+  // Closed just after midnight in Berlin (in UTC still the day before): the period counts from the Berlin day – not
+  // deleted a day early –, and the case view shows the day the cron deletes it on
+  const T = localDay(Date.now());
+  const { id: lateNight } = await expect(prof('/cases', { body: { template_id: short.id, title: 'Kurz nach Mitternacht' } }));
+  await expect(prof(`/cases/${lateNight}`, { method: 'PATCH', body: { status: 'closed' } }));
+  sql(`UPDATE cases SET closed_at = '${addDays(T, -30)}T23:30:00.000Z' WHERE id = '${lateNight}'`); // 00:30 or 01:30 in Berlin: the next day
+  await runRetention();
+  assert.equal((await expect(prof(`/cases/${lateNight}`))).case.delete_on, addDays(T, 1), 'deleted tomorrow (30 days after the Berlin day), not today');
 
   // Rules never trigger on what rules caused (no loops) and run once per event, even if events are looked at again.
   const echo = tpls.find(t => t.name === 'Regeltest') ?? { id: (await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: 'Regeltest', definition: {
