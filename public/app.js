@@ -27,6 +27,7 @@ async function route() {
     if (view === 'welcome') return welcomeView(id ? `#/case/${id}` : '#/');
     return await dashboardView();
   } catch (e) {
+    if (e.status === 401 && sessionEnded()) return; // the page stays, with its banner leading to the login (lib.js)
     if (!e.shown) console.error(e); // API errors were shown by api() already
     show(html`<main class="narrow"><p>${e.message}</p><a href="#/">Zur Übersicht</a></main>`);
   }
@@ -36,7 +37,8 @@ async function route() {
 // While someone is typing or has a menu open, only a hint appears, so nothing gets lost.
 // ponytail: polling (one indexed lookup per call); a Durable Object with WebSockets if many people work at once.
 const busy = () => document.querySelector('#app details[open]') || document.activeElement?.matches('#app textarea, #app input, #app select')
-  || [...document.querySelectorAll('#app textarea, #app input:not([type=checkbox]):not([type=radio])')].some(x => x.value !== x.defaultValue);
+  || [...document.querySelectorAll('#app textarea, #app input:not([type=checkbox]):not([type=radio])')].some(x => x.value !== x.defaultValue)
+  || [...document.querySelectorAll('#app input[type=checkbox], #app input[type=radio]')].some(x => x.checked !== x.defaultChecked);
 
 async function refresh() {
   const y = scrollY;
@@ -62,15 +64,17 @@ async function poll() {
   const [, view, id] = location.hash.split('/');
   const seen = stamp;
   if (document.hidden || sessionEnded()) return;
-  // past midnight with no new data: deadlines turn overdue all the same – drawn anew (not while someone is typing)
-  if (renderedOn !== today() && !busy()) return refresh();
   if (!seen || (view && view !== 'case')) { // pages without live refresh: only the version
     newVersion((await api('/version').catch(() => null))?.version);
     return;
   }
   const r = await api(`/changes${view === 'case' ? `?case=${id}` : ''}`).catch(() => null);
-  if (!r || newVersion(r.version) || r.stamp === seen || stamp !== seen) return; // unchanged, or the page was re-rendered meanwhile
+  if (!r || newVersion(r.version) || stamp !== seen) return; // no answer (or the session ended), or the page was re-rendered meanwhile
+  // new data – or past midnight, when deadlines turn overdue without any: drawn anew, unless someone is at work on the page
+  const newDay = renderedOn !== today();
+  if (r.stamp === seen && !newDay) return;
   if (!busy()) return refresh();
+  if (r.stamp === seen) return; // only the day changed: the next poll tries again
   if (!document.querySelector('.banner.fresh')) {
     document.querySelector('#app header')?.insertAdjacentHTML('afterend', esc(html`<div class="banner fresh">Es gibt Neuigkeiten. <button data-on="refresh">Aktualisieren</button></div>`));
   }

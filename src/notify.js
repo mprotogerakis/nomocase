@@ -276,7 +276,7 @@ function stageOf(task, today) {
 export async function sendDigests(rq) {
   const { rows, sql, batch, env, time } = rq;
   if (!env.ORIGIN) return console.error('digest skipped: ORIGIN not set');
-  const ts = time, today = ts.slice(0, 10);
+  const ts = time, today = rq.today;
   const parts = await rows(`
     SELECT p.user_id, p.case_id, p.role, p.access, u.email, u.name, u.last_digest_at, u.email_progress, c.title AS case_title
     FROM case_participants p JOIN users u ON u.id = p.user_id JOIN cases c ON c.id = p.case_id

@@ -547,18 +547,27 @@ try {
   await evaluate(`(() => { const real = Date.now.bind(Date); Date.now = () => real() + 864e5; return true; })()`);
   await poll();
   await waitFor(`!document.querySelector('main')?.dataset.drawn && !!document.querySelector('.stats')`, 'neu gezeichnet am nächsten Tag');
+  // pages without live refresh (link pages, receipts, error pages) stay as they are past midnight: nothing is fetched again
+  await go('#/login/kein-gueltiger-link', `!!document.querySelector('main')`);
+  await evaluate(`(document.querySelector('main').dataset.drawn = 'before', true)`);
+  await evaluate(`(() => { const real = Date.now.bind(Date); Date.now = () => real() + 864e5; return true; })()`);
+  for (let i = 0; i < 3; i++) await poll();
+  await sleep(500);
+  assert.equal(await evaluate(`document.querySelector('main')?.dataset.drawn`), 'before', 'a page without live refresh is not drawn anew');
 
   // The session ends while a page with live refresh is open (here: logged out behind its back): one banner leads to the
   // login, no dialog per refresh, and the refresh stops.
   await go('#/', `!!document.querySelector('.stats')`);
   const dialogsBefore = dialogs.length;
   await evaluate(`fetch('/api/logout', { method: 'POST' }).then(r => r.status)`);
+  await evaluate(`(() => { const real = Date.now.bind(Date); Date.now = () => real() + 864e5; return true; })()`); // past midnight too
   for (let i = 0; i < 3; i++) await evaluate(`(document.dispatchEvent(new Event('visibilitychange')), true)`); // what the 15-second refresh does
   await waitFor(`document.querySelectorAll('.banner.ended').length === 1`, 'Hinweis „Sitzung abgelaufen“');
   await sleep(300);
   assert.equal(await evaluate(`document.querySelectorAll('.banner.ended').length`), 1, 'one banner, however often it asked');
   assert.equal(dialogs.length, dialogsBefore, 'no dialog');
   assert.ok(await evaluate(has('Ihre Sitzung ist abgelaufen')));
+  assert.ok(await evaluate(`!!document.querySelector('.stats')`), 'the page stays, with the banner (not replaced by an error page)');
 
   assert.deepEqual(errors, [], 'no script errors');
   assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|verschieben\?(\n|$)|^Verschoben nach|Vorgänge aus „.*“ anlegen|^Anhänge der E-Mail|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');

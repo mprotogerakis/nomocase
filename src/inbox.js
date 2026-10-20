@@ -37,8 +37,7 @@ export async function receiveMail(rq, message) {
   if (!c) return message.setReject('Unbekannte Adresse');
   if (c.status === 'closed') return message.setReject('Der Vorgang ist abgeschlossen und nimmt keine Mails mehr an.');
   if (message.rawSize > MAX_UPLOAD) return message.setReject('Die Mail ist zu groß (höchstens 20 MB).');
-  const today = time.slice(0, 10);
-  if ((await row('SELECT COUNT(*) AS n FROM inbound_mail WHERE case_id = ? AND received_at >= ?', c.id, today)).n >= MAILS_PER_CASE_AND_DAY) {
+  if ((await row('SELECT COUNT(*) AS n FROM inbound_mail WHERE case_id = ? AND received_at >= ?', c.id, time.slice(0, 10))).n >= MAILS_PER_CASE_AND_DAY) {
     return message.setReject('Für diesen Vorgang kamen heute schon zu viele Mails.');
   }
   const messageId = message.headers.get('message-id') ?? `${message.from}|${message.headers.get('date')}|${message.headers.get('subject')}`;
@@ -49,7 +48,7 @@ export async function receiveMail(rq, message) {
   const owner = await row("SELECT user_id FROM case_participants WHERE case_id = ? AND access = 'case_owner' ORDER BY created_at LIMIT 1", c.id);
   if (!owner) return message.setReject('Der Vorgang hat keine Verantwortlichen.');
   const doc = { isNew: true, id: uid(), title: `E-Mail: ${subject}`.slice(0, 200), doc_type: null, visible_to: [] };
-  const f = { bytes, contentType: 'message/rfc822', size: bytes.length, filename: `${today} ${safeName(subject)}.eml`,
+  const f = { bytes, contentType: 'message/rfc822', size: bytes.length, filename: `${rq.today} ${safeName(subject)}.eml`,
     sha256: hex(await crypto.subtle.digest('SHA-256', bytes)) };
   await storeVersion(rq, { c, actorId: null, uploadedBy: owner.user_id, label: from, channel: 'mail', f, task: null, doc,
     extra: { subject, attachments: attachmentNames(bytes) },

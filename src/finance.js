@@ -12,7 +12,7 @@ const cents = v => (Number.isSafeInteger(v) && v >= 0 && v <= MAX_CENTS ? v : fa
 
 export const eur = c => `${(c / 100).toFixed(2).replace('.', ',')} €`;
 
-const dayOrToday = (rq, d) => (d ? (isDate(d) ? d : fail(400, 'Datum ungültig')) : rq.time.slice(0, 10));
+const dayOrToday = (rq, d) => (d ? (isDate(d) ? d : fail(400, 'Datum ungültig')) : rq.today);
 
 export async function loadFinance(rq, caseIds) {
   const { batch, sql } = rq;
@@ -148,14 +148,14 @@ export async function addTransaction(rq) {
 
 // Corrections are counter-entries; the original booking stays visible.
 export async function reverseTransaction(rq) {
-  const { user, params, body, row, sql, batch, event, time } = rq;
+  const { user, params, body, row, sql, batch, event, time, today } = rq;
   const t = (await row('SELECT * FROM financial_transactions WHERE id = ?', params.id)) ?? fail(404, 'Buchung nicht gefunden');
   const { ctx, c } = await loadClaim(rq, user, t.claim_id);
   if (t.reverses_id) fail(400, 'Ein Storno kann nicht storniert werden');
   if (await row('SELECT 1 FROM financial_transactions WHERE reverses_id = ?', t.id)) fail(409, 'Buchung ist bereits storniert');
   await batch([
     sql('INSERT INTO financial_transactions (id, claim_id, amount_cents, booked_on, note, reverses_id, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      uid(), c.id, -t.amount_cents, time.slice(0, 10), String(body.note ?? '').trim() || null, t.id, user.id, time),
+      uid(), c.id, -t.amount_cents, today, String(body.note ?? '').trim() || null, t.id, user.id, time),
     event(ctx.c.id, user.id, 'transaction.reversed', { claim: c.title, amount_cents: t.amount_cents }, []),
   ]);
 }

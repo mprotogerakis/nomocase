@@ -36,12 +36,13 @@ export async function sessionCookie(rq, userId, url) {
 }
 
 export async function me(rq) {
-  const { user, row, rows, env, rpId } = rq;
-  if (!user) return { user: null, dev_users: env.DEV_LOGIN ? await rows('SELECT email, name FROM users ORDER BY name') : null };
+  const { user, row, rows, env, rpId, zone } = rq;
+  // zone: the instance's time zone – the browser counts deadlines by the same calendar day as the server
+  if (!user) return { user: null, zone, dev_users: env.DEV_LOGIN ? await rows('SELECT email, name FROM users ORDER BY name') : null };
   const workspaces = await rows('SELECT w.id, w.name, m.role FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = ? ORDER BY w.name', user.id);
   const { n } = await row('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ? AND rp_id IS ?', user.id, rpId);
   const consent = await row('SELECT accepted_at FROM consents WHERE user_id = ? AND version = ? AND withdrawn_at IS NULL', user.id, CONSENT_VERSION);
-  return { user: { id: user.id, name: user.name, email: user.email, email_reminders: !!user.email_reminders, email_progress: !!user.email_progress }, workspaces, passkeys: n, dev: !!env.DEV_LOGIN, version: appVersion(env),
+  return { user: { id: user.id, name: user.name, email: user.email, email_reminders: !!user.email_reminders, email_progress: !!user.email_progress }, workspaces, passkeys: n, dev: !!env.DEV_LOGIN, version: appVersion(env), zone,
     consent: { version: CONSENT_VERSION, accepted: !!consent, accepted_at: consent?.accepted_at ?? null } };
 }
 

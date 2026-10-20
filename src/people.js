@@ -1,5 +1,5 @@
 // People: invitations, participants, the admin overview of people. (Works on the request context, core.js.)
-import { fail, isDate, json, sha256, token, uid } from './core.js';
+import { fail, HttpError, isDate, json, sha256, token, uid } from './core.js';
 import { caseCtx } from './access.js';
 import { consentStmt, hasConsent, originOf, sessionCookie } from './auth.js';
 import { bulkCap, checkSenderCap, DAILY_CRON, mailAnswer, outboxStmt, sendFromOutbox, UNCLEAR } from './notify.js';
@@ -101,32 +101,33 @@ async function invitee(rq, email, user, body) {
   ] };
 }
 
-// "Lieber per E-Mail": the invitation ends, the team learns it in the case (or it simply lapses for a workspace).
+// "Lieber per E-Mail": the invitation ends, the team learns it in the case (or it simply lapses for a workspace) – only
+// while it is still open: declining at the same time as accepting cannot remove a seat just taken, nor log a decline.
 export async function declineInvitation(rq) {
   const { body, row, sql, batch, event, time } = rq;
   const hash = await sha256(String(body.token ?? ''));
   const inv = await row('SELECT * FROM invitations WHERE token_hash = ? AND accepted_at IS NULL AND expires_at > ?', hash, time);
   if (inv) {
-    await batch([sql('DELETE FROM invitations WHERE token_hash = ?', hash), event(inv.case_id, null, 'participant.declined', { email: inv.email }, [])]);
+    await batch([sql(`DELETE FROM invitations WHERE token_hash = ?2 AND ${OPEN.invitations}`, time, hash), unlessChanged(rq),
+      event(inv.case_id, null, 'participant.declined', { email: inv.email }, [])]).catch(notOpen);
     return;
   }
   (await workspaceInvitation(rq, hash)) ?? fail(404, 'Einladung ungültig oder abgelaufen');
-  await sql('UPDATE workspace_invitations SET revoked_at = ? WHERE token_hash = ?', time, hash).run();
+  const { meta } = await sql(`UPDATE workspace_invitations SET revoked_at = ?1 WHERE token_hash = ?2 AND ${OPEN.workspace_invitations}`, time, hash).run();
+  if (!meta?.changes) fail(404, 'Einladung ungültig oder abgelaufen');
 }
 
-// An invitation is taken in one statement, and only while it is still open – not withdrawn, replaced or expired since it
-// was read: that moment decides against a withdrawal at the same time, and the access granted is the one of the
-// invitation as taken. Should the rest of the acceptance fail, it is given back (the link is not used up).
+// An invitation is taken and acted on in one transaction (one batch), and only while it is still open – not accepted,
+// withdrawn, replaced or expired since it was read. The statement taking it comes first; right after it a guard aborts
+// the whole batch if it changed nothing, so nothing else in it happens: no account, no consent, no access, no log entry.
+// A withdrawal or revocation lands wholly before (then nothing is granted) or wholly after (then it applies); a link is
+// never used up without access being granted. The guard fails with an invalid json() – the one way to make a plain
+// statement fail in SQLite; measured on D1: it rolls back the whole batch.
 const OPEN = { invitations: 'accepted_at IS NULL AND expires_at > ?1', workspace_invitations: 'accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?1' };
-async function takeInvitation(rq, table, hash) {
-  const taken = (await rq.row(`UPDATE ${table} SET accepted_at = ?1 WHERE token_hash = ?2 AND ${OPEN[table]} RETURNING *`, rq.time, hash))
-    ?? fail(404, 'Einladung ungültig oder abgelaufen');
-  const giveBack = async e => {
-    await rq.sql(`UPDATE ${table} SET accepted_at = NULL WHERE token_hash = ? AND accepted_at = ?`, hash, rq.time).run();
-    throw e;
-  };
-  return { taken, giveBack };
-}
+const NOT_OPEN = 'invitation not open';
+const unlessChanged = rq => rq.sql(`SELECT CASE WHEN changes() = 0 THEN json('${NOT_OPEN}') END`);
+const notOpen = e => { throw /malformed JSON/i.test(e.message) ? new HttpError(404, 'Einladung ungültig oder abgelaufen') : e; };
+const take = (rq, table, hash) => [rq.sql(`UPDATE ${table} SET accepted_at = ?1 WHERE token_hash = ?2 AND ${OPEN[table]}`, rq.time, hash), unlessChanged(rq)];
 
 // Possession of the emailed link stands in for email verification. That's enough for new
 // accounts (and old ones without a passkey); accounts with a passkey must log in first.
@@ -135,31 +136,34 @@ export async function acceptInvitation(rq) {
   const hash = await sha256(String(body.token ?? ''));
   const inv = await row('SELECT i.*, c.definition FROM invitations i JOIN cases c ON c.id = i.case_id WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.expires_at > ?', hash, time);
   if (!inv) return acceptWorkspaceInvitation(rq, hash);
-  const { userId, stmts } = await invitee(rq, inv.email, user, body); // may refuse (log in first, consent): before taking it
-  const { taken, giveBack } = await takeInvitation(rq, 'invitations', hash);
-  const role = JSON.parse(inv.definition).roles.find(r => r.key === taken.role);
+  const { userId, stmts } = await invitee(rq, inv.email, user, body); // may refuse (log in first, consent): nothing taken yet
+  const role = JSON.parse(inv.definition).roles.find(r => r.key === inv.role);
   await batch([
+    ...take(rq, 'invitations', hash),
     ...stmts,
-    sql(`INSERT INTO case_participants (case_id, user_id, access, role, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)
+    // the access of the invitation as it stands in this transaction (re-inviting replaces it with a new link)
+    sql(`INSERT INTO case_participants (case_id, user_id, access, role, expires_at, created_at)
+       SELECT case_id, ?, access, role, access_until, ? FROM invitations WHERE token_hash = ?
        ON CONFLICT (case_id, user_id) DO UPDATE SET access = excluded.access, role = excluded.role, expires_at = excluded.expires_at, revoked_at = NULL`,
-      taken.case_id, userId, taken.access, taken.role, taken.access_until, time),
-    event(taken.case_id, userId, 'participant.joined', { role: role?.label ?? taken.role }, ['*']),
-  ]).catch(giveBack);
-  return json({ case_id: taken.case_id }, 200, { 'set-cookie': await sessionCookie(rq, userId, url) });
+      userId, time, hash),
+    event(inv.case_id, userId, 'participant.joined', { role: role?.label ?? inv.role }, ['*']),
+  ]).catch(notOpen);
+  return json({ case_id: inv.case_id }, 200, { 'set-cookie': await sessionCookie(rq, userId, url) });
 }
 
 async function acceptWorkspaceInvitation(rq, hash) {
   const { user, body, url, sql, batch, wsEvent } = rq;
   const ws = (await workspaceInvitation(rq, hash)) ?? fail(404, 'Einladung ungültig oder abgelaufen');
   const { userId, stmts } = await invitee(rq, ws.email, user, body);
-  const { taken, giveBack } = await takeInvitation(rq, 'workspace_invitations', hash);
   await batch([
+    ...take(rq, 'workspace_invitations', hash),
     ...stmts,
     // someone who is in the workspace already keeps their role
-    sql('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?) ON CONFLICT (workspace_id, user_id) DO NOTHING', taken.workspace_id, userId, taken.role),
-    wsEvent(taken.workspace_id, userId, 'member.joined', { member: String(body.name ?? '').trim() || user?.name || taken.email, role: taken.role }),
-  ]).catch(giveBack);
-  return json({ workspace_id: taken.workspace_id }, 200, { 'set-cookie': await sessionCookie(rq, userId, url) });
+    sql(`INSERT INTO workspace_members (workspace_id, user_id, role) SELECT workspace_id, ?, role FROM workspace_invitations WHERE token_hash = ?
+      ON CONFLICT (workspace_id, user_id) DO NOTHING`, userId, hash),
+    wsEvent(ws.workspace_id, userId, 'member.joined', { member: String(body.name ?? '').trim() || user?.name || ws.email, role: ws.role }),
+  ]).catch(notOpen);
+  return json({ workspace_id: ws.workspace_id }, 200, { 'set-cookie': await sessionCookie(rq, userId, url) });
 }
 
 export async function revoke(rq) {

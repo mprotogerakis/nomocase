@@ -248,7 +248,7 @@ async function purgeCase(rq, c, actorId, reason) {
 // for (the cohort of a semester may expire on one day); the rest follows in the next run.
 export async function applyRetention(rq) {
   const { rows, sql, room, env, time } = rq;
-  const today = time.slice(0, 10);
+  const today = rq.today;
   const cases = (await rows(`SELECT c.id, c.workspace_id, c.title, c.closed_at, json_extract(c.definition, '$.retention_days') AS days, t.name AS template_name
     FROM cases c LEFT JOIN templates t ON t.id = c.template_id
     WHERE c.status = 'closed' AND c.closed_at IS NOT NULL AND json_extract(c.definition, '$.retention_days') IS NOT NULL`))
@@ -297,7 +297,7 @@ export async function dashboard(rq) {
     sql(`SELECT p.case_id, p.role, u.name FROM case_participants p JOIN users u ON u.id = p.user_id
        WHERE p.case_id IN (SELECT value FROM json_each(?)) AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?)`, caseIds, time),
   ])).map(r => r.results);
-  const today = time.slice(0, 10);
+  const today = rq.today;
   markBlocked(tasks);
   for (const c of cases) {
     c.staff = c.ws_role === 'owner' || STAFF.includes(c.access);

@@ -1,5 +1,6 @@
 // Templates: definition check, versions, instantiating a case, turning a case back into a template.
-import { ACCESS, arr, DECISIONS, fail, FILE_KINDS, isDate, TASK_TYPES, uid, validFiles } from './core.js';
+import { ACCESS, addDays, arr, DECISIONS, fail, FILE_KINDS, isDate, TASK_TYPES, uid, validFiles } from './core.js';
+import { localDay } from '../public/shared/day.js';
 import { caseCtx, requireWsOwner } from './access.js';
 import { parseScore, scaleProblem } from '../public/shared/assess.js';
 import { newInbox } from './inbox.js';
@@ -180,8 +181,8 @@ export function instantiate(rq, tpl, { title, fields: input = {}, ownerId, actor
   const def = JSON.parse(tpl.definition);
   const fields = Object.fromEntries(def.fields.map(f => [f.key, String(input?.[f.key] ?? '')]));
   // due_days count from the date field the template names (due_base_field), else from today
-  const base = isDate(fields[def.due_base_field]) ? new Date(fields[def.due_base_field]) : new Date();
-  const due = days => (days == null ? null : new Date(base.getTime() + days * 864e5).toISOString().slice(0, 10));
+  const base = isDate(fields[def.due_base_field]) ? fields[def.due_base_field] : rq.today;
+  const due = days => (days == null ? null : addDays(base, days));
   const caseId = uid(), ts = time;
   const ownerRole = def.roles.find(r => r.access === 'case_owner').key;
   const taskIds = Object.fromEntries(def.phases.flatMap(p => p.tasks).map(t => [t.key, uid()]));
@@ -215,9 +216,9 @@ export function instantiate(rq, tpl, { title, fields: input = {}, ownerId, actor
 
 const slug = s => s.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'schritt';
 
-function caseDefinition(c, def, phases, tasks) {
+function caseDefinition(c, def, phases, tasks, zone) {
   const fields = JSON.parse(c.fields);
-  const base = isDate(fields[def.due_base_field]) ? fields[def.due_base_field] : c.created_at.slice(0, 10);
+  const base = isDate(fields[def.due_base_field]) ? fields[def.due_base_field] : localDay(Date.parse(c.created_at), zone);
   const kept = tasks.filter(t => t.phase_id && t.created_by); // loose tasks are requests or rule-made; rule-made have no creator
   const keys = new Map();
   for (const t of kept.filter(t => t.key)) keys.set(t.id, t.key); // template steps keep their key, rules depend on it
@@ -261,7 +262,7 @@ export async function saveAsTemplate(rq) {
     sql('SELECT * FROM phases WHERE case_id = ? ORDER BY position', ctx.c.id),
     sql('SELECT t.* FROM tasks t LEFT JOIN phases p ON p.id = t.phase_id WHERE t.case_id = ? ORDER BY p.position, t.position, t.created_at', ctx.c.id),
   ])).map(r => r.results);
-  const def = caseDefinition(ctx.c, ctx.def, phases, tasks);
+  const def = caseDefinition(ctx.c, ctx.def, phases, tasks, rq.zone);
   let templateId, name, version;
   if (body.template_id) {
     const t = (await row('SELECT * FROM templates WHERE id = ? AND workspace_id = ?', body.template_id, ctx.c.workspace_id)) ?? fail(404, 'Vorlage nicht gefunden');

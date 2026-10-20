@@ -1,7 +1,7 @@
 // Forms of a step (task.form → definition.forms): the server fills in the case's values, the browser makes the PDF.
 // Whoever sees the step gets the form – with exactly the values the template put into it, nothing else of the case.
 // On upload, a filled-in form is read back and compared with the case's fields (documents.js).
-import { fail, isDate } from './core.js';
+import { addDays, fail, isDate } from './core.js';
 import { loadTask } from './tasks.js';
 import { deDate } from './notify.js';
 import { caseFieldItems, fieldNames, fillForm } from '../public/shared/forms.js';
@@ -18,13 +18,13 @@ export async function taskForm(rq) {
   const lookup = k => {
     if (k === 'case.title') return ctx.c.title;
     const days = k.match(/^date(?:\+(\d+))?$/);
-    if (days) return deDate(new Date(Date.now() + Number(days[1] ?? 0) * 864e5).toISOString().slice(0, 10));
+    if (days) return deDate(addDays(rq.today, Number(days[1] ?? 0)));
     const [kind, key, extra] = k.split('.');
     if (kind === 'field') return isDate(fields[key]) ? deDate(fields[key]) : fields[key] ?? '';
     if (kind === 'role') return people.filter(p => p.role === key).map(p => (extra === 'email' ? p.email : p.name)).join(', ');
     return '';
   };
-  return { ...fillForm(form, lookup), ...(await branding(rq, ctx.c.workspace_id)), case_title: ctx.c.title, template: ctx.c.template_name ?? '', created: deDate(time.slice(0, 10)) };
+  return { ...fillForm(form, lookup), ...(await branding(rq, ctx.c.workspace_id)), case_title: ctx.c.title, template: ctx.c.template_name ?? '', created: deDate(rq.today) };
 }
 
 // An uploaded PDF that is one of the case's forms (recognised by its field names): what it says about the case's fields.

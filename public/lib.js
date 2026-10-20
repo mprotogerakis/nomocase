@@ -1,5 +1,6 @@
 // UI basics: safe HTML templates, formatting, labels, the API client, navigation and the page frame.
 import { me } from './state.js';
+import { localDay } from './shared/day.js';
 
 const app = document.getElementById('app');
 
@@ -13,7 +14,7 @@ export const esc = v => v instanceof Safe ? v.s
 
 export const html = (strings, ...vals) => new Safe(strings.reduce((out, s, i) => out + s + (i < vals.length ? esc(vals[i]) : ''), ''));
 
-export const show = view => { app.innerHTML = esc(view); };
+export const show = view => { renderedOn = today(); app.innerHTML = esc(view); };
 
 // Plain text with clickable http(s) links and mail addresses; long URLs show their file name.
 const LINK = /(https?:\/\/[^\s<>"]*[^\s<>".,;:)])|([\w.+-]+@[\w-]+(?:\.[\w-]+)+)/g;
@@ -46,10 +47,16 @@ export const OUTCOME = { review: ['in Ordnung', 'beanstandet'], approval: ['gene
 
 export const VERDICT = { review: ['als in Ordnung bestätigt', 'beanstandet'], approval: ['genehmigt', 'abgelehnt'], decision: ['zugestimmt', 'abgelehnt'] };
 
-// Today here (local date, not UTC: just after midnight the UTC date is still yesterday's), asked anew each time – a tab can
-// stay open past midnight. `renderedOn`: the day the page on screen was drawn for (app.js redraws it when that changes).
-export const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
-export let renderedOn = today();
+// Today in the instance's time zone (sent with /api/me): the server counts deadlines by the same calendar day. Asked anew
+// – a tab can stay open past midnight –, kept for a second, so one drawing of a page sees one day. `renderedOn`: the day
+// the page on screen was drawn for (show(), where every page goes); app.js redraws live pages when that changes.
+let day = { at: 0, value: '' };
+export const today = () => {
+  const now = Date.now();
+  if (Math.abs(now - day.at) > 1000) day = { at: now, value: localDay(now, me?.zone) };
+  return day.value;
+};
+export let renderedOn = null;
 
 export const eur = c => (c / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
 
@@ -125,7 +132,7 @@ ${me.passkeys ? '' : html`<div class="banner">
   <button data-on="passkeyAdd">Passkey einrichten</button>
 </div>`}`;
 
-export const page = (...parts) => { renderedOn = today(); show(html`${header()}${parts}`); };
+export const page = (...parts) => show(html`${header()}${parts}`);
 
 // Re-runs the router for the current hash (app.js listens to hashchange).
 export const reload = () => dispatchEvent(new HashChangeEvent('hashchange'));

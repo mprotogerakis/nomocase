@@ -125,6 +125,7 @@ Deployt wird nur nach grüner Suite.
    | `INBOX_DOMAIN` | Domain der Vorgangs-Adressen |
    | `REDIRECT_HOSTS` | frühere Domains, die umgeleitet werden |
    | `OPERATOR`, `PRIVACY_CONTACT` | Angaben im Einwilligungstext |
+   | `TIME_ZONE` | Zeitzone für Kalendertage (Fristen, „überfällig“), Standard `Europe/Berlin` |
    | `MAIL_DAILY_CAP` | Sammelmails (Tagesübersicht, Fortschritt) je Tag, Standard 80: der Rest des Resend-Kontingents (Gratis-Tarif 100 am Tag) bleibt für Einladungen und Anmeldelinks |
 
 3. Secret setzen: `wrangler secret put RESEND_API_KEY`.

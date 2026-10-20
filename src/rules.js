@@ -1,5 +1,5 @@
 // Rule engine: triggers, conditions, actions; processed after writes and by cron, idempotent per event.
-import { fail, uid } from './core.js';
+import { addDays, fail, uid } from './core.js';
 import { caseCtx, taskAudience } from './access.js';
 import { instantiate, RULE_OPS } from './templates.js';
 import { eur, loadFinance, sum } from './finance.js';
@@ -44,7 +44,7 @@ async function ruleFacts(rq, c, e, p) {
 async function ruleStmts(rq, c, def, rule, f) {
   const { row, rows, sql, event, time } = rq;
   const fill = text => String(text ?? '')
-    .replace(/\{date(?:\+(\d+))?\}/g, (_, n) => deDate(new Date(Date.now() + Number(n ?? 0) * 864e5).toISOString().slice(0, 10)))
+    .replace(/\{date(?:\+(\d+))?\}/g, (_, n) => deDate(addDays(rq.today, Number(n ?? 0))))
     .replace(/\{([\w.]+)\}/g, (_, k) => (MONEY_FACTS.includes(k) ? eur(f[k] ?? 0) : String(f[k] ?? '')));
   const ownerRole = def.roles.find(r => r.access === 'case_owner').key;
   const by = { rule: rule.name };
@@ -55,7 +55,7 @@ async function ruleStmts(rq, c, def, rule, f) {
       stmts.push(
         sql('INSERT INTO tasks (id, case_id, title, description, type, role, visible_to, due_date, position, created_at, key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           t.id, c.id, t.title, a.description ? fill(a.description) : null, a.task_type ?? 'task', t.role, JSON.stringify(t.visible_to),
-          a.due_days != null ? new Date(Date.now() + a.due_days * 864e5).toISOString().slice(0, 10) : null, 1e6, time, a.key ?? null),
+          a.due_days != null ? addDays(rq.today, a.due_days) : null, 1e6, time, a.key ?? null),
         event(c.id, null, 'task.added', { task: t.title, task_id: t.id, ...by }, taskAudience(t)),
       );
     } else if (a.type === 'complete_tasks') {

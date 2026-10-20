@@ -1,6 +1,8 @@
 // Shared basics: the request context (D1 helpers, event statements, env, time), errors and JSON responses, small value
 // helpers. No module state: everything that depends on the deployment or the request travels in the context.
 export { ACCESS, acceptedExtensions, DECISIONS, FILE_KIND_LABELS, FILE_KINDS, NEEDS_FILE, STAFF, TASK_TYPES, validFiles } from '../public/shared/vocab.js';
+export { addDays } from '../public/shared/day.js';
+import { DEFAULT_ZONE, localDay } from '../public/shared/day.js';
 
 // Came the request through Cloudflare's network? There CF-Connecting-IP is the client's real address – never a
 // loopback one, which is what wrangler dev puts there (::1) unless the client sends its own.
@@ -31,6 +33,8 @@ const CRON_RESERVE = 12;
 //                               look, issuers, templates, moved cases), as a statement for a batch
 //   env                       – bindings and vars (DEV_LOGIN only for a local request, see above)
 //   time                      – when the request started (ISO), the time its rows are stamped with
+//   today, zone               – the calendar day then in the instance's time zone (TIME_ZONE), for deadlines and dates
+//                               shown (quota windows stay UTC days: time.slice(0, 10), compared with UTC timestamps)
 //   rpId                      – the passkeys' domain (WebAuthn RP ID): the one of ORIGIN
 //   room, spend               – subrequests (see above): is there room for `cost` more; count one (a fetch)
 export function context(env, req = null) {
@@ -50,6 +54,7 @@ export function context(env, req = null) {
   };
   return {
     sql, env: envHere, time, rpId: envHere.ORIGIN ? new URL(envHere.ORIGIN).hostname : null,
+    zone: env.TIME_ZONE || DEFAULT_ZONE, today: localDay(Date.parse(time), env.TIME_ZONE || DEFAULT_ZONE),
     room: cost => SUBREQUESTS - spent - reserve >= cost, spend,
     row: (text, ...args) => sql(text, ...args).first(),
     rows: async (text, ...args) => (await sql(text, ...args).all()).results,
