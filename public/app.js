@@ -1,6 +1,6 @@
 // NomoCase UI entry: hash router, live refresh, event delegation (data-on / data-submit / data-change).
 import { change, input, me, on, set, stamp, submit } from './state.js';
-import { api, esc, html, sessionEnded, show } from './lib.js';
+import { api, esc, html, renderedOn, sessionEnded, show, today } from './lib.js';
 import { accountView, consentView, inviteView, loginLinkView, loginView, uploadLinkView, welcomeView } from './views/account.js';
 import { dashboardView } from './views/dashboard.js';
 import { peopleView, templatesView } from './views/admin.js';
@@ -62,6 +62,8 @@ async function poll() {
   const [, view, id] = location.hash.split('/');
   const seen = stamp;
   if (document.hidden || sessionEnded()) return;
+  // past midnight with no new data: deadlines turn overdue all the same – drawn anew (not while someone is typing)
+  if (renderedOn !== today() && !busy()) return refresh();
   if (!seen || (view && view !== 'case')) { // pages without live refresh: only the version
     newVersion((await api('/version').catch(() => null))?.version);
     return;

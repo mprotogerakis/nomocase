@@ -13,7 +13,7 @@ let tplFilter = '';
 const daysSince = ts => Math.floor((Date.now() - Date.parse(ts)) / 864e5);
 // What a case needs: decides the dot, the filter and the order (urgent first).
 const stateOf = (c, mine) => (c.status === 'closed' ? 'closed' : !c.open_tasks ? 'done'
-  : c.next_due && c.next_due < today ? 'late' : mine ? 'mine' : 'wait');
+  : c.next_due && c.next_due < today() ? 'late' : mine ? 'mine' : 'wait');
 const ORDER = ['late', 'mine', 'wait', 'done', 'closed'];
 const FILTERS = [['open', 'Offen'], ['mine', 'Für mich'], ['late', 'Überfällig'], ['wait', 'Wartet auf andere'], ['done', 'Fertig'], ['closed', 'Abgeschlossen']];
 const matches = (c, filter) => ({ open: c.kind !== 'closed', mine: c.mine > 0 && c.kind !== 'closed', late: c.kind === 'late',
@@ -38,7 +38,7 @@ const card = c => html`<li data-search="${[c.title, c.template, c.phase, ...c.wa
   <b>${c.title}</b>${c.parent_title ? html`<span class="small muted">↳ Teil von „${c.parent_title}“</span>` : ''}
   ${caseState(c)}
   ${waitingLine(c)}
-  ${c.next_due && c.kind !== 'closed' ? html`<span class="small ${c.next_due < today ? 'warn' : 'muted'}">Nächste Frist: ${date(c.next_due)}</span>` : ''}
+  ${c.next_due && c.kind !== 'closed' ? html`<span class="small ${c.next_due < today() ? 'warn' : 'muted'}">Nächste Frist: ${date(c.next_due)}</span>` : ''}
   ${c.template ? html`<span class="small muted">${c.template}</span>` : ''}
   ${wsFilter !== 'all' && c.open_receivable_cents > 0 ? html`<span class="small muted">Offen zu erhalten: ${eur(c.open_receivable_cents)}</span>` : ''}
 </a></li>`;
@@ -74,7 +74,7 @@ export async function dashboardView() {
   const cases = inWs.filter(c => matches(c, caseFilter) && (!tplFilter || c.template === tplFilter))
     .sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind) || (a.next_due ?? '9999').localeCompare(b.next_due ?? '9999')
       || (a.last_activity ?? '').localeCompare(b.last_activity ?? '')); // longest without activity first
-  const overdue = myTasks.filter(t => t.due_date && t.due_date < today).length;
+  const overdue = myTasks.filter(t => t.due_date && t.due_date < today()).length;
   const overdueOthers = inWs.reduce((n, c) => n + (c.status === 'closed' ? 0 : c.overdue_others), 0);
   // Money only inside one workspace, never on the mixed view (screen sharing, projector).
   const money = wsFilter === 'all' ? 0 : inWs.reduce((s, c) => s + (c.open_receivable_cents || 0), 0);

@@ -4,24 +4,11 @@
 // daily cap (also for two runs at once), chunks of 100. Locally there is no provider, so the end-to-end tests never take
 // this path.
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
 import { context } from '../src/core.js';
 import { processOutbox, sendBulk } from '../src/notify.js';
+import { d1 } from './d1.mjs';
 
-const sqlite = new DatabaseSync(':memory:');
-const dir = new URL('../migrations/', import.meta.url);
-for (const f of readdirSync(dir).filter(f => f.endsWith('.sql')).sort()) sqlite.exec(readFileSync(new URL(f, dir), 'utf8'));
-const statement = (text, args) => ({
-  text, args,
-  first: async () => sqlite.prepare(text).get(...args) ?? null, all: async () => ({ results: sqlite.prepare(text).all(...args) }),
-  run: async () => sqlite.prepare(text).run(...args), raw: async () => sqlite.prepare(text).all(...args).map(Object.values),
-});
-let d1Fails = null; // a statement text: the batch containing it fails (D1 gone at that moment)
-const DB = { prepare: text => ({ bind: (...args) => statement(text, args) }), batch: async stmts => {
-  if (d1Fails && stmts.some(st => st.text.startsWith(d1Fails))) throw new Error('D1 unavailable (test)');
-  return stmts.map(st => ({ results: sqlite.prepare(st.text).all(...st.args) })); // like D1: not through the statements' own calls
-} };
+const { sqlite, DB, failOn } = d1();
 
 let requests = [], answer;
 globalThis.fetch = async (url, init) => { requests.push({ url, init, key: new Headers(init.headers).get('idempotency-key'), mails: JSON.parse(init.body) }); return answer(JSON.parse(init.body)); };
@@ -103,9 +90,9 @@ assert.deepEqual([requests[1].key, pending()], [requests[0].key, []], 'the cron 
 day();
 answer = accept;
 ctx = rq();
-d1Fails = 'UPDATE mail_log';
+failOn('UPDATE mail_log');
 await assert.rejects(sendBulk(ctx, progress(ctx, 'a@example.org', 'b@example.org')), /D1 unavailable/);
-d1Fails = null;
+failOn(null);
 assert.deepEqual([marked(), pending()], [['a@example.org', 'b@example.org'], [0]]);
 due();
 await processOutbox(rq());

@@ -136,6 +136,10 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   bleiben sie („Zustellung ungeklärt“: eine Mail kann fehlen, kommt aber nie doppelt). Unbeantwortete zählen auf
   „Personen“ nicht als verschickt, sondern als wartend. Eine
   abgelaufene Sitzung zeigt ein Banner statt eines Dialogs je Abfrage; 401 heißt für angemeldete Seiten nur noch das
+- [x] Einladungen werden in einer Anweisung übernommen, nur solange sie offen sind (`UPDATE … RETURNING`); erst dann
+  entstehen Konto und Zugang. Zurückgezogen zwischen Lesen und Annehmen gibt es keinen Zugang; scheitert der Rest, bleibt
+  der Link gültig (Unit-Test `invite` mit D1 auf node:sqlite, `test/d1.mjs`). Die Oberfläche rechnet „heute“ in Ortszeit und
+  zeichnet eine offene Seite nach Mitternacht neu
 - [x] Aufräumen alter Benachrichtigungen: das tägliche Aufräumen löscht Vermerke zu Schritten, die nicht mehr offen
   sind oder in geschlossenen Vorgängen liegen (Wiederöffnen löscht sie ohnehin); so bleibt die Tabelle so groß wie
   die offene Arbeit

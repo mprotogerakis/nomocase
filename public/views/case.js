@@ -182,7 +182,7 @@ function staffCase(d) {
       <aside class="col ${caseTab === 'info' ? 'active' : ''}">
         ${fieldsSection(d)}
         <h3>Fristen</h3>
-        ${deadlines.length ? html`<ul class="list small">${deadlines.map(t => html`<li class="${t.due_date < today ? 'warn' : ''}">${date(t.due_date)} – ${t.title}</li>`)}</ul>` : html`<p class="muted small">Keine offenen Fristen.</p>`}
+        ${deadlines.length ? html`<ul class="list small">${deadlines.map(t => html`<li class="${t.due_date < today() ? 'warn' : ''}">${date(t.due_date)} – ${t.title}</li>`)}</ul>` : html`<p class="muted small">Keine offenen Fristen.</p>`}
         ${financeSection(d)}
         ${participantsSection(d)}
         <h3>Dokumente</h3>${documents(d)}${verifyFile()}

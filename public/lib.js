@@ -46,7 +46,10 @@ export const OUTCOME = { review: ['in Ordnung', 'beanstandet'], approval: ['gene
 
 export const VERDICT = { review: ['als in Ordnung bestätigt', 'beanstandet'], approval: ['genehmigt', 'abgelehnt'], decision: ['zugestimmt', 'abgelehnt'] };
 
-export const today = new Date().toISOString().slice(0, 10);
+// Today here (local date, not UTC: just after midnight the UTC date is still yesterday's), asked anew each time – a tab can
+// stay open past midnight. `renderedOn`: the day the page on screen was drawn for (app.js redraws it when that changes).
+export const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+export let renderedOn = today();
 
 export const eur = c => (c / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
 
@@ -65,7 +68,7 @@ export const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 export const dateTime = d => new Date(d).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 
-export const due = d => (d ? html` <span class="small ${d < today ? 'warn' : 'muted'}">· Frist ${date(d)}</span>` : '');
+export const due = d => (d ? html` <span class="small ${d < today() ? 'warn' : 'muted'}">· Frist ${date(d)}</span>` : '');
 
 export const sha256 = async blob => [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map(b => b.toString(16).padStart(2, '0')).join('');
 
@@ -122,7 +125,7 @@ ${me.passkeys ? '' : html`<div class="banner">
   <button data-on="passkeyAdd">Passkey einrichten</button>
 </div>`}`;
 
-export const page = (...parts) => show(html`${header()}${parts}`);
+export const page = (...parts) => { renderedOn = today(); show(html`${header()}${parts}`); };
 
 // Re-runs the router for the current hash (app.js listens to hashchange).
 export const reload = () => dispatchEvent(new HashChangeEvent('hashchange'));

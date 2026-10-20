@@ -534,6 +534,20 @@ try {
   }
   await b.cdp('Emulation.clearDeviceMetricsOverride');
 
+  // Past midnight in an open tab: with no new data, the page is still drawn anew for the new day (deadlines turn overdue);
+  // on the same day the refresh leaves it alone.
+  await go('#/', `!!document.querySelector('.stats')`);
+  const poll = () => evaluate(`(document.dispatchEvent(new Event('visibilitychange')), true)`);
+  for (let i = 0; i < 2; i++) { await poll(); await sleep(400); } // anything still changing is drawn now
+  await waitFor(`!!document.querySelector('.stats')`, 'Übersicht');
+  await evaluate(`(document.querySelector('main').dataset.drawn = 'before', true)`);
+  await poll();
+  await sleep(500);
+  assert.equal(await evaluate(`document.querySelector('main')?.dataset.drawn`), 'before', 'same day, same data: not drawn anew');
+  await evaluate(`(() => { const real = Date.now.bind(Date); Date.now = () => real() + 864e5; return true; })()`);
+  await poll();
+  await waitFor(`!document.querySelector('main')?.dataset.drawn && !!document.querySelector('.stats')`, 'neu gezeichnet am nächsten Tag');
+
   // The session ends while a page with live refresh is open (here: logged out behind its back): one banner leads to the
   // login, no dialog per refresh, and the refresh stops.
   await go('#/', `!!document.querySelector('.stats')`);
