@@ -1,19 +1,39 @@
-// Unit check for bulk mails to the provider (sendBulk in src/notify.js), with stand-ins for D1 and fetch: one request
-// for many mails, permissive validation (a refused address fails only its own mail), the daily cap, chunks of 100.
-// Locally there is no provider, so the end-to-end tests never take this path.
+// Unit check for bulk mails to the provider (sendBulk in src/notify.js), with a stand-in for fetch and D1 on node:sqlite
+// with the real schema (so its SQL runs too): one request for many mails, permissive validation (a refused address fails
+// only its own mail), the daily cap – also for two runs at once –, chunks of 100. Locally there is no provider, so the
+// end-to-end tests never take this path.
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { context } from '../src/core.js';
 import { sendBulk } from '../src/notify.js';
 
-let sentToday = 0, logged = [], requests = [], answer;
-const statement = (text, args) => ({ text, args, first: async () => ({ n: sentToday }), all: async () => ({ results: [] }), run: async () => ({}), raw: async () => [] });
-const DB = { prepare: text => ({ bind: (...args) => statement(text, args) }), batch: async stmts => { logged.push(...stmts.map(s => s.args)); return []; } };
+const sqlite = new DatabaseSync(':memory:');
+const dir = new URL('../migrations/', import.meta.url);
+for (const f of readdirSync(dir).filter(f => f.endsWith('.sql')).sort()) sqlite.exec(readFileSync(new URL(f, dir), 'utf8'));
+const statement = (text, args) => ({
+  text, args,
+  first: async () => sqlite.prepare(text).get(...args) ?? null, all: async () => ({ results: sqlite.prepare(text).all(...args) }),
+  run: async () => sqlite.prepare(text).run(...args), raw: async () => sqlite.prepare(text).all(...args).map(Object.values),
+});
+const DB = { prepare: text => ({ bind: (...args) => statement(text, args) }), batch: async stmts => stmts.map(st => ({ results: sqlite.prepare(st.text).all(...st.args) })) }; // like D1: not through the statements' own calls
+
+let requests = [], answer;
 globalThis.fetch = async (url, init) => { requests.push({ url, init, mails: JSON.parse(init.body) }); return answer(JSON.parse(init.body)); };
 const rq = (env = {}) => context({ DB, RESEND_API_KEY: 'test', MAIL_FROM: 'NomoCase <noreply@example.org>', ORIGIN: 'https://example.org', ...env });
 const mails = (...to) => to.map(t => ({ to: t, subject: 'Betreff', paragraphs: ['Hallo', 'Text'] }));
-const reset = () => { logged = []; requests = []; };
+// a fresh day with `sent` bulk mails gone out already; logged(): the attempts since
+const day = (sent = 0) => {
+  requests = [];
+  sqlite.exec('DELETE FROM mail_log');
+  for (let i = 0; i < sent; i++) sqlite.prepare('INSERT INTO mail_log (bulk, sent_at, ok) VALUES (1, ?, 1)').run(new Date().toISOString());
+  const from = sqlite.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM mail_log').get().id;
+  return () => sqlite.prepare('SELECT ok, status, error FROM mail_log WHERE id > ? ORDER BY id').all(from).map(r => ({ ...r }));
+};
+const accept = batch => Response.json({ data: batch.map((m, i) => ({ id: String(i) })) });
 
 // one request, permissive: the refused address fails alone
+let logged = day();
 answer = () => Response.json({ data: [{ id: 'a' }, { id: 'c' }], errors: [{ index: 1, message: 'Invalid `to` field.' }] });
 assert.deepEqual(await sendBulk(rq(), mails('a@example.org', 'kaputt', 'c@example.org')), [true, false, true]);
 assert.equal(requests.length, 1);
@@ -21,40 +41,47 @@ assert.equal(requests[0].url, 'https://api.resend.com/emails/batch');
 assert.equal(new Headers(requests[0].init.headers).get('x-batch-validation'), 'permissive');
 assert.deepEqual(requests[0].mails.map(m => m.to), [['a@example.org'], ['kaputt'], ['c@example.org']]);
 assert.deepEqual(requests[0].mails[0], { from: 'NomoCase <noreply@example.org>', to: ['a@example.org'], subject: 'Betreff', text: 'Hallo\n\nText' });
-assert.deepEqual(logged.map(args => args[1]), [1, 0, 1], 'every attempt logged, in one batch');
-assert.match(logged[1][3], /Invalid/);
+assert.deepEqual(logged().map(r => [r.ok, r.status]), [[1, 200], [0, 200], [1, 200]], 'every attempt logged with its answer');
+assert.match(logged()[1].error, /Invalid/);
 
 // the provider refuses the request: nothing counts as sent
-reset();
+logged = day();
 answer = () => new Response('{"message":"rate limited"}', { status: 429 });
 assert.deepEqual(await sendBulk(rq(), mails('a@example.org', 'b@example.org')), [false, false]);
-assert.deepEqual(logged.map(args => [args[1], args[2]]), [[0, 429], [0, 429]]);
+assert.deepEqual(logged().map(r => [r.ok, r.status]), [[0, 429], [0, 429]]);
 
 // no answer at all (timeout, network): the same
-reset();
+logged = day();
 answer = () => { throw new Error('The operation was aborted due to timeout'); };
 assert.deepEqual(await sendBulk(rq(), mails('a@example.org')), [false]);
+assert.deepEqual(logged().map(r => r.ok), [0]);
 
 // the daily cap: 79 of 80 gone today, room for one
-reset();
-sentToday = 79;
-answer = batch => Response.json({ data: batch.map((m, i) => ({ id: String(i) })) });
+logged = day(79);
+answer = accept;
 assert.deepEqual(await sendBulk(rq(), mails('a@example.org', 'b@example.org', 'c@example.org')), [true, false, false]);
 assert.equal(requests[0].mails.length, 1, 'only what fits under the cap goes out');
-sentToday = 80;
-reset();
+day(80);
 assert.deepEqual(await sendBulk(rq(), mails('a@example.org')), [false]);
 assert.equal(requests.length, 0, 'cap reached: no request at all');
 
+// two runs at once (daily digest and progress mails at 05:00), room for one: only one of them sends
+day(79);
+const both = await Promise.all([sendBulk(rq(), mails('a@example.org')), sendBulk(rq(), mails('b@example.org'))]);
+assert.deepEqual(both.flat().sort(), [false, true], 'the room was taken by one run, not used twice');
+assert.equal(requests.length, 1);
+assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM mail_log WHERE ok = 1').get().n, 80, 'the cap holds');
+
 // more than 100: chunks of 100
-reset();
-sentToday = 0;
+logged = day();
 const many = mails(...Array.from({ length: 150 }, (_, i) => `p${i}@example.org`));
 assert.ok((await sendBulk(rq({ MAIL_DAILY_CAP: '500' }), many)).every(Boolean));
 assert.deepEqual(requests.map(r => r.mails.length), [100, 50]);
-assert.equal(logged.length, 150);
+assert.equal(logged().length, 150);
 
+day();
 assert.deepEqual(await sendBulk(rq(), []), [], 'nothing to send: no request, no query');
+assert.equal(requests.length, 0);
 
 // The subrequest count behind all this (core.js): statements, batches and R2 calls count; room() knows what is left
 // (a cron run keeps a reserve for its later steps); locally the 51st fails, as it would in production.

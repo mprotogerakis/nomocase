@@ -217,6 +217,10 @@ export async function peopleOverview(rq) {
       // the mail log is not per workspace: only who owns every workspace (in practice the operator) sees its numbers
       ...(operator && { mails_today: mails.total ?? 0, bulk_today: mails.bulk, bulk_cap: bulkCap(rq), mails_failed: mails.failed ?? 0,
         last_error: mails.last_error, last_error_at: mails.last_error_at,
-        cron: cronRuns.map(r => ({ daily: r.cron === DAILY_CRON, ran_at: r.ran_at, failed: JSON.parse(r.failed) })) }) },
+        // each schedule's last run, null for one that never ran (a missing trigger must not go unnoticed)
+        cron: Object.fromEntries([['daily', r => r.cron === DAILY_CRON], ['frequent', r => r.cron !== DAILY_CRON]].map(([k, is]) => {
+          const r = cronRuns.find(is);
+          return [k, r ? { ran_at: r.ran_at, failed: JSON.parse(r.failed) } : null];
+        })) }) },
   };
 }

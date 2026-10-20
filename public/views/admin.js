@@ -10,16 +10,21 @@ const PEOPLE_FILTERS = [['all', 'Alle'], ['nopasskey', 'Ohne Passkey'], ['never'
 const peopleMatch = (u, f) => ({ all: true, nopasskey: !u.passkeys, never: !u.last_seen,
   former: !u.workspaces && !u.cases.some(c => c.active) })[f];
 
-// The background runs (every 20 minutes, and daily at 05:00 UTC): the operator learns when one failed or stopped coming.
+// The background runs (every 20 minutes, and daily at 05:00 UTC): the operator learns when one failed, stopped coming
+// or never ran at all (a missing cron trigger).
 const CRON_STEPS = { rules: 'Regeln', outbox: 'Mail-Ausgang', digests: 'Tagesübersicht', housekeeping: 'Aufräumen',
   'file sweep': 'Dateien aufräumen', progress: 'Fortschrittsmails', retention: 'Aufbewahrung' };
-const cronNote = runs => {
-  if (!runs?.length) return '';
-  const late = runs.filter(r => Date.now() - Date.parse(r.ran_at) > (r.daily ? 26 * 36e5 : 70 * 60e3));
-  const failed = runs.filter(r => r.failed.length);
-  if (!late.length && !failed.length) return html`<p class="muted small">Hintergrundläufe: zuletzt ${dateTime(runs.map(r => r.ran_at).sort().at(-1))}, ohne Fehler.</p>`;
-  return html`${failed.map(r => html`<p class="warn small">Hintergrundlauf ${r.daily ? '(täglich) ' : ''}am ${dateTime(r.ran_at)}: ${r.failed.map(s => CRON_STEPS[s] ?? s).join(', ')} fehlgeschlagen. Einzelheiten stehen im Log des Workers.</p>`)}
-    ${late.map(r => html`<p class="warn small">${r.daily ? 'Der tägliche Hintergrundlauf' : 'Der Hintergrundlauf alle 20 Minuten'} kam zuletzt am ${dateTime(r.ran_at)}.</p>`)}`;
+const CRONS = [['frequent', 'Der Hintergrundlauf alle 20 Minuten', 70 * 60e3], ['daily', 'Der tägliche Hintergrundlauf (05:00 UTC)', 26 * 36e5]];
+const cronNote = cron => {
+  if (!cron) return '';
+  const warnings = CRONS.flatMap(([k, name, gap]) => {
+    const r = cron[k];
+    if (!r) return [`${name} ist noch nie gelaufen. Sind die Cron-Trigger eingerichtet?`];
+    return [Date.now() - Date.parse(r.ran_at) > gap && `${name} kam zuletzt am ${dateTime(r.ran_at)}.`,
+      r.failed.length && `${name} am ${dateTime(r.ran_at)}: ${r.failed.map(s => CRON_STEPS[s] ?? s).join(', ')} fehlgeschlagen. Einzelheiten stehen im Log des Workers.`].filter(Boolean);
+  });
+  if (warnings.length) return html`${warnings.map(w => html`<p class="warn small">${w}</p>`)}`;
+  return html`<p class="muted small">Hintergrundläufe: zuletzt ${dateTime([cron.daily.ran_at, cron.frequent.ran_at].sort().at(-1))}, ohne Fehler.</p>`;
 };
 
 export async function peopleView() {

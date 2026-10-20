@@ -247,21 +247,23 @@ export async function deleteVersion(rq) {
 
 // Files without a version in the DB: a delete that failed after the rows were gone (case deletion, a version, a failed
 // upload), or an upload whose DB write never happened (Worker stopped in between). Daily; only files older than a
-// day, younger ones may belong to an upload still in progress.
+// day, younger ones may belong to an upload still in progress. As many pages as the run has room for: it goes on where
+// the last run stopped (file_sweep), so files late in the order are reached too; a complete pass starts over.
 export async function sweepOrphanFiles(rq) {
-  const { rows, room, env } = rq;
+  const { row, rows, sql, room, env } = rq;
   const before = Date.now() - 864e5;
-  let cursor, removed = 0;
+  let after = (await row('SELECT after FROM file_sweep WHERE id = 1'))?.after ?? undefined, removed = 0;
   do {
-    if (!room(3)) break; // ponytail: starts over each day; with more pages than a run has room for, resume from a stored cursor
-    const page = await env.FILES.list({ cursor, limit: 1000 });
+    if (!room(4)) break; // the page, its versions, the delete, the position
+    const page = await env.FILES.list({ startAfter: after, limit: 1000 });
     const old = page.objects.filter(o => o.uploaded.getTime() < before).map(o => o.key);
     const known = new Set((await rows('SELECT r2_key FROM document_versions WHERE r2_key IN (SELECT value FROM json_each(?))', JSON.stringify(old))).map(r => r.r2_key));
     const orphans = old.filter(k => !known.has(k));
     if (orphans.length) await env.FILES.delete(orphans);
     removed += orphans.length;
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor);
+    after = page.truncated ? page.objects.at(-1)?.key : undefined;
+  } while (after);
+  await sql('UPDATE file_sweep SET after = ? WHERE id = 1', after ?? null).run();
   if (removed) console.log('orphaned files removed', removed);
 }
 

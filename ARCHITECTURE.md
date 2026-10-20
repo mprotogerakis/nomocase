@@ -123,7 +123,10 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
   gebraucht wird). Vorher ~7 Subrequests je Teilvorgang: ab etwa 7 Teilvorgängen brach das Löschen ab
 - [x] Hintergrundläufe sichtbar: jeder Cron-Lauf hält fest, wann er lief und welche Schritte scheiterten (`cron_runs`,
   nur Schrittnamen). Der Betreiber sieht auf „Personen“ eine Warnung bei Fehlern oder wenn ein Lauf ausbleibt
-  (20-Minuten-Lauf über 70 min, täglicher über 26 h alt) – ohne Zugriff auf das Worker-Log
+  (20-Minuten-Lauf über 70 min, täglicher über 26 h alt) oder einer noch nie lief – ohne Zugriff auf das Worker-Log
+- [x] Review 2026-10-20: Sammelmails reservieren ihren Platz unter dem Tageslimit in einer Anweisung, bevor sie
+  rausgehen (Tages- und 20-Minuten-Lauf um 05:00 nehmen nicht denselben Rest); der Datei-Sweep merkt sich, wo er
+  aufhörte (`file_sweep`), und erreicht so auch späte Schlüssel. Gemessen: eine D1-Batch zählt als ein Aufruf
 - [x] Aufräumen alter Benachrichtigungen: das tägliche Aufräumen löscht Vermerke zu Schritten, die nicht mehr offen
   sind oder in geschlossenen Vorgängen liegen (Wiederöffnen löscht sie ohnehin); so bleibt die Tabelle so groß wie
   die offene Arbeit

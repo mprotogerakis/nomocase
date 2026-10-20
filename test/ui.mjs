@@ -440,7 +440,9 @@ try {
   await b.click('[data-on="caseFilter"][data-id="open"]');
   await waitFor(onCard, 'Filter offen');
 
-  // People, account, phone layout. The operator learns about failed or missing background runs.
+  // People, account, phone layout. The operator learns about background runs that never ran, failed or stopped coming.
+  await go('#/people', has(guestEmail));
+  assert.ok(await evaluate(has('Der tägliche Hintergrundlauf (05:00 UTC) ist noch nie gelaufen')), 'a schedule that never ran is noticed');
   sql(`INSERT OR REPLACE INTO cron_runs (cron, ran_at, failed) VALUES ('0 5 * * *', '${new Date().toISOString()}', '["digests", "file sweep"]'),
     ('*/20 * * * *', '${new Date(Date.now() - 2 * 36e5).toISOString()}', '[]')`);
   await go('#/people', has(guestEmail));

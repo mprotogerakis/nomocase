@@ -16,7 +16,9 @@ const appEnv = (env, req) => (env.DEV_LOGIN && !isLocal(env, req) ? { ...env, DE
 // or batch, R2 call and fetch counts. The context counts them. Loops that grow with the data ask `room(cost)` before
 // each item and leave the rest to the next cron run; a cron run keeps CRON_RESERVE for its later steps (digest,
 // progress mails, housekeeping: a fixed handful each). Locally going over fails, as it would in production, so the
-// tests notice.
+// tests notice. A batch counts once however many statements it has: measured on this account on 2026-10-20, a batch of
+// 2000 statements plus 999 single queries made exactly the 1000 calls Cloudflare actually enforces per invocation; we
+// keep to the documented 50.
 export const SUBREQUESTS = 50;
 const CRON_RESERVE = 12;
 

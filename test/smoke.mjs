@@ -752,6 +752,18 @@ if (new URL(BASE).hostname === 'localhost') {
   assert.equal(r2sql(`SELECT group_concat(key) FROM _mf_objects WHERE key LIKE 'orphan-${run}/%'`), `orphan-${run}/young`, 'the old orphan is gone, the young one stays');
   assert.ok(+r2sql('SELECT COUNT(*) FROM _mf_objects') >= sql('SELECT COUNT(*) AS n FROM document_versions')[0].n, 'files of versions stay');
   r2sql(`DELETE FROM _mf_objects WHERE key = 'orphan-${run}/young'`);
+  // With more files than a run has room for, the next run goes on where the last one stopped (R2 lists keys in order);
+  // a complete pass starts over at the beginning.
+  const swept = `sweep-a-${run}`, later = `sweep-z-${run}`;
+  for (const key of [swept, later]) execFileSync('npx', ['wrangler', 'r2', 'object', 'put', `nomocase-files/${key}`, ...LOCAL, '--file', blob], { stdio: 'ignore' });
+  r2sql(`UPDATE _mf_objects SET uploaded = uploaded - 2 * 864e5 WHERE key IN ('${swept}', '${later}')`);
+  const left = () => r2sql(`SELECT group_concat(key) FROM _mf_objects WHERE key IN ('${swept}', '${later}')`);
+  sql("UPDATE file_sweep SET after = 'sweep-m' WHERE id = 1"); // as if the last run had stopped there
+  await runDigest();
+  assert.equal(left(), swept, 'went on after the stored position: the file before it waits for the next pass');
+  assert.equal(sql('SELECT after FROM file_sweep')[0].after, null, 'reached the end: starts over next time');
+  await runDigest();
+  assert.equal(left(), '', 'the next pass, from the beginning, takes it');
   const profFirst = digestOf('prof@example.org');
   assert.ok(profFirst.n > 0 && profFirst.last_digest_at, 'owner gets a digest with tasks');
   assert.equal(digestOf(`max.${run}@example.org`).last_digest_at, null, 'messages go out as progress mails, not in the digest');
@@ -957,9 +969,9 @@ if (new URL(BASE).hostname === 'localhost') {
   assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=*/20+*+*+*+*`)).status, 200, 'the 20-minute run too');
   assert.equal(reached('progress_mail_at'), 15, 'everyone got the news');
   // the operator sees both schedules' last runs, here without failures
-  const { cron: runs } = (await expect(prof('/people'))).stats;
-  assert.deepEqual(runs.map(r => [r.daily, r.failed]).sort(), [[false, []], [true, []]]);
-  assert.ok(runs.every(r => Date.now() - Date.parse(r.ran_at) < 10 * 60e3));
+  const { cron } = (await expect(prof('/people'))).stats;
+  assert.deepEqual([cron.daily.failed, cron.frequent.failed], [[], []]);
+  assert.ok([cron.daily, cron.frequent].every(r => Date.now() - Date.parse(r.ran_at) < 10 * 60e3));
   // the digest notes of a step go once it is done (the daily housekeeping); those of open steps stay
   const notes = taskId => sql(`SELECT COUNT(*) AS n FROM notifications WHERE task_id = '${taskId}'`)[0].n;
   const [step] = (await expect(prof(`/cases/${crowdCase}`))).tasks;

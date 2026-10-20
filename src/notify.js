@@ -12,8 +12,6 @@ import { markBlocked } from './tasks.js';
 // login links and deletion notices always have room.
 export const bulkCap = rq => Number(rq.env.MAIL_DAILY_CAP ?? 80);
 
-const mailsToday = async (rq, bulk) => (await rq.row('SELECT COUNT(*) AS n FROM mail_log WHERE ok = 1 AND sent_at >= ? AND (? = 0 OR bulk = 1)', rq.time.slice(0, 10), bulk ? 1 : 0)).n;
-
 // Returns true when the provider accepted the mail. Every attempt is logged (mail_log: ok, HTTP status, error text).
 // Digests and progress mails carry case data: only for people whose consent to the current text stands (withdrawing
 // it stops them at once; a new text version pauses them until it is accepted).
@@ -86,19 +84,25 @@ async function devProvider(rq, to, outboxId) {
 
 // Digest and progress mails of a run, all in one request to the provider (batch endpoint, up to 100 per request): a
 // run costs the same few subrequests however many people get one. Permissive validation, so a bad address fails only
-// its own mail. Beyond the daily cap nothing goes out. mails: [{ to, subject, paragraphs }] → [ok, …] in that order;
-// every attempt is logged (one batch).
+// its own mail. Beyond the daily cap nothing goes out: the room under it is taken first, in one statement (the log rows,
+// counted as sent), so two runs at once (05:00) cannot both use the same rest; then the provider's answers are filled
+// in. mails: [{ to, subject, paragraphs }] → [ok, …] in that order.
 const BATCH_MAX = 100;
 
 export async function sendBulk(rq, mails) {
-  const { sql, batch, time } = rq;
+  const { rows, sql, time } = rq;
   if (!mails.length) return [];
-  const room = Math.max(bulkCap(rq) - await mailsToday(rq, true), 0);
-  if (room < mails.length) console.error(`bulk mail: daily cap reached, ${mails.length - room} not sent`);
+  const taken = (await rows(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1)
+    INSERT INTO mail_log (bulk, sent_at, ok) SELECT 1, ?2, 1 FROM n
+    WHERE i <= ?3 - (SELECT COUNT(*) FROM mail_log WHERE ok = 1 AND bulk = 1 AND sent_at >= ?4) RETURNING id`,
+  mails.length, time, bulkCap(rq), time.slice(0, 10))).map(r => r.id).sort((a, b) => a - b);
+  if (taken.length < mails.length) console.error(`bulk mail: daily cap reached, ${mails.length - taken.length} not sent`);
   const results = [];
-  for (let i = 0; i < Math.min(room, mails.length); i += BATCH_MAX) results.push(...await bulkRequest(rq, mails.slice(i, Math.min(i + BATCH_MAX, room))));
-  if (results.length) {
-    await batch(results.map(r => sql('INSERT INTO mail_log (bulk, sent_at, ok, status, error) VALUES (1, ?, ?, ?, ?)', time, r.ok ? 1 : 0, r.status ?? null, r.error ?? null)));
+  for (let i = 0; i < taken.length; i += BATCH_MAX) results.push(...await bulkRequest(rq, mails.slice(i, Math.min(i + BATCH_MAX, taken.length))));
+  if (taken.length) {
+    await sql(`UPDATE mail_log SET ok = json_extract(r.value, '$.ok'), status = json_extract(r.value, '$.status'), error = json_extract(r.value, '$.error')
+      FROM json_each(?) r WHERE mail_log.id = json_extract(r.value, '$.id')`,
+    JSON.stringify(results.map((r, i) => ({ id: taken[i], ok: r.ok ? 1 : 0, status: r.status ?? null, error: r.error ?? null })))).run();
   }
   return mails.map((m, i) => !!results[i]?.ok);
 }
