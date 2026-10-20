@@ -528,6 +528,18 @@ try {
   }
   await b.cdp('Emulation.clearDeviceMetricsOverride');
 
+  // The session ends while a page with live refresh is open (here: logged out behind its back): one banner leads to the
+  // login, no dialog per refresh, and the refresh stops.
+  await go('#/', `!!document.querySelector('.stats')`);
+  const dialogsBefore = dialogs.length;
+  await evaluate(`fetch('/api/logout', { method: 'POST' }).then(r => r.status)`);
+  for (let i = 0; i < 3; i++) await evaluate(`(document.dispatchEvent(new Event('visibilitychange')), true)`); // what the 15-second refresh does
+  await waitFor(`document.querySelectorAll('.banner.ended').length === 1`, 'Hinweis „Sitzung abgelaufen“');
+  await sleep(300);
+  assert.equal(await evaluate(`document.querySelectorAll('.banner.ended').length`), 1, 'one banner, however often it asked');
+  assert.equal(dialogs.length, dialogsBefore, 'no dialog');
+  assert.ok(await evaluate(has('Ihre Sitzung ist abgelaufen')));
+
   assert.deepEqual(errors, [], 'no script errors');
   assert.deepEqual(dialogs.filter(d => !/\/#\/(invite|upload)\/|^Gespeichert|ist jetzt auch in|verschieben\?(\n|$)|^Verschoben nach|Vorgänge aus „.*“ anlegen|^Anhänge der E-Mail|^Workspace „UI-WS|^„UI-Vorlage .*löschen\?$/.test(d)), [], 'no error popups');
   console.log('ok – ui test passed');

@@ -16,7 +16,14 @@ const statement = (text, args) => ({
   first: async () => sqlite.prepare(text).get(...args) ?? null, all: async () => ({ results: sqlite.prepare(text).all(...args) }),
   run: async () => sqlite.prepare(text).run(...args), raw: async () => sqlite.prepare(text).all(...args).map(Object.values),
 });
-const DB = { prepare: text => ({ bind: (...args) => statement(text, args) }), batch: async stmts => stmts.map(st => ({ results: sqlite.prepare(st.text).all(...st.args) })) }; // like D1: not through the statements' own calls
+let d1Fails = null; // a statement text: the batch containing it fails (D1 gone at that moment)
+const DB = { prepare: text => ({ bind: (...args) => statement(text, args) }), batch: async stmts => {
+  if (d1Fails && stmts.some(st => st.text.startsWith(d1Fails))) throw new Error('D1 unavailable (test)');
+  return stmts.map(st => ({ results: sqlite.prepare(st.text).all(...st.args) })); // like D1: not through the statements' own calls
+} };
+sqlite.exec('CREATE TABLE marks (who TEXT)'); // what a mail's mark/unmark writes here: digest notes, progress cursors
+const marked = () => sqlite.prepare('SELECT who FROM marks ORDER BY who').all().map(r => r.who);
+const withMarks = (ctx, list) => list.map(m => ({ ...m, mark: [ctx.sql('INSERT INTO marks (who) VALUES (?)', m.to)], unmark: [ctx.sql('DELETE FROM marks WHERE who = ?', m.to)] }));
 
 let requests = [], answer;
 globalThis.fetch = async (url, init) => { requests.push({ url, init, mails: JSON.parse(init.body) }); return answer(JSON.parse(init.body)); };
@@ -25,7 +32,7 @@ const mails = (...to) => to.map(t => ({ to: t, subject: 'Betreff', paragraphs: [
 // a fresh day with `sent` bulk mails gone out already; logged(): the attempts since
 const day = (sent = 0) => {
   requests = [];
-  sqlite.exec('DELETE FROM mail_log');
+  sqlite.exec('DELETE FROM mail_log; DELETE FROM marks');
   for (let i = 0; i < sent; i++) sqlite.prepare('INSERT INTO mail_log (bulk, sent_at, ok) VALUES (1, ?, 1)').run(new Date().toISOString());
   const from = sqlite.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM mail_log').get().id;
   return () => sqlite.prepare('SELECT ok, status, error FROM mail_log WHERE id > ? ORDER BY id').all(from).map(r => ({ ...r }));
@@ -35,7 +42,9 @@ const accept = batch => Response.json({ data: batch.map((m, i) => ({ id: String(
 // one request, permissive: the refused address fails alone
 let logged = day();
 answer = () => Response.json({ data: [{ id: 'a' }, { id: 'c' }], errors: [{ index: 1, message: 'Invalid `to` field.' }] });
-assert.deepEqual(await sendBulk(rq(), mails('a@example.org', 'kaputt', 'c@example.org')), [true, false, true]);
+let ctx = rq();
+assert.deepEqual(await sendBulk(ctx, withMarks(ctx, mails('a@example.org', 'kaputt', 'c@example.org'))), [true, false, true]);
+assert.deepEqual(marked(), ['a@example.org', 'c@example.org'], 'marked as sent before sending; the refused one undone again');
 assert.equal(requests.length, 1);
 assert.equal(requests[0].url, 'https://api.resend.com/emails/batch');
 assert.equal(new Headers(requests[0].init.headers).get('x-batch-validation'), 'permissive');
@@ -47,8 +56,21 @@ assert.match(logged()[1].error, /Invalid/);
 // the provider refuses the request: nothing counts as sent
 logged = day();
 answer = () => new Response('{"message":"rate limited"}', { status: 429 });
-assert.deepEqual(await sendBulk(rq(), mails('a@example.org', 'b@example.org')), [false, false]);
+ctx = rq();
+assert.deepEqual(await sendBulk(ctx, withMarks(ctx, mails('a@example.org', 'b@example.org'))), [false, false]);
 assert.deepEqual(logged().map(r => [r.ok, r.status]), [[0, 429], [0, 429]]);
+assert.deepEqual(marked(), [], 'all undone: the next run sends them');
+
+// the run stops after the provider took the mails (here: recording the answers fails): they stay marked as sent, so
+// the next run does not send them again
+day();
+answer = accept;
+ctx = rq();
+d1Fails = 'UPDATE mail_log';
+await assert.rejects(sendBulk(ctx, withMarks(ctx, mails('a@example.org', 'b@example.org'))), /D1 unavailable/);
+d1Fails = null;
+assert.equal(requests.length, 1);
+assert.deepEqual(marked(), ['a@example.org', 'b@example.org'], 'no second mail next time');
 
 // no answer at all (timeout, network): the same
 logged = day();

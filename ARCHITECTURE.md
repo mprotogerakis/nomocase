@@ -127,6 +127,10 @@ Jeder Schritt wird mit grünen Tests ausgeliefert.
 - [x] Review 2026-10-20: Sammelmails reservieren ihren Platz unter dem Tageslimit in einer Anweisung, bevor sie
   rausgehen (Tages- und 20-Minuten-Lauf um 05:00 nehmen nicht denselben Rest); der Datei-Sweep merkt sich, wo er
   aufhörte (`file_sweep`), und erreicht so auch späte Schlüssel. Gemessen: eine D1-Batch zählt als ein Aufruf
+- [x] Review von f375ba2: Löschen nimmt nur Teilvorgänge mit, die im selben Workspace liegen und die der Löschende
+  selbst verantwortet; alle anderen (verschobene, fremde, bei Aufbewahrung alle) bleiben als eigene Vorgänge. Sammelmails
+  vermerken sich vor dem Versand und nehmen das nur bei Ablehnung zurück (kein Doppelversand nach Abbruch). Eine
+  abgelaufene Sitzung zeigt ein Banner statt eines Dialogs je Abfrage; 401 heißt für angemeldete Seiten nur noch das
 - [x] Aufräumen alter Benachrichtigungen: das tägliche Aufräumen löscht Vermerke zu Schritten, die nicht mehr offen
   sind oder in geschlossenen Vorgängen liegen (Wiederöffnen löscht sie ohnehin); so bleibt die Tabelle so groß wie
   die offene Arbeit

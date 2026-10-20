@@ -85,24 +85,31 @@ async function devProvider(rq, to, outboxId) {
 // Digest and progress mails of a run, all in one request to the provider (batch endpoint, up to 100 per request): a
 // run costs the same few subrequests however many people get one. Permissive validation, so a bad address fails only
 // its own mail. Beyond the daily cap nothing goes out: the room under it is taken first, in one statement (the log rows,
-// counted as sent), so two runs at once (05:00) cannot both use the same rest; then the provider's answers are filled
-// in. mails: [{ to, subject, paragraphs }] → [ok, …] in that order.
+// counted as sent), so two runs at once (05:00) cannot both use the same rest. Each mail's `mark` (what records it as
+// sent: notes, cursors) is written before it goes out and undone (`unmark`) only if the provider refused it: a run that
+// stops after the provider took the mails does not send them again next time. (A mail is lost only if the provider
+// fails it and undoing fails too.) mails: [{ to, subject, paragraphs, mark, unmark }] → [ok, …] in that order.
 const BATCH_MAX = 100;
 
 export async function sendBulk(rq, mails) {
-  const { rows, sql, time } = rq;
+  const { rows, sql, batch, time } = rq;
   if (!mails.length) return [];
   const taken = (await rows(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1)
     INSERT INTO mail_log (bulk, sent_at, ok) SELECT 1, ?2, 1 FROM n
     WHERE i <= ?3 - (SELECT COUNT(*) FROM mail_log WHERE ok = 1 AND bulk = 1 AND sent_at >= ?4) RETURNING id`,
   mails.length, time, bulkCap(rq), time.slice(0, 10))).map(r => r.id).sort((a, b) => a - b);
   if (taken.length < mails.length) console.error(`bulk mail: daily cap reached, ${mails.length - taken.length} not sent`);
+  const going = mails.slice(0, taken.length), marks = going.flatMap(m => m.mark ?? []);
+  if (marks.length) await batch(marks);
   const results = [];
-  for (let i = 0; i < taken.length; i += BATCH_MAX) results.push(...await bulkRequest(rq, mails.slice(i, Math.min(i + BATCH_MAX, taken.length))));
-  if (taken.length) {
-    await sql(`UPDATE mail_log SET ok = json_extract(r.value, '$.ok'), status = json_extract(r.value, '$.status'), error = json_extract(r.value, '$.error')
-      FROM json_each(?) r WHERE mail_log.id = json_extract(r.value, '$.id')`,
-    JSON.stringify(results.map((r, i) => ({ id: taken[i], ok: r.ok ? 1 : 0, status: r.status ?? null, error: r.error ?? null })))).run();
+  for (let i = 0; i < going.length; i += BATCH_MAX) results.push(...await bulkRequest(rq, going.slice(i, i + BATCH_MAX)));
+  if (going.length) {
+    await batch([
+      sql(`UPDATE mail_log SET ok = json_extract(r.value, '$.ok'), status = json_extract(r.value, '$.status'), error = json_extract(r.value, '$.error')
+        FROM json_each(?) r WHERE mail_log.id = json_extract(r.value, '$.id')`,
+      JSON.stringify(results.map((r, i) => ({ id: taken[i], ok: r.ok ? 1 : 0, status: r.status ?? null, error: r.error ?? null })))),
+      ...going.flatMap((m, i) => (results[i].ok ? [] : m.unmark ?? [])),
+    ]);
   }
   return mails.map((m, i) => !!results[i]?.ok);
 }
@@ -247,7 +254,7 @@ export async function sendDigests(rq) {
   // all mails in one request, all bookkeeping in one batch (a few subrequests, however many people)
   const due = [...digests.values()].filter(d => d.items.length || d.messages.length);
   const link = caseId => `${env.ORIGIN}/#/case/${caseId}`;
-  const delivered = await sendBulk(rq, due.map(d => {
+  await sendBulk(rq, due.map(d => {
     const sections = STAGES.filter(([s]) => d.items.some(i => i.stage === s)).map(([s, label]) => [label, ...d.items.filter(i => i.stage === s)
       .map(({ t, p }) => `- ${t.title} (${p.case_title})${t.due_date ? `, Frist ${deDate(t.due_date)}` : ''}\n  ${link(p.case_id)}`)].join('\n'));
     if (d.messages.length) sections.push(['Neue Nachrichten', ...d.messages.map(({ n, p }) => `- ${n} in ${p.case_title}\n  ${link(p.case_id)}`)].join('\n'));
@@ -258,15 +265,12 @@ export async function sendDigests(rq) {
       'hier ist Ihre Übersicht aus NomoCase.',
       ...sections,
       `Diese Erinnerungen können Sie hier abbestellen: ${env.ORIGIN}/#/account`,
-    ] };
+    ],
+    mark: [...d.items.map(({ t, stage }) => sql('INSERT OR IGNORE INTO notifications (user_id, task_id, stage, sent_at) VALUES (?, ?, ?, ?)', d.user_id, t.id, stage, ts)),
+      sql('UPDATE users SET last_digest_at = ? WHERE id = ?', ts, d.user_id)],
+    // not sent: tomorrow's digest tries again
+    unmark: [sql('DELETE FROM notifications WHERE user_id = ? AND sent_at = ?', d.user_id, ts), sql('UPDATE users SET last_digest_at = ? WHERE id = ?', d.last_digest_at, d.user_id)] };
   }));
-  const reached = due.filter((d, i) => delivered[i]); // the others: try again tomorrow
-  if (reached.length) {
-    await batch(reached.flatMap(d => [
-      ...d.items.map(({ t, stage }) => sql('INSERT OR IGNORE INTO notifications (user_id, task_id, stage, sent_at) VALUES (?, ?, ?, ?)', d.user_id, t.id, stage, ts)),
-      sql('UPDATE users SET last_digest_at = ? WHERE id = ?', ts, d.user_id),
-    ]));
-  }
 }
 
 // What others did in a person's cases, bundled into one mail at most every 20 minutes (3 per hour).
@@ -294,7 +298,7 @@ const PROGRESS_TEXT = {
 };
 
 export async function sendProgress(rq) {
-  const { rows, sql, batch, env, time } = rq;
+  const { rows, sql, env, time } = rq;
   if (!env.ORIGIN) return console.error('progress skipped: ORIGIN not set');
   const ts = time;
   const fallback = new Date(Date.parse(ts) - PROGRESS_GAP).toISOString();
@@ -320,7 +324,8 @@ export async function sendProgress(rq) {
   // all mails in one request, all cursors in one batch (a few subrequests, however many people)
   const quiet = [...people.values()].filter(person => !person.cases.length).map(person => person.user_id);
   const due = [...people.values()].filter(person => person.cases.length);
-  const sent = await sendBulk(rq, due.map(person => ({
+  await sql('UPDATE users SET progress_cursor = ? WHERE id IN (SELECT value FROM json_each(?))', ts, JSON.stringify(quiet)).run();
+  await sendBulk(rq, due.map(person => ({
     to: person.email,
     subject: person.cases.length === 1 ? `Neues in „${person.cases[0].p.case_title}“` : `Neues in ${person.cases.length} Vorgängen`,
     paragraphs: [
@@ -332,11 +337,8 @@ export async function sendProgress(rq) {
       `  ${env.ORIGIN}/#/case/${p.case_id}`].join('\n')),
       `Diese Benachrichtigungen (höchstens 3 pro Stunde) können Sie hier abbestellen: ${env.ORIGIN}/#/account`,
     ],
+    mark: [sql('UPDATE users SET progress_cursor = ?, progress_mail_at = ? WHERE id = ?', ts, ts, person.user_id)],
+    // not sent (cap reached or mail failed): the cursor goes back, the news go out with the next run
+    unmark: [sql('UPDATE users SET progress_cursor = ?, progress_mail_at = ? WHERE id = ?', person.progress_cursor, person.progress_mail_at, person.user_id)],
   })));
-  // not sent (cap reached or mail failed): the cursor stays, the news go out with the next run
-  const done = due.filter((person, i) => sent[i]).map(person => person.user_id);
-  await batch([
-    sql('UPDATE users SET progress_cursor = ? WHERE id IN (SELECT value FROM json_each(?))', ts, JSON.stringify(quiet)),
-    sql('UPDATE users SET progress_cursor = ?, progress_mail_at = ? WHERE id IN (SELECT value FROM json_each(?))', ts, ts, JSON.stringify(done)),
-  ]);
 }

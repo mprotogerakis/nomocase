@@ -192,13 +192,20 @@ export async function deleteCase(rq) {
   await purgeCase(rq, ctx.c, user.id, 'manual');
 }
 
-// Removes a case with everything in it (files in R2 included) and its sub-cases, and leaves only a tombstone each.
-// People who were only part of these cases lose their account too. The same handful of subrequests however many
-// sub-cases, documents and people (one query for the tree, one batch to read, one to delete).
+// Removes a case with everything in it (files in R2 included) and leaves only a tombstone. Its sub-cases go along only
+// when the person deleting (`actorId`) could delete them too: in the same workspace (as when moving) and owned by them.
+// Every other sub-case – moved elsewhere, someone else's, or any at all for retention, where each case keeps its own
+// period – stays, as a case of its own. People who were only part of the deleted cases lose their account too. The same
+// handful of subrequests however many sub-cases, documents and people (one query for the tree, one batch to read, one
+// to delete).
 async function purgeCase(rq, c, actorId, reason) {
   const { rows, sql, batch, room, env, time } = rq;
-  const tree = await rows(`WITH RECURSIVE tree(id) AS (SELECT ? UNION SELECT k.id FROM cases k JOIN tree ON k.parent_case_id = tree.id)
-    SELECT c.id, c.workspace_id, t.name AS template_name FROM tree JOIN cases c ON c.id = tree.id LEFT JOIN templates t ON t.id = c.template_id`, c.id);
+  const tree = await rows(`WITH RECURSIVE tree(id) AS (SELECT ?1 UNION SELECT k.id FROM cases k JOIN tree ON k.parent_case_id = tree.id
+      WHERE k.workspace_id = (SELECT workspace_id FROM cases WHERE id = ?1) AND ?2 IS NOT NULL
+      AND (EXISTS (SELECT 1 FROM workspace_members m WHERE m.workspace_id = k.workspace_id AND m.user_id = ?2 AND m.role = 'owner')
+        OR EXISTS (SELECT 1 FROM case_participants p WHERE p.case_id = k.id AND p.user_id = ?2 AND p.access = 'case_owner'
+          AND p.revoked_at IS NULL AND (p.expires_at IS NULL OR p.expires_at > ?3))))
+    SELECT c.id, c.workspace_id, t.name AS template_name FROM tree JOIN cases c ON c.id = tree.id LEFT JOIN templates t ON t.id = c.template_id`, c.id, actorId, time);
   const ids = JSON.stringify(tree.map(x => x.id)), all = 'IN (SELECT value FROM json_each(?))';
   const [keys, people] = (await batch([
     sql(`SELECT v.r2_key FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.case_id ${all}`, ids),
@@ -206,7 +213,9 @@ async function purgeCase(rq, c, actorId, reason) {
   ])).map(r => r.results.map(x => x.r2_key ?? x.user_id));
   const ofClaims = `IN (SELECT id FROM financial_claims WHERE case_id ${all})`;
   await batch([
-    // the tombstones first: the triggers let rows of a case go only once it has one (migrations 0006, 0042)
+    // the sub-cases that stay lose their parent; the tombstones first: the triggers let rows of a case go only once it
+    // has one (migrations 0006, 0042)
+    sql(`UPDATE cases SET parent_case_id = NULL WHERE parent_case_id ${all} AND id NOT ${all}`, ids, ids),
     ...tree.map(x => sql('INSERT INTO case_deletions (case_id, workspace_id, template_name, reason, deleted_by, deleted_at) VALUES (?, ?, ?, ?, ?, ?)',
       x.id, x.workspace_id, x.template_name ?? null, reason, actorId, time)),
     sql(`DELETE FROM notifications WHERE task_id ${all} OR task_id IN (SELECT id FROM tasks WHERE case_id ${all})`, ids, ids),

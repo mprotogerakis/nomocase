@@ -89,7 +89,8 @@ export async function getInvitation(rq) {
 // Joining needs consent to the processing (unless given already); declining keeps the conventional way open.
 async function invitee(rq, email, user, body) {
   const existing = await accountByEmail(rq, email);
-  if (needsLogin(existing, user)) fail(401, 'Für diese E-Mail gibt es schon ein Konto. Bitte zuerst mit Passkey anmelden.');
+  // signed in as someone else: 403, so that a 401 for a signed-in page only ever means its session is gone (lib.js)
+  if (needsLogin(existing, user)) fail(user ? 403 : 401, 'Für diese E-Mail gibt es schon ein Konto. Bitte zuerst mit Passkey anmelden.');
   const userId = existing?.id ?? uid();
   const name = existing?.name ?? (String(body.name ?? '').trim() || email);
   const agreed = existing && await hasConsent(rq, existing.id);

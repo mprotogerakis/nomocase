@@ -811,6 +811,7 @@ if (new URL(BASE).hostname === 'localhost') {
   const short = tpls.find(t => t.name === 'Kurzlebig') ?? { id: (await expect(prof('/templates', { body: { workspace_id: 'ws_hs', name: 'Kurzlebig',
     definition: { retention_days: 30, roles: [{ key: 'owner', label: 'Verantwortlich', access: 'case_owner' }], phases: [{ title: 'Allgemein', tasks: [] }] } } }))).id };
   const { id: aging } = await expect(prof('/cases', { body: { template_id: short.id, title: 'Aufbewahrungstest' } }));
+  const { id: stillOpen } = await expect(prof(`/cases/${aging}/subcases`, { body: { template_id: short.id, title: 'Läuft noch' } }));
   await expect(prof(`/cases/${aging}`, { method: 'PATCH', body: { status: 'closed' } }));
   const closedAgo = days => sql(`UPDATE cases SET closed_at = '${new Date(Date.now() - days * 864e5).toISOString()}' WHERE id = '${aging}'`);
   const runRetention = async () => assert.equal((await fetchOnce(`${BASE}/__scheduled?cron=*/20+*+*+*+*`)).status, 200); // every 20 minutes
@@ -821,6 +822,8 @@ if (new URL(BASE).hostname === 'localhost') {
   closedAgo(31);
   await runRetention();
   await expect(prof(`/cases/${aging}`), 404);
+  assert.deepEqual(sql(`SELECT status, parent_case_id AS parent FROM cases WHERE id = '${stillOpen}'`), [{ status: 'open', parent: null }],
+    'its open sub-case keeps its own period: it stays, on its own');
   assert.deepEqual(sql(`SELECT reason FROM case_deletions WHERE case_id = '${aging}'`), [{ reason: 'retention' }]);
 
   // Rules never trigger on what rules caused (no loops) and run once per event, even if events are looked at again.
@@ -1003,6 +1006,22 @@ if (new URL(BASE).hostname === 'localhost') {
   assert.equal(sql(`SELECT COUNT(*) AS n FROM case_deletions WHERE case_id IN ${family}`)[0].n, 9, 'a tombstone each');
   assert.equal(sql(`SELECT COUNT(*) AS n FROM users WHERE email LIKE 'kid%.${run}@example.org'`)[0].n, 0, 'the guests only in them are gone');
   assert.throws(() => execFileSync('npx', ['wrangler', 'r2', 'object', 'get', `nomocase-files/${kidFile}`, ...LOCAL, '--pipe'], { stdio: 'pipe' }), 'files gone from R2');
+
+  // Only what the person deleting could delete themselves goes along: a sub-case moved to another workspace, or one
+  // they are not responsible for, stays – as a case of its own.
+  const coOwner = client();
+  const { id: root } = await expect(prof('/cases', { body: { template_id: free.id, title: `Wurzel ${run}` } }));
+  const { link: coLink } = await expect(prof(`/cases/${root}/invitations`, { body: { email: `co.${run}@example.org`, role: 'owner' } }));
+  await expect(coOwner('/invitations/accept', { body: { consent: true, token: tokenOf(coLink), name: 'Mitverantwortlich' } }));
+  const { id: theirs } = await expect(coOwner(`/cases/${root}/subcases`, { body: { template_id: free.id, title: 'Ihrer' } }));
+  const { id: notTheirs } = await expect(prof(`/cases/${root}/subcases`, { body: { template_id: free.id, title: 'Nicht ihrer' } }));
+  const { id: away } = await expect(coOwner(`/cases/${root}/subcases`, { body: { template_id: free.id, title: 'Verschoben' } }));
+  await expect(prof(`/cases/${away}/move`, { body: { workspace_id: 'ws_priv' } }));
+  await expect(coOwner(`/cases/${root}`, { method: 'DELETE' }));
+  const parentOf = id => sql(`SELECT parent_case_id AS parent FROM cases WHERE id = '${id}'`)[0];
+  assert.equal(parentOf(theirs), undefined, 'their own sub-case in the workspace went along');
+  assert.deepEqual([parentOf(notTheirs), parentOf(away)], [{ parent: null }, { parent: null }], "someone else's and the moved one stay, on their own");
+  assert.equal((await expect(prof(`/cases/${notTheirs}`))).parent, null);
 }
 
 // Praxisprojekt rule: uploading the approval informs the student automatically.
@@ -1031,6 +1050,8 @@ const reinvite = await expect(prof(`/cases/${reborn}/invitations`, { body: { ema
 const stranger = client();
 assert.equal((await expect(stranger('/invitations/lookup', { body: { token: tokenOf(reinvite.link) } }))).needs_login, true, 'existing account without passkey');
 await expect(stranger('/invitations/accept', { body: { consent: true, token: tokenOf(reinvite.link), name: 'Mallory' } }), 401);
+// signed in, but as someone else: 403 – a 401 tells a signed-in page only that its session is gone
+await expect(office('/invitations/accept', { body: { consent: true, token: tokenOf(reinvite.link) } }), 403);
 await expect(student('/invitations/accept', { body: { consent: true, token: tokenOf(reinvite.link) } }));
 assert.ok(asVersion.version > pp.version);
 

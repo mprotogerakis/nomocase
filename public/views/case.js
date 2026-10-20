@@ -394,7 +394,8 @@ on.revoke = async ({ id }) => { if (confirm('Zugang zu diesem Vorgang beenden?')
 on.caseStatus = async ({ status }) => { await api(caseApi(''), { method: 'PATCH', body: { status } }); reload(); };
 
 on.deleteCase = async () => {
-  if (!confirm(`Vorgang „${cur.case.title}“ endgültig löschen?\n\nAlle Aufgaben, Dokumente, Nachrichten und Beträge werden entfernt. Das lässt sich nicht rückgängig machen.`)) return;
+  if (!confirm(`Vorgang „${cur.case.title}“ endgültig löschen?\n\nAlle Aufgaben, Dokumente, Nachrichten und Beträge werden entfernt. Das lässt sich nicht rückgängig machen.${
+    cur.subcases.length ? '\n\nSeine Teilvorgänge in diesem Workspace, die Sie verantworten, werden mitgelöscht; alle anderen bleiben als eigene Vorgänge bestehen.' : ''}`)) return;
   await api(caseApi(''), { method: 'DELETE' });
   go('#/');
 };

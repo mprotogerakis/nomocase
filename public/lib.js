@@ -71,6 +71,17 @@ export const sha256 = async blob => [...new Uint8Array(await crypto.subtle.diges
 
 export const shortHash = h => `${h.slice(0, 8)}…${h.slice(-4)}`;
 
+// A 401 although we are signed in: the session ran out or was ended elsewhere (the server answers 401 only then). The
+// page says so once, in a banner instead of a dialog per request, and the live refresh stops (app.js); what is typed in
+// stays on the page.
+let ended = false;
+export const sessionEnded = () => ended;
+const endSession = () => {
+  if (ended) return;
+  ended = true;
+  document.querySelector('#app header')?.insertAdjacentHTML('afterend', esc(html`<div class="banner ended">Ihre Sitzung ist abgelaufen. <button data-on="reloadPage">Neu anmelden</button></div>`));
+};
+
 // `quiet`: errors are only thrown (with .status), not shown – for callers that collect them (e.g. bulk creation).
 export async function api(path, { method, body, quiet = false } = {}) {
   const isForm = body instanceof FormData;
@@ -83,6 +94,10 @@ export async function api(path, { method, body, quiet = false } = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (res.status === 401 && me.user) {
+      endSession();
+      throw Object.assign(new Error('Sitzung abgelaufen'), { shown: true, status: 401 });
+    }
     if (!quiet) alert(data.error ?? `Fehler ${res.status}`);
     throw Object.assign(new Error(data.error ?? `Fehler ${res.status}`), { shown: !quiet, status: res.status });
   }
