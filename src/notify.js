@@ -1,5 +1,5 @@
 // Mail via Resend, daily caps, daily digest and bundled progress mails.
-import { fail, STAFF } from './core.js';
+import { fail, STAFF, uid } from './core.js';
 import { CONSENT_VERSION } from '../public/shared/consent.js';
 import { canSee } from './access.js';
 import { markBlocked } from './tasks.js';
@@ -82,14 +82,28 @@ async function devProvider(rq, to, outboxId) {
   return { ok: true, status: 200 };
 }
 
-// Digest and progress mails of a run, all in one request to the provider (batch endpoint, up to 100 per request): a
-// run costs the same few subrequests however many people get one. Permissive validation, so a bad address fails only
-// its own mail. Beyond the daily cap nothing goes out: the room under it is taken first, in one statement (the log rows,
-// counted as sent), so two runs at once (05:00) cannot both use the same rest. Each mail's `mark` (what records it as
-// sent: notes, cursors) is written before it goes out and undone (`unmark`) only if the provider refused it: a run that
-// stops after the provider took the mails does not send them again next time. (A mail is lost only if the provider
-// fails it and undoing fails too.) mails: [{ to, subject, paragraphs, mark, unmark }] → [ok, …] in that order.
+// Digest and progress mails of a run, in batch requests to the provider (up to 100 mails each): a run costs the same
+// few subrequests however many people get one. Permissive validation, so a bad address fails only its own mail.
+// - The daily cap: the room under it is taken first, in one statement (log rows counted as sent), so two runs at once
+//   (05:00) cannot both use the same rest.
+// - Sent once: each mail's `mark` (digest notes, progress cursor: what records it as sent) and the request itself
+//   (bulk_outbox: its mails and its Idempotency-Key) are stored in one transaction before anything goes out. The
+//   provider's answer settles it – taken, or refused: then the mail's marks are taken back (`undo`) and the next
+//   regular run tries again. No answer (timeout, lost connection, 5xx, 429) or a run that stops on the way: the cron
+//   sends the same request with the same key again (processOutbox), and the provider, which keeps keys for 24 hours,
+//   sends nothing twice. Only a request without any answer after the last attempt (~5 hours) is taken back unsent.
+// mails: [{ to, subject, paragraphs, mark: [statements], undo: { kind, … } }] → [true | false | null (no answer yet), …]
 const BATCH_MAX = 100;
+const BULK_RETRY_MINUTES = [1, 5, 15, 60, 240];
+const later = (time, minutes) => new Date(Date.parse(time) + minutes * 60e3).toISOString();
+
+// How a mail's marks are taken back when it was not sent – only where no later run has moved them on since.
+const UNDO = {
+  digest: (rq, u) => [rq.sql('DELETE FROM notifications WHERE user_id = ? AND sent_at = ?', u.user, u.at),
+    rq.sql('UPDATE users SET last_digest_at = ? WHERE id = ? AND last_digest_at = ?', u.prev, u.user, u.at)],
+  progress: (rq, u) => [rq.sql('UPDATE users SET progress_cursor = ?, progress_mail_at = ? WHERE id = ? AND progress_mail_at = ?',
+    u.cursor, u.mailAt, u.user, u.at)],
+};
 
 export async function sendBulk(rq, mails) {
   const { rows, sql, batch, time } = rq;
@@ -99,48 +113,75 @@ export async function sendBulk(rq, mails) {
     WHERE i <= ?3 - (SELECT COUNT(*) FROM mail_log WHERE ok = 1 AND bulk = 1 AND sent_at >= ?4) RETURNING id`,
   mails.length, time, bulkCap(rq), time.slice(0, 10))).map(r => r.id).sort((a, b) => a - b);
   if (taken.length < mails.length) console.error(`bulk mail: daily cap reached, ${mails.length - taken.length} not sent`);
-  const going = mails.slice(0, taken.length), marks = going.flatMap(m => m.mark ?? []);
-  if (marks.length) await batch(marks);
-  const results = [];
-  for (let i = 0; i < going.length; i += BATCH_MAX) results.push(...await bulkRequest(rq, going.slice(i, i + BATCH_MAX)));
-  if (going.length) {
-    await batch([
-      sql(`UPDATE mail_log SET ok = json_extract(r.value, '$.ok'), status = json_extract(r.value, '$.status'), error = json_extract(r.value, '$.error')
-        FROM json_each(?) r WHERE mail_log.id = json_extract(r.value, '$.id')`,
-      JSON.stringify(results.map((r, i) => ({ id: taken[i], ok: r.ok ? 1 : 0, status: r.status ?? null, error: r.error ?? null })))),
-      ...going.flatMap((m, i) => (results[i].ok ? [] : m.unmark ?? [])),
-    ]);
+  if (!taken.length) return mails.map(() => false);
+  const going = mails.slice(0, taken.length);
+  const requests = [];
+  for (let i = 0; i < going.length; i += BATCH_MAX) {
+    requests.push({ id: uid(), attempts: 0, created_at: time, mails: going.slice(i, i + BATCH_MAX)
+      .map((m, k) => ({ to: m.to, subject: m.subject, text: m.paragraphs.join('\n\n'), log: taken[i + k], undo: m.undo })) });
   }
-  return mails.map((m, i) => !!results[i]?.ok);
+  await batch([...going.flatMap(m => m.mark ?? []),
+    ...requests.map(r => sql('INSERT INTO bulk_outbox (id, mails, next_attempt_at, created_at) VALUES (?, ?, ?, ?)', r.id, JSON.stringify(r.mails), later(time, 1), time))]);
+  const results = [];
+  for (const r of requests) results.push(...await settleBulk(rq, r));
+  return mails.map((m, i) => (i < results.length ? results[i] : false));
 }
 
-async function bulkRequest(rq, mails) {
+// One attempt for a stored request: an answer settles it (results logged, refused mails' marks taken back, the request
+// gone); no answer leaves it due again, with the same key – after the last attempt it counts as not sent.
+async function settleBulk(rq, r) {
+  const { sql, batch, time } = rq;
+  const answer = await bulkRequest(rq, r.id, r.mails), attempts = r.attempts + 1;
+  if (!answer && attempts < BULK_RETRY_MINUTES.length) {
+    await sql('UPDATE bulk_outbox SET attempts = ?, next_attempt_at = ? WHERE id = ?', attempts, later(time, BULK_RETRY_MINUTES[attempts - 1]), r.id).run();
+    return r.mails.map(() => null);
+  }
+  const results = answer ?? r.mails.map(() => ({ ok: false, error: 'keine Antwort des Anbieters' }));
+  await batch([
+    sql(`UPDATE mail_log SET ok = json_extract(x.value, '$.ok'), status = json_extract(x.value, '$.status'), error = json_extract(x.value, '$.error')
+      FROM json_each(?) x WHERE mail_log.id = json_extract(x.value, '$.id')`,
+    JSON.stringify(results.map((x, i) => ({ id: r.mails[i].log, ok: x.ok ? 1 : 0, status: x.status ?? null, error: x.error ?? null })))),
+    ...r.mails.flatMap((m, i) => (results[i].ok || !m.undo ? [] : UNDO[m.undo.kind](rq, m.undo))),
+    sql('DELETE FROM bulk_outbox WHERE id = ?', r.id),
+  ]);
+  return results.map(x => x.ok);
+}
+
+// The provider's answer for each mail, or null when there is none to go by (no response, overloaded, rate-limited,
+// the same key still in progress): then the same request goes again later.
+async function bulkRequest(rq, key, mails) {
   const { env } = rq;
   if (!env.RESEND_API_KEY) {
     if (!env.DEV_LOGIN) return mails.map(() => ({ ok: false, error: 'kein Mail-Anbieter eingerichtet' }));
-    for (const m of mails) console.log(`[mail] to ${m.to}: ${m.subject}\n${m.paragraphs.join('\n\n')}`);
+    for (const m of mails) console.log(`[mail] to ${m.to}: ${m.subject}\n${m.text}`);
     return Promise.all(mails.map(m => devProvider(rq, m.to, null)));
   }
   rq.spend();
+  let res, body;
   try {
-    const res = await fetch('https://api.resend.com/emails/batch', {
+    res = await fetch('https://api.resend.com/emails/batch', {
       method: 'POST',
-      headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json', 'x-batch-validation': 'permissive' },
-      body: JSON.stringify(mails.map(m => ({ from: env.MAIL_FROM, to: [m.to], subject: m.subject, text: m.paragraphs.join('\n\n') }))),
+      headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json', 'idempotency-key': key, 'x-batch-validation': 'permissive' },
+      body: JSON.stringify(mails.map(m => ({ from: env.MAIL_FROM, to: [m.to], subject: m.subject, text: m.text }))),
       signal: AbortSignal.timeout(20e3),
     });
-    const body = await res.text();
-    if (!res.ok) {
-      console.error('bulk mail failed', res.status, body.slice(0, 300));
-      return mails.map(() => ({ ok: false, status: res.status, error: body.slice(0, 300) }));
-    }
-    // permissive: { data: [the ids of the mails taken], errors: [{ index, message }] for the others }
-    const refused = new Map((JSON.parse(body).errors ?? []).map(e => [e.index, String(e.message).slice(0, 300)]));
-    if (refused.size) console.error('bulk mail: refused', [...refused.values()].join(' | '));
-    return mails.map((m, i) => (refused.has(i) ? { ok: false, status: res.status, error: refused.get(i) } : { ok: true, status: res.status }));
+    body = await res.text();
   } catch (e) {
-    return mails.map(() => ({ ok: false, error: String(e.message).slice(0, 300) }));
+    console.error('bulk mail: no answer', e.message);
+    return null;
   }
+  if (res.status >= 500 || res.status === 429 || res.status === 409) {
+    console.error('bulk mail: no answer yet', res.status, body.slice(0, 300));
+    return null;
+  }
+  if (!res.ok) {
+    console.error('bulk mail refused', res.status, body.slice(0, 300));
+    return mails.map(() => ({ ok: false, status: res.status, error: body.slice(0, 300) }));
+  }
+  // permissive: { data: [the ids of the mails taken], errors: [{ index, message }] for the others }
+  const refused = new Map((JSON.parse(body).errors ?? []).map(e => [e.index, String(e.message).slice(0, 300)]));
+  if (refused.size) console.error('bulk mail: refused', [...refused.values()].join(' | '));
+  return mails.map((m, i) => (refused.has(i) ? { ok: false, status: res.status, error: refused.get(i) } : { ok: true, status: res.status }));
 }
 
 // --- Outbox: mails that carry a link (migration 0043) ---------------------------------------------------------------
@@ -188,6 +229,14 @@ export async function processOutbox(rq) {
   for (const { id } of await rows("SELECT id FROM mail_outbox WHERE status = 'pending' AND next_attempt_at <= ? ORDER BY next_attempt_at LIMIT 10", time)) {
     if (!room(4)) break;
     await sendFromOutbox(rq, id);
+  }
+  // batch requests of digest and progress mails still without an answer: the same request with the same key; taken
+  // for a few minutes first, so two runs at once (05:00) do not both send it
+  const due = await rows(`UPDATE bulk_outbox SET next_attempt_at = ?1 WHERE id IN
+    (SELECT id FROM bulk_outbox WHERE next_attempt_at <= ?2 ORDER BY next_attempt_at LIMIT 5) RETURNING *`, later(time, 5), time);
+  for (const r of due) {
+    if (!room(3)) break; // the rest is due again in a few minutes
+    await settleBulk(rq, { ...r, mails: JSON.parse(r.mails) });
   }
 }
 
@@ -268,8 +317,7 @@ export async function sendDigests(rq) {
     ],
     mark: [...d.items.map(({ t, stage }) => sql('INSERT OR IGNORE INTO notifications (user_id, task_id, stage, sent_at) VALUES (?, ?, ?, ?)', d.user_id, t.id, stage, ts)),
       sql('UPDATE users SET last_digest_at = ? WHERE id = ?', ts, d.user_id)],
-    // not sent: tomorrow's digest tries again
-    unmark: [sql('DELETE FROM notifications WHERE user_id = ? AND sent_at = ?', d.user_id, ts), sql('UPDATE users SET last_digest_at = ? WHERE id = ?', d.last_digest_at, d.user_id)] };
+    undo: { kind: 'digest', user: d.user_id, at: ts, prev: d.last_digest_at } }; // not sent: tomorrow's digest tries again
   }));
 }
 
@@ -338,7 +386,7 @@ export async function sendProgress(rq) {
       `Diese Benachrichtigungen (höchstens 3 pro Stunde) können Sie hier abbestellen: ${env.ORIGIN}/#/account`,
     ],
     mark: [sql('UPDATE users SET progress_cursor = ?, progress_mail_at = ? WHERE id = ?', ts, ts, person.user_id)],
-    // not sent (cap reached or mail failed): the cursor goes back, the news go out with the next run
-    unmark: [sql('UPDATE users SET progress_cursor = ?, progress_mail_at = ? WHERE id = ?', person.progress_cursor, person.progress_mail_at, person.user_id)],
+    // not sent: the cursor goes back, the news go out with the next run
+    undo: { kind: 'progress', user: person.user_id, at: ts, cursor: person.progress_cursor, mailAt: person.progress_mail_at },
   })));
 }
