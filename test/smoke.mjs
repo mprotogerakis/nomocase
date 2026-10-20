@@ -975,6 +975,15 @@ if (new URL(BASE).hostname === 'localhost') {
   const { cron } = (await expect(prof('/people'))).stats;
   assert.deepEqual([cron.daily.failed, cron.frequent.failed], [[], []]);
   assert.ok([cron.daily, cron.frequent].every(r => Date.now() - Date.parse(r.ran_at) < 10 * 60e3));
+  // a digest still waiting for the provider's answer is not counted as sent, but shown as waiting
+  const settled = (await expect(prof('/people'))).stats;
+  assert.equal(settled.mails_pending, 0);
+  const [{ id: reserved }] = sql(`INSERT INTO mail_log (bulk, sent_at, ok) VALUES (1, '${new Date().toISOString()}', 1) RETURNING id`);
+  sql(`INSERT INTO bulk_outbox (id, mails, next_attempt_at, created_at) VALUES ('waiting-${run}', '[{"to":"x@example.org","log":${reserved}}]',
+    '2999-01-01T00:00:00.000Z', '${new Date().toISOString()}')`);
+  const waiting = (await expect(prof('/people'))).stats;
+  assert.deepEqual([waiting.mails_pending, waiting.mails_today], [1, settled.mails_today]);
+  sql(`DELETE FROM bulk_outbox WHERE id = 'waiting-${run}'`);
   // the digest notes of a step go once it is done (the daily housekeeping); those of open steps stay
   const notes = taskId => sql(`SELECT COUNT(*) AS n FROM notifications WHERE task_id = '${taskId}'`)[0].n;
   const [step] = (await expect(prof(`/cases/${crowdCase}`))).tasks;

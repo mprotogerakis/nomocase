@@ -111,14 +111,26 @@ due();
 await processOutbox(rq());
 assert.deepEqual([requests[1].key, pending()], [requests[0].key, []]);
 
-// no answer, ever: after the last attempt (~5 hours, inside the provider's 24 hours) it counts as not sent
+// no answer, ever: after 1, 5, 15, 60 minutes every 240, always with the same key, as long as the key holds (24 hours);
+// only then it counts as not sent
 logged = day();
 answer = silence;
 ctx = rq();
 await sendBulk(ctx, progress(ctx, 'a@example.org'));
-for (let i = 0; i < 4; i++) { due(); await processOutbox(rq()); }
+for (let i = 0; i < 5; i++) { due(); await processOutbox(rq()); }
+const waitMinutes = () => (Date.parse(sqlite.prepare('SELECT next_attempt_at AS at FROM bulk_outbox').get().at) - Date.now()) / 60e3;
+assert.deepEqual(pending(), [6], 'still trying');
+assert.ok(Math.abs(waitMinutes() - 240) < 1, 'by now every 240 minutes');
+const firstTried = hours => sqlite.exec(`UPDATE bulk_outbox SET created_at = '${new Date(Date.now() - hours * 36e5).toISOString()}'`);
+firstTried(18);
+due();
+await processOutbox(rq());
+assert.deepEqual([pending(), marked()], [[7], ['a@example.org']], 'the next attempt (in 4 hours) is still inside the 23 hours: it keeps trying');
+firstTried(20);
+due();
+await processOutbox(rq());
 assert.equal(new Set(requests.map(r => r.key)).size, 1, 'every attempt with the same key');
-assert.deepEqual([requests.length, pending(), marked()], [5, [], []], 'given up: the mark taken back, the next run tries anew');
+assert.deepEqual([requests.length, pending(), marked()], [8, [], []], 'the key would run out: given up, the mark taken back, the next run tries anew');
 assert.deepEqual(logged().map(r => [r.ok, r.error]), [[0, 'keine Antwort des Anbieters']]);
 
 // the daily cap: 79 of 80 gone today, room for one

@@ -445,7 +445,10 @@ try {
   assert.ok(await evaluate(has('Der tägliche Hintergrundlauf (05:00 UTC) ist noch nie gelaufen')), 'a schedule that never ran is noticed');
   sql(`INSERT OR REPLACE INTO cron_runs (cron, ran_at, failed) VALUES ('0 5 * * *', '${new Date().toISOString()}', '["digests", "file sweep"]'),
     ('*/20 * * * *', '${new Date(Date.now() - 2 * 36e5).toISOString()}', '[]')`);
+  sql(`INSERT INTO bulk_outbox (id, mails, next_attempt_at, created_at) VALUES ('ui-waiting', '[{"to":"x@example.org"},{"to":"y@example.org"}]',
+    '2999-01-01T00:00:00.000Z', '${new Date().toISOString()}')`);
   await go('#/people', has(guestEmail));
+  assert.ok(await evaluate(has('2 Sammelmails warten seit')), 'mails still waiting for the provider are shown as such');
   assert.ok(await evaluate(has('Tagesübersicht, Dateien aufräumen fehlgeschlagen')), 'failed steps named');
   assert.ok(await evaluate(has('Der Hintergrundlauf alle 20 Minuten kam zuletzt')), 'a missing run is noticed');
   await evaluate(`(() => { const s = document.querySelector('[data-input="peopleSearch"]'); s.value = 'prof@example.org'; s.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);

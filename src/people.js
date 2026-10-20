@@ -182,7 +182,7 @@ export async function peopleOverview(rq) {
   const operator = !(await row('SELECT 1 FROM workspaces WHERE id NOT IN (SELECT value FROM json_each(?)) LIMIT 1', ws));
   const IN_WS = 'IN (SELECT value FROM json_each(?1))';
   const roleLabel = (c, p) => `(SELECT json_extract(r.value, '$.label') FROM json_each(${c}.definition, '$.roles') r WHERE json_extract(r.value, '$.key') = ${p}.role)`;
-  const [list, seats, invitations, cases, mails, cronRuns] = await Promise.all([
+  const [list, seats, invitations, cases, mails, cronRuns, pending] = await Promise.all([
     rows(`SELECT u.id, u.name, u.email, u.created_at, u.email_reminders, u.email_progress,
         (SELECT COUNT(*) FROM passkeys WHERE user_id = u.id AND rp_id IS ?3) AS passkeys,
         (SELECT accepted_at FROM consents WHERE user_id = u.id AND version = ?4 AND withdrawn_at IS NULL) AS consent_at,
@@ -200,12 +200,14 @@ export async function peopleOverview(rq) {
       FROM invitations i JOIN cases c ON c.id = i.case_id
       WHERE c.workspace_id ${IN_WS} AND i.accepted_at IS NULL ORDER BY expired, i.created_at DESC`, ws, time),
     row(`SELECT SUM(status = 'open') AS open, SUM(status = 'closed') AS closed FROM cases WHERE workspace_id ${IN_WS}`, ws),
-    row(`SELECT SUM(ok) AS total, COALESCE(SUM(bulk * ok), 0) AS bulk, SUM(1 - ok) AS failed,
+    // sent: taken by the provider – not digest or progress mails still waiting for its answer (counted for the cap, no status yet)
+    row(`SELECT SUM(ok = 1 AND (bulk = 0 OR status IS NOT NULL)) AS total, COALESCE(SUM(bulk * ok), 0) AS bulk, SUM(1 - ok) AS failed,
       -- the provider's error text can name recipients of other workspaces: only the status here (details: test mail)
       (SELECT COALESCE('Status ' || status, 'ohne Antwort') FROM mail_log WHERE ok = 0 ORDER BY id DESC LIMIT 1) AS last_error,
       (SELECT sent_at FROM mail_log WHERE ok = 0 ORDER BY id DESC LIMIT 1) AS last_error_at
       FROM mail_log WHERE sent_at >= ?`, time.slice(0, 10)),
     operator ? rows('SELECT cron, ran_at, failed FROM cron_runs') : [],
+    operator ? row('SELECT COALESCE(SUM(json_array_length(mails)), 0) AS mails, MIN(created_at) AS since FROM bulk_outbox') : null,
   ]);
   return {
     people: list.map(u => ({
@@ -217,7 +219,7 @@ export async function peopleOverview(rq) {
     stats: { cases_open: cases.open ?? 0, cases_closed: cases.closed ?? 0,
       // the mail log is not per workspace: only who owns every workspace (in practice the operator) sees its numbers
       ...(operator && { mails_today: mails.total ?? 0, bulk_today: mails.bulk, bulk_cap: bulkCap(rq), mails_failed: mails.failed ?? 0,
-        last_error: mails.last_error, last_error_at: mails.last_error_at,
+        last_error: mails.last_error, last_error_at: mails.last_error_at, mails_pending: pending.mails, pending_since: pending.since,
         // each schedule's last run, null for one that never ran (a missing trigger must not go unnoticed)
         cron: Object.fromEntries([['daily', r => r.cron === DAILY_CRON], ['frequent', r => r.cron !== DAILY_CRON]].map(([k, is]) => {
           const r = cronRuns.find(is);

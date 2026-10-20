@@ -44,6 +44,7 @@ export async function peopleView() {
       ${'mails_today' in stats ? html`<div class="${stats.bulk_today >= stats.bulk_cap ? 'warn' : ''}"><b>${String(stats.mails_today)}</b>Mails heute</div>` : ''}
     </section>
     ${'mails_today' in stats ? html`${stats.mails_failed ? html`<p class="warn small">Heute ${count(stats.mails_failed, 'Mail', 'Mails')} nicht verschickt. Letzter Fehler (${dateTime(stats.last_error_at)}): ${stats.last_error}</p>` : ''}
+    ${stats.mails_pending ? html`<p class="warn small">${count(stats.mails_pending, 'Sammelmail wartet', 'Sammelmails warten')} seit ${dateTime(stats.pending_since)} auf die Antwort des Anbieters (noch nicht unter „Mails heute“). NomoCase fragt mit demselben Schlüssel nach, ohne doppelt zu senden.</p>` : ''}
     <p class="muted small">Sammelmails (Tagesübersicht, Fortschritt) heute: ${stats.bulk_today} von ${stats.bulk_cap}.
       ${stats.bulk_today >= stats.bulk_cap ? 'Sie pausieren bis morgen; Einladungen und Anmeldelinks gehen weiter.' : 'Ist die Grenze erreicht, pausieren sie bis morgen; Einladungen und Anmeldelinks gehen weiter.'}</p>
     ${cronNote(stats.cron)}` : ''}
