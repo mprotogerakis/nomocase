@@ -104,7 +104,10 @@ export default {
   async fetch(req, env, exec) {
     const rq = context(env, req), url = new URL(req.url);
     // A former domain: permanent redirect to the canonical origin (the #fragment of the old link survives in the browser).
-    if ((env.REDIRECT_HOSTS ?? '').split(',').filter(Boolean).includes(url.hostname)) return Response.redirect(`${env.ORIGIN}${url.pathname}${url.search}`, 301);
+    // Browsers keep a 301 without an expiry for good; with one day the name can serve something else again later.
+    if ((env.REDIRECT_HOSTS ?? '').split(',').filter(Boolean).includes(url.hostname)) {
+      return new Response(null, { status: 301, headers: { location: `${env.ORIGIN}${url.pathname}${url.search}`, 'cache-control': 'max-age=86400' } });
+    }
     const route = ROUTES.find(([method, re]) => method === req.method && re.test(url.pathname));
     if (!route) return json({ error: 'Nicht gefunden' }, 404);
     const [, re, handler, isPublic] = route;
