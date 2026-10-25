@@ -94,12 +94,12 @@ const run = (fn, ...args) => Promise.resolve().then(() => fn(...args)).catch(e =
 
 // A second click while the first one's action still runs does nothing: a slow first request (a cold start) must not
 // send it twice, e.g. a login link that the second request would find used up.
-const busy = new WeakSet();
+const running = new WeakSet();
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-on]');
-  if (!el || busy.has(el)) return;
-  busy.add(el);
-  run(on[el.dataset.on], el.dataset, el).finally(() => busy.delete(el));
+  if (!el || running.has(el)) return;
+  running.add(el);
+  run(on[el.dataset.on], el.dataset, el).finally(() => running.delete(el));
 });
 
 document.addEventListener('submit', e => {
