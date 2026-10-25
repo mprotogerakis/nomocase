@@ -5,8 +5,8 @@ set -eu
 V=${1:?Version, z. B. 1.0.1}
 cd "$(dirname "$0")/.."
 git diff --quiet HEAD || { echo "Erst die offenen Änderungen committen" >&2; exit 1; }
-npm version "$V" --no-git-tag-version >/dev/null
-git commit -qam "Release $V"
+npm version "$V" --no-git-tag-version --allow-same-version >/dev/null
+git commit -qam "Release $V" || true # the first release: the version was already set
 git tag "v$V"
 git push -q && git push -q origin "v$V"
 echo "v$V getaggt: https://github.com/mprotogerakis/nomocase/actions"
