@@ -1,0 +1,36 @@
+# Tag v* (scripts/release.sh): the whole suite on a GitHub runner (Chrome for the browser tests), and only when it is
+# green the release with the package nomo-ops deploys (nomocase-<version>.tar.gz, SHA256SUMS). "Run workflow": the
+# suite alone, no release.
+name: release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+concurrency: release
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+        env:
+          CHROME: /usr/bin/google-chrome
+      - name: Package
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          V=${GITHUB_REF_NAME#v}
+          mkdir out
+          tar -czf "out/nomocase-$V.tar.gz" src public migrations templates scripts package.json package-lock.json wrangler.example.jsonc LICENSE.md COMMERCIAL.md
+          (cd out && sha256sum -- * > SHA256SUMS)
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" out/* --title "nomocase ${GITHUB_REF_NAME#v}" --notes "Built after a green suite; deployed by nomo-ops."
