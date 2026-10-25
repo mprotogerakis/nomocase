@@ -19,8 +19,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # the suite runs locally (wrangler dev, local D1): the example config is enough, the instance's own stays out of git
-      - run: cp wrangler.example.jsonc wrangler.jsonc
+      # the suite runs locally (wrangler dev, local D1) as in the README's setup: the example config and the dev login
+      # (never deployed); the instance's own config stays out of git
+      - run: cp wrangler.example.jsonc wrangler.jsonc && printf 'DEV_LOGIN=1\nORIGIN=http://localhost:8787\nREDIRECT_HOSTS=\n' > .dev.vars
       - run: npm test
         env:
           CHROME: /usr/bin/google-chrome
