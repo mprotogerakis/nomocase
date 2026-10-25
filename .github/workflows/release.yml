@@ -1,4 +1,5 @@
-# Tag v* (scripts/release.sh): the whole suite on a GitHub runner (Chrome for the browser tests), and only when it is
+# Tag v* (scripts/release.sh): the whole suite on a macOS runner (Chrome and system font as on the development Mac;
+# Linux's wider fallback font makes the case page overflow a phone), and only when it is
 # green the release with the package nomo-ops deploys (nomocase-<version>.tar.gz, SHA256SUMS). "Run workflow": the
 # suite alone, no release.
 name: release
@@ -9,7 +10,7 @@ on:
 concurrency: release
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     permissions:
       contents: write
     steps:
@@ -23,15 +24,13 @@ jobs:
       # (never deployed); the instance's own config stays out of git
       - run: cp wrangler.example.jsonc wrangler.jsonc && printf 'DEV_LOGIN=1\nORIGIN=http://localhost:8787\nREDIRECT_HOSTS=\n' > .dev.vars
       - run: npm test
-        env:
-          CHROME: /usr/bin/google-chrome
       - name: Package
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           V=${GITHUB_REF_NAME#v}
           mkdir out
-          tar -czf "out/nomocase-$V.tar.gz" src public migrations templates scripts package.json package-lock.json wrangler.example.jsonc LICENSE.md COMMERCIAL.md
-          (cd out && sha256sum -- * > SHA256SUMS)
+          COPYFILE_DISABLE=1 tar --no-xattrs -czf "out/nomocase-$V.tar.gz" src public migrations templates scripts package.json package-lock.json wrangler.example.jsonc LICENSE.md COMMERCIAL.md
+          (cd out && shasum -a 256 -- * > SHA256SUMS)
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
