@@ -1,6 +1,6 @@
 {
   "name": "nomocase",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "Adaptive Fallbearbeitung: Vorlagen, Vorgänge, Dokumente, Formulare – auf Cloudflare Workers",
   "license": "SEE LICENSE IN LICENSE.md",
